@@ -5,6 +5,7 @@ networkx
 shapely
 scipy
 trimesh
+rtree
 manifold3d
 mapbox_earcut
 matplotlib

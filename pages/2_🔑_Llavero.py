@@ -11,8 +11,9 @@ que usa la versión de consola (main.py). Python puro (sin OpenSCAD).
 import os
 
 import streamlit as st
+import streamlit.components.v1 as components
 
-from core import fuentes
+from core import fuentes, preview3d
 from generators import llavero
 
 st.set_page_config(page_title="Llavero · Cartel Maker", page_icon="🔑", layout="wide")
@@ -105,7 +106,37 @@ with col_preview:
                 r = None
 
         if r:
-            st.image(r["ruta_png"], use_container_width=True)
+            color_base_hex = preview3d.nombre_color_a_hex(color_base)
+            color_texto_hex = preview3d.nombre_color_a_hex(color_texto)
+            if tiene_ams:
+                # con AMS las 2 piezas ya están en su posición real (una arriba de la otra) —
+                # se puede mostrar el conjunto armado en un solo visor.
+                html_visor = preview3d.armar_html_visor([
+                    {"ruta_stl": r["ruta_stl_base"], "color": color_base_hex, "nombre": "base"},
+                    {"ruta_stl": r["ruta_stl_texto"], "color": color_texto_hex, "nombre": "texto"},
+                ])
+                if html_visor:
+                    components.html(html_visor, height=490)
+                    st.caption("Arrastrá para rotar, scroll para zoom.")
+                else:
+                    st.image(r["ruta_png"], use_container_width=True)
+            else:
+                # sin AMS cada pieza se exporta apoyada en el suelo por separado (para
+                # imprimirlas sueltas) — mostrarlas juntas se verían superpuestas, así que
+                # van en 2 visores lado a lado.
+                vcol1, vcol2 = st.columns(2)
+                html_base = preview3d.armar_html_visor([{"ruta_stl": r["ruta_stl_base"], "color": color_base_hex}])
+                html_texto = preview3d.armar_html_visor([{"ruta_stl": r["ruta_stl_texto"], "color": color_texto_hex}])
+                with vcol1:
+                    st.caption("Base")
+                    if html_base:
+                        components.html(html_base, height=320)
+                with vcol2:
+                    st.caption("Texto/decoración")
+                    if html_texto:
+                        components.html(html_texto, height=320)
+                if not html_base or not html_texto:
+                    st.image(r["ruta_png"], use_container_width=True)
 
             c1, c2 = st.columns(2)
             c1.metric("Ancho", f"{r['ancho_mm']:.0f} mm")

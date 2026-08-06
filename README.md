@@ -28,7 +28,8 @@ streamlit run app.py
 
 Abre una pestaña del navegador en `http://localhost:8501`. Cada generador
 tiene su propia página en el menú de la izquierda: completás el formulario,
-apretás **Generar**, y ves el preview, las medidas, los avisos y el botón
+apretás **Generar**, y ves el preview 3D interactivo (arrastrar para
+rotar, scroll para zoom, auto-rotate), las medidas, los avisos y el botón
 de descarga del STL ahí mismo.
 
 ### Menú de consola (alternativa)
@@ -61,14 +62,35 @@ app.py             punto de entrada de la app visual (Streamlit)
 pages/             una página de Streamlit por generador (capa visual)
 main.py            menú interactivo de consola, descubre generadores automáticamente
 core/               lógica compartida entre generadores (raster, esqueleto,
-                    texto2d/decoraciones, geometría, malla 3D, preview,
-                    chequeos, ui, catálogo de fuentes, wrapper OpenSCAD)
+                    texto2d/decoraciones, geometría, malla 3D, preview 2D,
+                    preview3d (visor interactivo), chequeos, ui, catálogo
+                    de fuentes, wrapper OpenSCAD)
 generators/         un archivo por generador (neon.py, letras.py, llavero.py):
                     generar() es la lógica pura que usan tanto app.py como main.py
 scad/               archivos .scad paramétricos (Customizer de OpenSCAD)
 fonts/              tus .ttf de Google Fonts
+assets/vendor/      model-viewer.min.js vendoreado (Apache-2.0, Google) para
+                    el visor 3D — offline, no pide nada a internet
 output/             STL + preview + SVG generados (no se versiona)
 ```
+
+### Preview 3D interactivo (`core/preview3d.py`)
+
+Cada página muestra un visor 3D real en vez de una imagen estática: arma
+una escena trimesh con los STL ya exportados (cada pieza de su color:
+letra, tapa, soporte, decoraciones), la exporta a GLB en memoria, y la
+embebe en un `<model-viewer>` (Google, offline — el bundle vive
+vendoreado en `assets/vendor/`, no depende de internet ni de instalar
+nada aparte). Rotar/zoom/pan de verdad, sombra y luz — no 2 ángulos fijos
+como el preview anterior. Las piezas pensadas para imprimirse sueltas
+(tapa, soporte de escritorio, decoraciones sin AMS) se muestran en su
+posición real cuando se conoce el offset (ej. la tapa, que va pegada
+justo detrás del hueco); el soporte de escritorio va rotado respecto de
+la letra (encastra desde abajo) así que se muestra en su propio visor
+aparte para no dar una posición falsa. Un STL combinado tipo AMS
+(varios cuerpos sin fusionar) se separa en memoria (`mesh.split()`) y
+cada cuerpo se colorea distinto, para distinguir las piezas aunque
+vengan en un solo archivo.
 
 ### Agregar un generador nuevo
 

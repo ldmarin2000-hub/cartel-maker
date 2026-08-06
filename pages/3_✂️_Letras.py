@@ -11,8 +11,9 @@ solo la capa visual: toda la lógica real vive en generators/letras.py
 import os
 
 import streamlit as st
+import streamlit.components.v1 as components
 
-from core import fuentes
+from core import fuentes, preview3d
 from generators import letras
 
 st.set_page_config(page_title="Letras · Cartel Maker", page_icon="✂️", layout="wide")
@@ -152,7 +153,39 @@ with col_preview:
                 r = None
 
         if r:
-            st.image(r["ruta_png"], use_container_width=True)
+            # la letra (carcasa) ocupa Z=[0, profundidad_mm]; la tapa se exporta en su
+            # propio origen (Z=[0, tapa_espesor_mm]) para imprimirse suelta — la corremos
+            # a Z=profundidad_mm para el visor, que es donde va pegada de verdad (cierra
+            # el hueco abierto de atrás). El soporte de escritorio va rotado 90° respecto
+            # de la letra (encastra desde abajo) — mostrarlo "pegado" sin esa rotación
+            # daría una posición falsa, así que va en su propio visor aparte.
+            piezas_visor = [{"ruta_stl": r["ruta_stl"], "color": "#f5deb3", "nombre": "letra"}]
+            if r["pieza_tapa"]:
+                piezas_visor.append({
+                    "ruta_stl": r["pieza_tapa"]["ruta_stl"], "color": "#9a9a9a", "nombre": "tapa",
+                    "offset": (0, 0, float(profundidad_mm)),
+                })
+            if r["ruta_stl_decoraciones_multicolor"]:
+                piezas_visor.append({"ruta_stl": r["ruta_stl_decoraciones_multicolor"], "multicolor": True})
+            for i, d in enumerate(r["decoraciones"]):
+                piezas_visor.append(
+                    {"ruta_stl": d["ruta_stl"], "color": preview3d.color_decoracion(i), "nombre": d["nombre"]}
+                )
+
+            html_visor = preview3d.armar_html_visor(piezas_visor)
+            if html_visor:
+                components.html(html_visor, height=460)
+                st.caption("Arrastrá para rotar, scroll para zoom. Letra + tapa (si hay) + decoraciones, en su color real de posición.")
+            else:
+                st.image(r["ruta_png"], use_container_width=True)
+
+            if r["pieza_soporte"]:
+                html_soporte = preview3d.armar_html_visor(
+                    [{"ruta_stl": r["pieza_soporte"]["ruta_stl"], "color": "#4a4a4a", "nombre": "soporte"}]
+                )
+                if html_soporte:
+                    st.caption("Base de escritorio (pieza aparte, encastra con la pata desde abajo):")
+                    components.html(html_soporte, height=260)
 
             c1, c2, c3 = st.columns(3)
             c1.metric("Ancho", f"{r['ancho_mm']:.0f} mm")

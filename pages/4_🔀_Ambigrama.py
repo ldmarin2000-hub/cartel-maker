@@ -11,8 +11,9 @@ la misma que usa la versión de consola (main.py).
 import os
 
 import streamlit as st
+import streamlit.components.v1 as components
 
-from core import fuentes
+from core import fuentes, preview3d
 from generators import ambigrama
 
 st.set_page_config(page_title="Ambigrama · Cartel Maker", page_icon="🔀", layout="wide")
@@ -145,7 +146,14 @@ with col_preview:
                 r = None
 
         if r:
-            st.image(r["ruta_png"], use_container_width=True)
+            html_visor = preview3d.armar_html_visor(
+                [{"ruta_stl": r["ruta_stl"], "color": "#d8c8a8", "nombre": "ambigrama"}]
+            )
+            if html_visor:
+                components.html(html_visor, height=460)
+                st.caption("Arrastrá para rotar, scroll para zoom — girá para ver las 2 lecturas.")
+            else:
+                st.image(r["ruta_png"], use_container_width=True)
 
             c1, c2, c3 = st.columns(3)
             c1.metric("Ancho", f"{r['ancho_mm']:.0f} mm")

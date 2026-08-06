@@ -11,8 +11,9 @@ misma que usa la versión de consola (main.py).
 import os
 
 import streamlit as st
+import streamlit.components.v1 as components
 
-from core import fuentes, geometry
+from core import fuentes, geometry, preview3d
 from generators import neon
 
 st.set_page_config(page_title="Cartel de neón · Cartel Maker", page_icon="🔥", layout="wide")
@@ -119,7 +120,27 @@ with col_preview:
                 r = None
 
         if r:
-            st.image(r["ruta_png"], use_container_width=True)
+            # los módulos (si el cartel se partió) quedan en su posición real de X/Y
+            # (por eso encastran con cola de milano) — combinan derecho en un solo visor.
+            piezas_visor = [
+                {"ruta_stl": p["ruta_stl"], "color": "#ff5a7a" if modo_led == "neon" else "#ffb700",
+                 "nombre": f"modulo_{p['indice']}"}
+                for p in r["piezas"]
+            ]
+            html_visor = preview3d.armar_html_visor(piezas_visor)
+            if html_visor:
+                components.html(html_visor, height=460)
+                st.caption("Arrastrá para rotar, scroll para zoom.")
+            else:
+                st.image(r["ruta_png"], use_container_width=True)
+
+            if r["pieza_soporte"]:
+                html_soporte = preview3d.armar_html_visor(
+                    [{"ruta_stl": r["pieza_soporte"]["ruta_stl"], "color": "#4a4a4a", "nombre": "soporte"}]
+                )
+                if html_soporte:
+                    st.caption("Base de escritorio (pieza aparte, encastra con la pata desde abajo):")
+                    components.html(html_soporte, height=260)
 
             c1, c2, c3 = st.columns(3)
             c1.metric("Ancho total", f"{r['ancho_total_mm']:.0f} mm")
