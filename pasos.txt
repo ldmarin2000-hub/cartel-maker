@@ -1,0 +1,11 @@
+1 - Busca una Imagen
+2 - La conveirte en SVG
+3 - la importa en el proyecto
+4 - Le pone al eje Z 20 mm X = 55  y= 55
+5 - Lo rota 90° eje X
+6 - Escribe la palabra (Monica) hace que sea del tamaño de la imagen
+7 - Toca la separacion para que esten juntas
+8 - Lo escala al mismo tamaño que la magen (corazon) o sea X = 55 Y = 20 y Z 55 (recordar que el corazon esta rotado)
+9 - Lo centraliza a los dos
+10 - Selecciona los dos objetos y le hace la malla boleana de interseccion 
+11 - Adicionar parte negativa (creo que aca sigue con lo del aro)

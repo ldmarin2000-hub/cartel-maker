@@ -1,0 +1,12 @@
+pillow
+numpy
+scikit-image
+networkx
+shapely
+scipy
+trimesh
+manifold3d
+mapbox_earcut
+matplotlib
+streamlit
+svgelements

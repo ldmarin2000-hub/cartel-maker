@@ -1,0 +1,181 @@
+# Cartel Maker
+
+Generador de modelos 3D imprimibles (Bambu Lab A1): carteles de neón,
+carteles LED de letras de palo, llaveros, y lo que se vaya agregando.
+
+## Instalación
+
+1. Tener Python instalado (Windows).
+2. Instalar dependencias:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. Todos los generadores (neón, llavero, letras, ambigrama) son Python
+   puro — no hace falta instalar nada más, ni OpenSCAD. Las fuentes se
+   listan automáticamente (las instaladas en Windows, `C:\Windows\Fonts`,
+   por su nombre real, más las que pongas en `fonts/`), así que no hay
+   que escribir rutas a mano.
+
+## Uso
+
+### App visual (recomendado)
+
+```bash
+streamlit run app.py
+```
+
+Abre una pestaña del navegador en `http://localhost:8501`. Cada generador
+tiene su propia página en el menú de la izquierda: completás el formulario,
+apretás **Generar**, y ves el preview, las medidas, los avisos y el botón
+de descarga del STL ahí mismo.
+
+### Menú de consola (alternativa)
+
+```bash
+python main.py
+```
+
+> Si ves los acentos/tildes rotos en la consola de Windows, corré antes
+> `chcp 65001` (pone la terminal en UTF-8). No hace falta en la terminal
+> integrada de VSCode ni en PowerShell 7.
+
+Elegís un generador del menú, contestás los parámetros que te pregunta (o
+dejás los defaults), y el STL + preview quedan en `output/`.
+
+### En ambos casos
+
+Al final se muestra:
+
+- el tamaño final del modelo en mm,
+- si entra o no en el plato de la Bambu A1 (256×256×256 mm) sin partir en
+  módulos,
+- avisos relevantes del generador (fusión de trazos, curvas muy cerradas
+  para WS2812, etc.).
+
+## Estructura del proyecto
+
+```
+app.py             punto de entrada de la app visual (Streamlit)
+pages/             una página de Streamlit por generador (capa visual)
+main.py            menú interactivo de consola, descubre generadores automáticamente
+core/               lógica compartida entre generadores (raster, esqueleto,
+                    texto2d/decoraciones, geometría, malla 3D, preview,
+                    chequeos, ui, catálogo de fuentes, wrapper OpenSCAD)
+generators/         un archivo por generador (neon.py, letras.py, llavero.py):
+                    generar() es la lógica pura que usan tanto app.py como main.py
+scad/               archivos .scad paramétricos (Customizer de OpenSCAD)
+fonts/              tus .ttf de Google Fonts
+output/             STL + preview + SVG generados (no se versiona)
+```
+
+### Agregar un generador nuevo
+
+1. Crear `generators/mi_generador.py` con una función `generar(**params)`
+   que haga todo el trabajo (sin `input()`/`print()`) y devuelva un dict
+   con rutas, medidas y avisos — más `NOMBRE`, `DESCRIPCION` y `ejecutar()`
+   (wrapper de consola que pide los parámetros con `core/ui.py` y llama a
+   `generar()`).
+2. Sumar `pages/N_emoji_MiGenerador.py`: los widgets del formulario +
+   `generators.mi_generador.generar(...)`.
+3. Listo — `main.py` lo lista solo por consola, y Streamlit lo agrega solo
+   al menú lateral por estar en `pages/`.
+
+## Estado actual
+
+- **Neón**: pipeline completo enganchado al menú y a la app visual
+  (`generators/neon.py` + `core/*`). Si el cartel no entra en la Bambu A1 se
+  parte solo en módulos con cola de milano (`core/modulos.py`), y agrega
+  automáticamente un canalcito de salida de cable y orejas de montaje tipo
+  bocallave (`core/geometry.py`). Las fuentes se eligen de una lista (las
+  instaladas en Windows + las de `fonts/`), sin escribir rutas
+  (`core/fuentes.py`). Placa de fondo con 3 variantes: `contorno` (con
+  puentes estructurales automáticos para que las letras sueltas impriman
+  como una sola pieza), `rect_hundido` (rectángulo macizo, canal hundido) y
+  `rect_plano` (rectángulo fino con las letras en relieve — mismo gasto de
+  material que "contorno" pero con el respaldo conectado de "rect_hundido").
+  Para el cableado: un agujero hacia atrás en cada punta suelta del
+  recorrido (donde termina/empieza cada tramo de LED) para soldar/conectar
+  ahí, más un canalcito de salida en el punto más conveniente — el cable
+  entre letras corre pegado a la parte de atrás del cartel. Si dos puntas
+  quedan a menos de `diámetro del agujero + pared_mm` de distancia, se
+  agrupan en un solo agujero en vez de dejar dos pegados con una pared de
+  plástico demasiado fina entre ellos. Montaje con 3
+  opciones: `colgado` (orejas con bocallave), `escritorio` (una pata abajo
+  que encastra a presión en una base impresa aparte —
+  `core/soporte.py`/`_base_escritorio.stl`) o `ninguno`. Control de
+  "redondeo de bordes" (mm) para suavizar esquinas filosas que a veces deja
+  el trazado en curvas cerradas de la fuente.
+- **Llavero**: **Python puro, sin OpenSCAD** (`generators/llavero.py` +
+  `core/texto2d.py` + `core/decoraciones.py` + `core/mesh3d.py`). El texto
+  se saca directo del contorno de la fuente (con huecos correctos, ej. la
+  "o"), así que las medidas son reales — ya no estimadas. 8 decoraciones
+  (corazón, estrella, flor, gato, rayo, luna, rombo, círculo) porteadas a
+  shapely, más la opción de subir un ícono/logo propio en SVG
+  (`core/svg_import.py`, ver más abajo). Exporta un STL por pieza (base y
+  texto), más un preview a
+  color. Toggle "Tengo AMS": con AMS se exporta además un STL multicolor
+  (base + texto ya combinados como cuerpos separados en su posición real,
+  vía `trimesh.util.concatenate`, sin fusionar) — un solo archivo, un solo
+  import a Bambu Studio, sin el problema de que el slicer reacomode 2 STL
+  sueltos y los desalinee. Ahí adentro: clic derecho → "Partir en objetos"
+  para pintarlas cada una de su color. Sin AMS, cada pieza se exporta
+  apoyada en el suelo para imprimirla sola y pegarla después.
+  `scad/llaveros.scad` queda como referencia/backup, ya no se usa.
+- **Ambigrama**: enganchado al menú y a la app visual
+  (`generators/ambigrama.py` + `core/mesh3d.py`). Un contenido (texto o
+  decoración) de arriba/abajo y otro de frente — cada uno extruido en un eje
+  perpendicular al otro y unidos por intersección booleana, con aro para
+  colgar (soldado, no flotando). Los dos lados se fuerzan a la MISMA caja
+  compartida (ancho x profundidad x alto, default 55x20x55 — la misma
+  técnica que a mano en Tinkercad) y esa medida se respeta tal cual, no se
+  agranda sola. Si el texto no entra cómodo, hay control de espaciado
+  entre letras (negativo = se juntan/superponen) para que palabras largas
+  entren mejor en cajas angostas — avisa cuando la compresión es fuerte
+  (hay un límite físico: una palabra muy larga en una caja muy angosta no
+  entra legible por más que se ajuste el espaciado). La intersección
+  booleana puede dejar letras sueltas (sin tocarse entre sí, o sin tocar
+  la base) — se sueldan automáticamente con puentes finos
+  (`core/mesh3d.py::conectar_componentes_3d`, mismo enfoque de árbol de
+  expansión mínima que usa el neón en 2D) para que sea una sola pieza
+  imprimible y watertight. El aro para colgar tiene 4 posiciones manuales
+  además de la automática (2 discos en los bordes del contenido "de
+  arriba", 2 loops parados que nacen del contenido "de frente" — arriba o
+  abajo), para elegir a mano si el automático no da lo que se busca.
+- **Formas propias (SVG)** (`core/svg_import.py`): tanto el llavero como
+  el ambigrama aceptan, además de la lista de decoraciones predefinidas,
+  un ícono/logo cualquiera en SVG — un solo color, sin fotos ni
+  degradados (path/rect/circle/polygon/etc., con transforms y grupos
+  anidados). Usa `svgelements` (100% Python) para leer el SVG y muestrear
+  cada curva a puntos; los subtrazados contenidos adentro de otro se
+  restan como huecos (`core/poligonos.py`, compartido con el texto de
+  fuentes) — mismo resultado final que una decoración de la lista, así se
+  usa igual en el resto del pipeline. No hace falta instalar nada aparte
+  (a diferencia de cairosvg/svglib, que en Windows piden tener Cairo/GTK
+  instalado por separado).
+- **Letra iluminada de pie** (`generators/letras.py`): una letra/inicial
+  grande, hueca por dentro para meterle una luz LED — Python puro,
+  reutiliza `core/texto2d.py` (la letra como polígono relleno) y
+  `core/mesh3d.py` (extrusión/booleanas). La cáscara queda con la cara de
+  adelante y las paredes finas (`espesor_pared_mm`, para que pase la luz)
+  y el fondo ABIERTO (para insertar el LED/pila y poder cambiarla) — si
+  algún trazo de la letra es más angosto que 2x el espesor de pared, esa
+  parte queda maciza en vez de romperse (y avisa). El offset negativo
+  para el hueco usa `join_style` redondeado, no mitre — con mitre, los
+  ángulos agudos de letras como la "M" generaban geometría degenerada al
+  extruir. Reutiliza el mismo soporte de escritorio que el neón
+  (`core/geometry.py::agregar_pata_escritorio` + `core/soporte.py`) para
+  las letras que no se paran solas: agrega una pata sólida (sin hueco,
+  para que aguante peso) en el punto con más material disponible. Exporta
+  además una TAPA aparte (mismo contorno que la letra, sólida y fina, ver
+  `_armar_tapa`) para cerrar el hueco después de meter el LED, con un
+  agujerito (`agujero_cable_diam_mm`) cerca del borde inferior para sacar
+  el cable — busca un punto que caiga en material sólido (no en un hueco
+  de la letra, como el interior de una "O") antes de perforar; si no
+  encuentra ninguno, exporta la tapa igual pero avisa que hay que
+  taladrarla a mano. Falta agendar como siguiente paso: nombre en
+  cursiva pegado abajo (sin luz) y decoraciones sueltas multicolor en el
+  frente (referencia real del usuario: una letra grande retroiluminada
+  con el nombre en cursiva y varios dibujitos — avión, nubes, estrellas —
+  pegados encima).
