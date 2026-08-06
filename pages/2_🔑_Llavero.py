@@ -105,7 +105,7 @@ with col_preview:
                 r = None
 
         if r:
-            st.image(r["ruta_png"], use_column_width=True)
+            st.image(r["ruta_png"], use_container_width=True)
 
             c1, c2 = st.columns(2)
             c1.metric("Ancho", f"{r['ancho_mm']:.0f} mm")

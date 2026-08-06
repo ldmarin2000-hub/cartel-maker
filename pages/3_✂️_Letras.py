@@ -62,6 +62,50 @@ with col_form:
              "meter el LED — con un agujerito cerca del borde inferior para sacar el cable.",
     )
 
+    st.divider()
+    agregar_nombre = st.checkbox(
+        "Agregar nombre en cursiva abajo", value=False,
+        help="Texto macizo (sin luz, sin hueco), soldado como una sola pieza pegada al borde "
+             "de abajo de la letra — mismo color que la letra.",
+    )
+    texto_nombre, ruta_ttf_nombre, alto_nombre_mm = "", None, 30.0
+    if agregar_nombre:
+        texto_nombre = st.text_input("Nombre", value="Bianca", max_chars=20)
+        idx_cursiva = opciones.index("Lily Script One") if "Lily Script One" in opciones else 0
+        elegida_nombre = st.selectbox("Fuente del nombre", opciones, index=idx_cursiva, key="fuente_nombre")
+        if elegida_nombre == OTRA_RUTA:
+            ruta_ttf_nombre = st.text_input("Ruta a la fuente del nombre .ttf", value="fonts/Pacifico.ttf")
+        else:
+            ruta_ttf_nombre = dict(catalogo)[elegida_nombre]
+        alto_nombre_mm = st.slider("Alto del nombre (mm)", 10, 60, 30, step=2)
+
+    st.divider()
+    n_decoraciones = st.number_input(
+        "Decoraciones sueltas en el frente", min_value=0, max_value=4, value=0, step=1,
+        help="Protruyen de la cara de adelante, en piezas sueltas (para pintar de otro color) "
+             "— ej. avión, nubes, estrellas pegados sobre la letra encendida.",
+    )
+    decoraciones_frente = []
+    decoraciones_tiene_ams = False
+    profundidad_decoracion_mm = 4.0
+    if n_decoraciones:
+        for i in range(int(n_decoraciones)):
+            with st.expander(f"Decoración {i + 1}", expanded=True):
+                nombre_deco = st.selectbox("Forma", letras.DECORACIONES, key=f"deco_forma_{i}")
+                c1, c2 = st.columns(2)
+                tam_mm = c1.slider("Tamaño (mm)", 5, 60, 20, step=1, key=f"deco_tam_{i}")
+                x_pct = c2.slider("Posición X (%)", 0, 100, 50, step=5, key=f"deco_x_{i}")
+                y_pct = st.slider("Posición Y (%)", 0, 100, 85, step=5, key=f"deco_y_{i}")
+                decoraciones_frente.append(
+                    {"nombre": nombre_deco, "tam_mm": float(tam_mm), "x_pct": float(x_pct), "y_pct": float(y_pct)}
+                )
+        profundidad_decoracion_mm = st.slider("Cuánto protruyen las decoraciones (mm)", 1.0, 10.0, 4.0, step=0.5)
+        decoraciones_tiene_ams = st.checkbox(
+            "Tengo AMS (impresora multicolor) para las decoraciones", value=False,
+            help="Con AMS: un solo STL multicolor con todas las decoraciones ya en su posición "
+                 "real. Sin AMS: un STL por decoración para pegar a mano después de imprimir.",
+        )
+
     with st.expander("Ajustes finos"):
         profundidad_mm = st.slider("Profundidad (mm, ahí adentro va la luz)", 15, 60, 35, step=5)
         espesor_pared_mm = st.slider(
@@ -86,6 +130,8 @@ with col_preview:
         st.info("Completá el formulario y apretá **Generar letra**.")
     elif not texto.strip():
         st.error("Escribí al menos una letra.")
+    elif agregar_nombre and not texto_nombre.strip():
+        st.error("Escribí el nombre, o desactivá \"Agregar nombre en cursiva abajo\".")
     else:
         with st.spinner("Armando la geometría 3D (letra hueca + booleanas)..."):
             try:
@@ -95,13 +141,18 @@ with col_preview:
                     agregar_tapa=agregar_tapa, tapa_espesor_mm=float(tapa_espesor_mm),
                     agujero_cable_diam_mm=float(agujero_cable_diam_mm),
                     agregar_soporte=agregar_soporte, ancho_pata_mm=ancho_pata_mm, alto_pata_mm=alto_pata_mm,
+                    agregar_nombre=agregar_nombre, texto_nombre=texto_nombre,
+                    ruta_ttf_nombre=ruta_ttf_nombre, alto_nombre_mm=float(alto_nombre_mm),
+                    decoraciones_frente=decoraciones_frente,
+                    profundidad_decoracion_mm=float(profundidad_decoracion_mm),
+                    decoraciones_tiene_ams=decoraciones_tiene_ams,
                 )
             except (FileNotFoundError, ValueError) as e:
                 st.error(str(e))
                 r = None
 
         if r:
-            st.image(r["ruta_png"], use_column_width=True)
+            st.image(r["ruta_png"], use_container_width=True)
 
             c1, c2, c3 = st.columns(3)
             c1.metric("Ancho", f"{r['ancho_mm']:.0f} mm")
@@ -145,4 +196,18 @@ with col_preview:
                     st.download_button(
                         "⬇ Descargar STL (base de escritorio)", f, file_name=os.path.basename(s["ruta_stl"]),
                         mime="model/stl", use_container_width=True,
+                    )
+
+            if r["ruta_stl_decoraciones_multicolor"]:
+                with open(r["ruta_stl_decoraciones_multicolor"], "rb") as f:
+                    st.download_button(
+                        "⬇ Descargar STL (decoraciones, multicolor)", f,
+                        file_name=os.path.basename(r["ruta_stl_decoraciones_multicolor"]),
+                        mime="model/stl", use_container_width=True,
+                    )
+            for d in r["decoraciones"]:
+                with open(d["ruta_stl"], "rb") as f:
+                    st.download_button(
+                        f"⬇ Descargar STL (decoración: {d['nombre']})", f, file_name=os.path.basename(d["ruta_stl"]),
+                        mime="model/stl", use_container_width=True, key=f"dl_{d['ruta_stl']}",
                     )

@@ -174,8 +174,15 @@ output/             STL + preview + SVG generados (no se versiona)
   el cable — busca un punto que caiga en material sólido (no en un hueco
   de la letra, como el interior de una "O") antes de perforar; si no
   encuentra ninguno, exporta la tapa igual pero avisa que hay que
-  taladrarla a mano. Falta agendar como siguiente paso: nombre en
-  cursiva pegado abajo (sin luz) y decoraciones sueltas multicolor en el
-  frente (referencia real del usuario: una letra grande retroiluminada
-  con el nombre en cursiva y varios dibujitos — avión, nubes, estrellas —
-  pegados encima).
+  taladrarla a mano. Nombre en cursiva pegado abajo (opcional): macizo,
+  sin hueco (no lleva luz), soldado a la letra como una sola pieza del
+  mismo color (`_armar_nombre_cursiva`) — si también hay soporte de
+  escritorio, la pata sale del borde de abajo del conjunto letra+nombre,
+  no de la letra sola. Decoraciones sueltas en el frente (opcional, hasta
+  4): reutiliza las formas de `core/decoraciones.py` (las mismas del
+  llavero — corazón, estrella, flor, gato, rayo, luna, rombo, círculo),
+  posicionadas en % dentro de la caja de la letra y protruyendo hacia el
+  que mira el cartel (`_armar_decoraciones_frente`) — quedan como piezas
+  sueltas para pintar de otro color: un STL por decoración para pegar a
+  mano, o un solo STL multicolor si hay AMS (mismo criterio que el
+  llavero).
