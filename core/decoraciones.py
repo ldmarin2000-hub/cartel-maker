@@ -14,9 +14,31 @@ from shapely.affinity import affine_transform
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
-from core import svg_import
+from core import svg_import, texto2d
 
 NOMBRES_VALIDOS = ("ninguno", "corazon", "estrella", "flor", "gato", "rayo", "luna", "rombo", "circulo")
+
+# Emojis/pictogramas y signos/símbolos como decoración: mismo pipeline que el
+# texto (core/texto2d.py), con una fuente MONOCROMA de contorno vectorizable
+# -no una fuente de emoji a color (Noto Color Emoji, Apple Color Emoji, etc,
+# que son bitmap/COLR y no se pueden sacar como contorno)-. Noto Emoji cubre
+# el set completo de emoji en blanco y negro; Noto Sans Symbols 2 cubre
+# dingbats/símbolos clásicos (☺ ☂ ☀ ⚙ etc) que no son "emoji" en sentido
+# estricto pero sirven igual de pictograma/signo. Viven en fonts/simbolos/,
+# NO en fonts/curadas/ -esa carpeta la escanea core/fuentes.py para el
+# selector general de fuentes de TEXTO; si estuvieran ahí, "Noto Emoji"
+# aparecería mezclada entre las opciones para tipear el nombre de un llavero.
+FUENTE_EMOJI = "fonts/simbolos/NotoEmoji.ttf"
+FUENTE_SIGNOS = "fonts/simbolos/NotoSansSymbols2.ttf"
+
+# Curados a mano (verificados: se vectorizan con área > 0 en las fuentes de
+# arriba) para el selector rápido de la UI — el usuario también puede tipear
+# o pegar cualquier otro emoji/símbolo unicode, esto es solo un atajo.
+EMOJIS_CURADOS = [
+    "✈", "🎂", "🌙", "⭐", "❤", "⚡", "🎈", "🎁", "🐱", "🐶", "🌸", "🦋",
+    "🎵", "☕", "🌈", "🚀", "⚓", "🔥", "💎", "👑", "🦄", "🐾", "🌻", "🍀",
+]
+SIGNOS_CURADOS = ["★", "☺", "☂", "☀", "❄", "♫", "☮", "☯", "✉", "⚙", "⌚", "☑", "✂", "☎", "⚔", "☠", "♛", "⚖"]
 
 
 def _corazon(t):
@@ -118,3 +140,27 @@ def forma_desde_svg(ruta_svg, tam):
         return None
     escala = (2 * tam) / lado_mayor
     return affine_transform(crudo, [escala, 0, 0, escala, 0, 0])
+
+
+def forma_desde_emoji(caracter, tam, ruta_ttf=None):
+    """Como forma(), pero para un emoji/pictograma/signo (un solo
+    carácter unicode, ej. "✈", "🎂", "★") en vez de una decoración de la
+    lista o un SVG — se vectoriza con el mismo pipeline que el texto
+    (core/texto2d.py: rasterizar + contornear), usando una fuente
+    monocroma de contorno (`FUENTE_EMOJI` por default; pasá
+    `FUENTE_SIGNOS` para dingbats clásicos que no están en la fuente de
+    emoji). Mismo resultado final que `forma_desde_svg`: centrado en el
+    origen, escalado para que su lado más largo mida `2*tam`. Devuelve
+    None si el carácter no existe en la fuente o no se pudo extraer
+    nada con área."""
+    ruta_ttf = ruta_ttf or FUENTE_EMOJI
+    crudo, _ = texto2d.texto_a_poligono(caracter, ruta_ttf, alto_mm=100, raster_px=200)
+    if crudo is None:
+        return None
+    minx, miny, maxx, maxy = crudo.bounds
+    lado_mayor = max(maxx - minx, maxy - miny)
+    if lado_mayor <= 0:
+        return None
+    escala = (2 * tam) / lado_mayor
+    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
+    return affine_transform(crudo, [escala, 0, 0, escala, -cx * escala, -cy * escala])

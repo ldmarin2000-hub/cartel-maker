@@ -80,9 +80,15 @@ ui_streamlit.py     widgets de Streamlit compartidos entre páginas (selector
                     depende de Streamlit; no va en pages/ porque cualquier
                     .py suelto ahí se vuelve una página nueva del menú
 scad/               archivos .scad paramétricos (Customizer de OpenSCAD)
-fonts/curadas/      12 Google Fonts bajadas y categorizadas a mano (script,
-                    manuscrita, display, redondeada) — licencia OFL, ver
-                    fonts/curadas/LICENSES/
+fonts/curadas/      12 Google Fonts de LETRAS bajadas y categorizadas a mano
+                    (script, manuscrita, display, redondeada) — licencia OFL,
+                    ver fonts/curadas/LICENSES/. Esta carpeta la escanea
+                    core/fuentes.py para el selector de fuentes de texto.
+fonts/simbolos/     2 fuentes monocromas de contorno (Noto Emoji, Noto Sans
+                    Symbols 2) para decoraciones tipo emoji/pictograma/signo
+                    (core/decoraciones.py::forma_desde_emoji) — aparte de
+                    fonts/curadas/ a propósito, para que no aparezcan
+                    mezcladas en el selector de fuentes de texto.
 fonts/              tus propios .ttf (además de los de fonts/curadas/)
 assets/vendor/      model-viewer.min.js vendoreado (Apache-2.0, Google) para
                     el visor 3D — offline, no pide nada a internet
@@ -274,6 +280,19 @@ letra iluminada; acá solo vive el mecanismo que se repetía igual.
   usa igual en el resto del pipeline. No hace falta instalar nada aparte
   (a diferencia de cairosvg/svglib, que en Windows piden tener Cairo/GTK
   instalado por separado).
+- **Emojis, pictogramas y símbolos como decoración**
+  (`core/decoraciones.py::forma_desde_emoji`): además de la lista
+  predefinida y el SVG propio, el llavero y la letra iluminada aceptan
+  cualquier emoji/pictograma (✈🎂🌙⭐❤ y más — `EMOJIS_CURADOS`, fuente
+  Noto Emoji monocroma) o símbolo/signo clásico (★☺☂⚙⌚ y más —
+  `SIGNOS_CURADOS`, fuente Noto Sans Symbols 2) — mismo pipeline que el
+  texto (rasterizar + vectorizar, `core/texto2d.py`), así que se integra
+  igual que cualquier otra decoración en el resto del sistema (posición,
+  export multicolor, preview). Solo fuentes MONOCROMAS de contorno: las
+  de emoji a color (Noto Color Emoji, etc.) son bitmap y no se pueden
+  vectorizar. El selector de la UI trae una paleta curada de ~24 emoji +
+  18 símbolos verificados, más un campo para pegar cualquier otro
+  carácter unicode.
 - **Letra iluminada de pie** (`generators/letras.py`): una letra/inicial
   grande, hueca por dentro para meterle una luz LED — Python puro,
   reutiliza `core/texto2d.py` (la letra como polígono relleno) y

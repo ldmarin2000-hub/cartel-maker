@@ -13,7 +13,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import colores, preview3d
+from core import colores, decoraciones, preview3d
 from generators import llavero
 from ui_streamlit import bloque_presets, selector_fuente
 
@@ -22,9 +22,13 @@ st.set_page_config(page_title="Llavero · Cartel Maker", page_icon="🔑", layou
 st.title("🔑 Llavero")
 st.caption(llavero.DESCRIPCION)
 
+TIPOS_DECO = ["Lista", "Emoji/pictograma", "Símbolo/signo", "SVG propio"]
+
 PRESET_KEYS = [
     "ll_nombre", "llavero_selectbox", "llavero_ruta", "ll_alto_mm",
-    "ll_color_base", "ll_color_texto", "ll_decoracion", "ll_decoracion_lado", "ll_aro_lado",
+    "ll_color_base", "ll_color_texto",
+    "ll_tipo_deco", "ll_decoracion", "ll_emoji_elegido", "ll_emoji_libre",
+    "ll_decoracion_lado", "ll_aro_lado",
     "ll_tiene_ams", "ll_decoracion_tam", "ll_deco_x", "ll_deco_y", "ll_aro_r",
     "ll_espesor_texto_mm", "ll_espesor_base_mm", "ll_borde_mm",
 ]
@@ -32,10 +36,12 @@ PRESET_KEYS = [
 
 @st.cache_data(ttl=120, show_spinner=False)
 def _preview_rapido(nombre, ruta_ttf, alto_mm, color_base, color_texto,
-                     decoracion, decoracion_lado, decoracion_tam, deco_x, deco_y, aro_lado, aro_r, borde_mm):
+                     decoracion, decoracion_emoji, decoracion_lado, decoracion_tam,
+                     deco_x, deco_y, aro_lado, aro_r, borde_mm):
     return llavero.preview_rapido(
         nombre, ruta_ttf, alto_mm=alto_mm, color_base=color_base, color_texto=color_texto,
-        decoracion=decoracion, decoracion_lado=decoracion_lado, decoracion_tam=decoracion_tam,
+        decoracion=decoracion, decoracion_emoji=decoracion_emoji,
+        decoracion_lado=decoracion_lado, decoracion_tam=decoracion_tam,
         deco_x=deco_x, deco_y=deco_y, aro_lado=aro_lado, aro_r=aro_r, borde_mm=borde_mm,
     )
 
@@ -67,21 +73,32 @@ with col_form:
         f'border:1px solid #0003"></div>', unsafe_allow_html=True,
     )
 
-    decoracion = st.selectbox(
-        "Decoración", llavero.DECORACIONES, index=llavero.DECORACIONES.index("corazon"), key="ll_decoracion",
-    )
-    svg_subido = st.file_uploader(
-        "...o subí tu propio ícono/logo (SVG, opcional)", type=["svg"],
-        help="Si subís un SVG, reemplaza a la decoración de la lista de arriba. Funciona con "
-             "casi cualquier ícono simple (un solo color, sin fotos ni degradados). No entra en "
-             "el preset ni en la vista rápida — solo en el llavero generado.",
-    )
-    decoracion_svg = None
-    if svg_subido is not None:
-        os.makedirs("output", exist_ok=True)
-        decoracion_svg = os.path.join("output", f"_subido_{svg_subido.name}")
-        with open(decoracion_svg, "wb") as f:
-            f.write(svg_subido.getvalue())
+    tipo_deco = st.radio("Decoración", TIPOS_DECO, horizontal=True, key="ll_tipo_deco")
+    decoracion, decoracion_svg, decoracion_emoji, svg_subido = "ninguno", None, None, None
+    if tipo_deco == "Lista":
+        decoracion = st.selectbox(
+            "Forma", llavero.DECORACIONES, index=llavero.DECORACIONES.index("corazon"), key="ll_decoracion",
+        )
+    elif tipo_deco in ("Emoji/pictograma", "Símbolo/signo"):
+        curados = decoraciones.EMOJIS_CURADOS if tipo_deco == "Emoji/pictograma" else decoraciones.SIGNOS_CURADOS
+        c1, c2 = st.columns([1, 1])
+        elegido = c1.selectbox("Elegí uno", curados, key="ll_emoji_elegido")
+        libre = c2.text_input(
+            "...o pegá cualquier otro", value="", key="ll_emoji_libre", max_chars=4,
+            help="Cualquier emoji o símbolo unicode — si escribís acá, esto gana sobre lo elegido a la izquierda.",
+        )
+        decoracion_emoji = libre.strip() or elegido
+    else:
+        svg_subido = st.file_uploader(
+            "SVG propio", type=["svg"],
+            help="Funciona con casi cualquier ícono simple (un solo color, sin fotos ni "
+                 "degradados). No entra en el preset ni en la vista rápida — solo en el llavero generado.",
+        )
+        if svg_subido is not None:
+            os.makedirs("output", exist_ok=True)
+            decoracion_svg = os.path.join("output", f"_subido_{svg_subido.name}")
+            with open(decoracion_svg, "wb") as f:
+                f.write(svg_subido.getvalue())
     decoracion_lado = st.radio(
         "Lado de la decoración", llavero.LADOS_DECO, horizontal=True, key="ll_decoracion_lado",
     )
@@ -115,7 +132,7 @@ with col_preview:
     if nombre.strip() and not svg_subido:
         png_rapido, ancho_rapido, alto_rapido = _preview_rapido(
             nombre, ruta_ttf, float(alto_mm), color_base, color_texto,
-            decoracion, decoracion_lado, decoracion_tam, deco_x, deco_y, aro_lado, aro_r, borde_mm,
+            decoracion, decoracion_emoji, decoracion_lado, decoracion_tam, deco_x, deco_y, aro_lado, aro_r, borde_mm,
         )
         if png_rapido:
             st.image(
@@ -137,7 +154,7 @@ with col_preview:
                     nombre=nombre, ruta_ttf=ruta_ttf, alto_mm=float(alto_mm),
                     color_base=color_base, color_texto=color_texto,
                     decoracion=decoracion, decoracion_lado=decoracion_lado, decoracion_tam=decoracion_tam,
-                    decoracion_svg=decoracion_svg,
+                    decoracion_svg=decoracion_svg, decoracion_emoji=decoracion_emoji,
                     deco_x=deco_x, deco_y=deco_y,
                     aro_lado=aro_lado, aro_r=aro_r,
                     espesor_texto_mm=espesor_texto_mm, espesor_base_mm=espesor_base_mm, borde_mm=borde_mm,

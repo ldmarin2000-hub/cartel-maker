@@ -13,9 +13,11 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import colores, preview3d
+from core import colores, decoraciones, preview3d
 from generators import letras
 from ui_streamlit import bloque_presets, selector_fuente
+
+TIPOS_DECO = ["Lista", "Emoji/pictograma", "Símbolo/signo"]
 
 st.set_page_config(page_title="Letras · Cartel Maker", page_icon="✂️", layout="wide")
 
@@ -34,7 +36,9 @@ PRESET_KEYS = [
     "le_agregar_soporte", "le_agregar_tapa",
     "le_agregar_nombre", "le_texto_nombre", "letras_nombre_selectbox", "letras_nombre_ruta", "le_alto_nombre_mm",
     "le_n_decoraciones",
-    *[f"deco_forma_{i}" for i in range(4)], *[f"deco_tam_{i}" for i in range(4)],
+    *[f"deco_tipo_{i}" for i in range(4)], *[f"deco_forma_{i}" for i in range(4)],
+    *[f"deco_emoji_elegido_{i}" for i in range(4)], *[f"deco_emoji_libre_{i}" for i in range(4)],
+    *[f"deco_tam_{i}" for i in range(4)],
     *[f"deco_x_{i}" for i in range(4)], *[f"deco_y_{i}" for i in range(4)],
     "le_profundidad_decoracion_mm", "le_decoraciones_tiene_ams",
     "le_profundidad_mm", "le_espesor_pared_mm", "le_tapa_espesor_mm", "le_agujero_cable_diam_mm",
@@ -45,7 +49,10 @@ PRESET_KEYS = [
 @st.cache_data(ttl=120, show_spinner=False)
 def _preview_rapido(texto, ruta_ttf, alto_mm, color_letra,
                      agregar_nombre, texto_nombre, ruta_ttf_nombre, alto_nombre_mm, decos_tuple):
-    decos = [{"nombre": n, "tam_mm": t, "x_pct": x, "y_pct": y} for (n, t, x, y) in decos_tuple]
+    decos = [
+        {"nombre": n, "tam_mm": t, "x_pct": x, "y_pct": y, "emoji": e}
+        for (n, t, x, y, e) in decos_tuple
+    ]
     return letras.preview_rapido(
         texto, ruta_ttf, alto_mm=alto_mm, color_letra=color_letra,
         agregar_nombre=agregar_nombre, texto_nombre=texto_nombre,
@@ -107,14 +114,26 @@ with col_form:
     if n_decoraciones:
         for i in range(int(n_decoraciones)):
             with st.expander(f"Decoración {i + 1}", expanded=True):
-                nombre_deco = st.selectbox("Forma", letras.DECORACIONES, key=f"deco_forma_{i}")
+                tipo_deco = st.radio("Tipo", TIPOS_DECO, horizontal=True, key=f"deco_tipo_{i}")
+                nombre_deco, emoji_deco = "corazon", None
+                if tipo_deco == "Lista":
+                    nombre_deco = st.selectbox("Forma", letras.DECORACIONES, key=f"deco_forma_{i}")
+                else:
+                    curados = decoraciones.EMOJIS_CURADOS if tipo_deco == "Emoji/pictograma" else decoraciones.SIGNOS_CURADOS
+                    ce1, ce2 = st.columns(2)
+                    elegido = ce1.selectbox("Elegí uno", curados, key=f"deco_emoji_elegido_{i}")
+                    libre = ce2.text_input(
+                        "...o pegá otro", value="", key=f"deco_emoji_libre_{i}", max_chars=4,
+                    )
+                    emoji_deco = libre.strip() or elegido
                 c1, c2 = st.columns(2)
                 tam_mm = c1.slider("Tamaño (mm)", 5, 60, 20, step=1, key=f"deco_tam_{i}")
                 x_pct = c2.slider("Posición X (%)", 0, 100, 50, step=5, key=f"deco_x_{i}")
                 y_pct = st.slider("Posición Y (%)", 0, 100, 85, step=5, key=f"deco_y_{i}")
-                decoraciones_frente.append(
-                    {"nombre": nombre_deco, "tam_mm": float(tam_mm), "x_pct": float(x_pct), "y_pct": float(y_pct)}
-                )
+                decoraciones_frente.append({
+                    "nombre": emoji_deco or nombre_deco, "emoji": emoji_deco,
+                    "tam_mm": float(tam_mm), "x_pct": float(x_pct), "y_pct": float(y_pct),
+                })
         profundidad_decoracion_mm = st.slider(
             "Cuánto protruyen las decoraciones (mm)", 1.0, 10.0, 4.0, step=0.5, key="le_profundidad_decoracion_mm",
         )
@@ -153,7 +172,9 @@ with col_form:
 
 with col_preview:
     if texto.strip():
-        decos_tuple = tuple((d["nombre"], d["tam_mm"], d["x_pct"], d["y_pct"]) for d in decoraciones_frente)
+        decos_tuple = tuple(
+            (d["nombre"], d["tam_mm"], d["x_pct"], d["y_pct"], d.get("emoji")) for d in decoraciones_frente
+        )
         png_rapido, ancho_rapido, alto_rapido = _preview_rapido(
             texto, ruta_ttf, float(alto_mm), color_letra,
             agregar_nombre, texto_nombre, ruta_ttf_nombre, float(alto_nombre_mm), decos_tuple,

@@ -43,11 +43,14 @@ def _posicion_decoracion(minx, maxx, maxy, cy, decoracion_lado, decoracion_tam):
 
 
 def _armar_geometria(nombre, ruta_ttf, alto_mm, decoracion, decoracion_lado, decoracion_tam,
-                      deco_x, deco_y, aro_lado, aro_r, borde_mm, raster_px, decoracion_svg=None):
+                      deco_x, deco_y, aro_lado, aro_r, borde_mm, raster_px,
+                      decoracion_svg=None, decoracion_emoji=None):
     """Arma la geometría 2D del llavero (contenido = texto+deco, y base =
     contenido con borde + orejas de aro). Devuelve (contenido, base,
-    ancho_mm, alto_mm_real). Si `decoracion_svg` (ruta a un .svg) viene
-    seteado, se usa esa forma en vez de una de la lista `decoracion`."""
+    ancho_mm, alto_mm_real). Si `decoracion_svg` (ruta a un .svg) o
+    `decoracion_emoji` (un carácter, ej. "✈") vienen seteados, se usa esa
+    forma en vez de una de la lista `decoracion` -en ese orden de
+    prioridad si por error vinieran los dos."""
     texto_poly, ancho_mm = texto2d.texto_a_poligono(nombre, ruta_ttf, alto_mm, raster_px)
     if texto_poly is None:
         raise ValueError("no se pudo extraer el texto (probá otra fuente o subí la resolución)")
@@ -60,6 +63,10 @@ def _armar_geometria(nombre, ruta_ttf, alto_mm, decoracion, decoracion_lado, dec
         forma_deco = decoraciones.forma_desde_svg(decoracion_svg, decoracion_tam)
         if forma_deco is None:
             raise ValueError(f"no se pudo sacar ninguna forma con área del SVG: {decoracion_svg}")
+    elif decoracion_emoji:
+        forma_deco = decoraciones.forma_desde_emoji(decoracion_emoji, decoracion_tam)
+        if forma_deco is None:
+            raise ValueError(f"no encontré el emoji/símbolo {decoracion_emoji!r} en la fuente — probá otro")
     elif decoracion != "ninguno":
         forma_deco = decoraciones.forma(decoracion, decoracion_tam)
     else:
@@ -119,6 +126,7 @@ def _guardar_preview(ruta_png, base, contenido, color_base, color_texto, nombre)
 def preview_rapido(nombre, ruta_ttf, alto_mm=20,
                     color_base="Blanco", color_texto="Rosa Fluor",
                     decoracion="corazon", decoracion_lado="derecha", decoracion_tam=7,
+                    decoracion_emoji=None,
                     deco_x=0, deco_y=0, aro_lado="izquierda", aro_r=2, borde_mm=3):
     """Preview 2D instantáneo — solo la geometría plana (texto + decoración
     + borde + aro, `_armar_geometria`), SIN mesh3d ni booleanas 3D — para
@@ -127,12 +135,14 @@ def preview_rapido(nombre, ruta_ttf, alto_mm=20,
     soporta ícono propio en SVG (`decoracion_svg`): esa ruta cambia con
     cada archivo subido y no vale la pena cachear. Devuelve
     (png_bytes, ancho_mm, alto_mm) o (None, 0, 0) si no se pudo generar."""
-    if not os.path.exists(ruta_ttf) or decoracion not in decoraciones.NOMBRES_VALIDOS:
+    if not os.path.exists(ruta_ttf):
+        return None, 0, 0
+    if not decoracion_emoji and decoracion not in decoraciones.NOMBRES_VALIDOS:
         return None, 0, 0
     try:
         contenido, base, ancho_mm, alto_mm_real = _armar_geometria(
             nombre, ruta_ttf, alto_mm, decoracion, decoracion_lado, decoracion_tam,
-            deco_x, deco_y, aro_lado, aro_r, borde_mm, raster_px=250,
+            deco_x, deco_y, aro_lado, aro_r, borde_mm, raster_px=250, decoracion_emoji=decoracion_emoji,
         )
     except (ValueError, FileNotFoundError):
         return None, 0, 0
@@ -145,7 +155,7 @@ def preview_rapido(nombre, ruta_ttf, alto_mm=20,
 def generar(nombre, ruta_ttf, alto_mm=20,
             color_base="Blanco", color_texto="Rosa Fluor",
             decoracion="corazon", decoracion_lado="derecha", decoracion_tam=7,
-            decoracion_svg=None,
+            decoracion_svg=None, decoracion_emoji=None,
             deco_x=0, deco_y=0,
             aro_lado="izquierda", aro_r=2,
             espesor_texto_mm=2, espesor_base_mm=3, borde_mm=3,
@@ -157,19 +167,23 @@ def generar(nombre, ruta_ttf, alto_mm=20,
     nada — así lo puede llamar tanto la CLI como la app visual.
 
     `decoracion_svg`: ruta a un .svg propio del usuario (ícono/logo
-    simple) — si viene seteado, se usa en vez de `decoracion` (que en ese
-    caso se ignora)."""
+    simple). `decoracion_emoji`: un emoji/pictograma/signo (un carácter,
+    ej. "✈", core/decoraciones.py::forma_desde_emoji). Cualquiera de los
+    dos, si viene seteado, se usa en vez de `decoracion` (que en ese caso
+    se ignora) — SVG tiene prioridad sobre emoji si por error vinieran
+    los dos."""
     if not os.path.exists(ruta_ttf):
         raise FileNotFoundError(f"no encuentro la fuente: {ruta_ttf}")
     if decoracion_svg:
         if not os.path.exists(decoracion_svg):
             raise FileNotFoundError(f"no encuentro el SVG: {decoracion_svg}")
-    elif decoracion not in decoraciones.NOMBRES_VALIDOS:
+    elif not decoracion_emoji and decoracion not in decoraciones.NOMBRES_VALIDOS:
         raise ValueError(f"decoracion debe ser una de {decoraciones.NOMBRES_VALIDOS}, recibí {decoracion!r}")
 
     contenido, base, ancho_texto_mm, alto_texto_mm = _armar_geometria(
         nombre, ruta_ttf, alto_mm, decoracion, decoracion_lado, decoracion_tam,
-        deco_x, deco_y, aro_lado, aro_r, borde_mm, raster_px, decoracion_svg=decoracion_svg,
+        deco_x, deco_y, aro_lado, aro_r, borde_mm, raster_px,
+        decoracion_svg=decoracion_svg, decoracion_emoji=decoracion_emoji,
     )
 
     os.makedirs(carpeta_salida, exist_ok=True)

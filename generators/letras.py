@@ -132,16 +132,29 @@ def _posicion_decoracion_libre(poly_letra, x_pct, y_pct):
     return minx + (x_pct / 100.0) * (maxx - minx), miny + (y_pct / 100.0) * (maxy - miny)
 
 
+def _forma_decoracion(d):
+    """Resuelve la forma 2D de una decoración `{"nombre", "tam_mm",
+    "x_pct", "y_pct", "emoji" (opcional)}` — un emoji/pictograma/signo
+    (core/decoraciones.py::forma_desde_emoji) si trae `"emoji"`, si no
+    una de la lista predefinida por `"nombre"`. Devuelve None si no se
+    pudo generar (nombre no reconocido, o el emoji no está en la
+    fuente)."""
+    if d.get("emoji"):
+        return decoraciones.forma_desde_emoji(d["emoji"], d["tam_mm"])
+    return decoraciones.forma(d["nombre"], d["tam_mm"])
+
+
 def _armar_decoraciones_frente(poly_letra, decoraciones_lista, profundidad_decoracion_mm, overlap_mm=1.0):
     """Arma una malla 3D por cada decoración (`{"nombre", "tam_mm",
-    "x_pct", "y_pct"}`), pegada al frente de la letra: protruye hacia el
-    que mira el cartel (Z negativo, delante de la cara de adelante en
-    Z=0) y se soldará ahí porque se mete `overlap_mm` para adentro de la
-    pared sólida. Devuelve una lista de (malla, dict_decoracion) — salta
-    (sin agregar nada) las decoraciones con nombre no reconocido."""
+    "x_pct", "y_pct"}`, o `{"emoji", "tam_mm", "x_pct", "y_pct"}`),
+    pegada al frente de la letra: protruye hacia el que mira el cartel
+    (Z negativo, delante de la cara de adelante en Z=0) y se soldará ahí
+    porque se mete `overlap_mm` para adentro de la pared sólida. Devuelve
+    una lista de (malla, dict_decoracion) — salta (sin agregar nada) las
+    decoraciones que no se pudieron generar."""
     piezas = []
     for d in decoraciones_lista:
-        forma_deco = decoraciones.forma(d["nombre"], d["tam_mm"])
+        forma_deco = _forma_decoracion(d)
         if forma_deco is None:
             continue
         x, y = _posicion_decoracion_libre(poly_letra, d.get("x_pct", 50), d.get("y_pct", 85))
@@ -179,7 +192,7 @@ def preview_rapido(texto, ruta_ttf, alto_mm=150, color_letra="Amarillo",
 
     decos = []
     for d in (decoraciones_frente or []):
-        forma_deco = decoraciones.forma(d["nombre"], d["tam_mm"])
+        forma_deco = _forma_decoracion(d)
         if forma_deco is None:
             continue
         x, y = _posicion_decoracion_libre(poly, d.get("x_pct", 50), d.get("y_pct", 85))
