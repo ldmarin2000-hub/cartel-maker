@@ -1,0 +1,221 @@
+/* [Basic Settings] */
+// First big letter
+big_letter = "T"; 
+// Full name overlay
+full_name = "Tymofii"; 
+// Trendy font for the big letter
+big_font = "Titan One"; // [Arial:style=Bold, Titan One, Lilita One, Luckiest Guy, Fredoka:style=Bold, Baloo 2:style=ExtraBold, Bricolage Grotesque:style=ExtraBold, Rubik One, Alfa Slab One]
+// Popular font for the full name
+name_font = "Luckiest Guy"; // [Arial:style=Bold, Luckiest Guy, Titan One, Lilita One, Fredoka:style=Bold, Baloo 2:style=ExtraBold, Pacifico, Chewy, Lobster, Chonburi:style=Bold]
+// Letter spacing for full name (Less than 1.0 makes letters closer)
+name_tracking = 1.05; // [0.70:0.01:1.30]
+
+/* [Full Name Positioning] */
+// Name horizontal offset X (mm)
+name_x_offset = 0; // [-100:1:100]
+// Name vertical offset Y (mm)
+name_y_offset = -10; // [-100:1:100]
+
+/* [3D Print Accuracy & Clearance] */
+// Fitting tolerance for name and lid (mm). Use 0.20 for Bambu Lab, higher for older printers.
+tolerance = 0.20; // [0.15:0.05:0.45]
+
+/* [LED Optimization] */
+// Internal corners smoothing radius for easy LED strip installation (mm)
+led_wall_smoothing = 4.0; // [0.0:1.0:10.0]
+
+/* [Stability Stand] */
+// Add a flat base/stand at the bottom for better stability?
+add_stand = "none"; // [yes: Yes add stand, none: No disable stand]
+// Width of the stand (mm)
+stand_width = 120; // [50:5:250]
+// Thickness/Height of the stand (mm)
+stand_height = 8; // [4:1:25]
+
+/* [Corner Rounding] */
+// Outer corners rounding radius for the big letter (mm)
+letter_rounding = 3.0; // [0.0:0.5:10.0]
+// Corners rounding radius for the full name (mm)
+name_rounding = 1.0; // [0.0:0.5:5.0]
+
+/* [Back Lid Power Cutout] */
+// Type of power port cutout on the back lid
+power_hole_type = "type_c"; // [none: No hole, round_cable: Round cable wire, type_c: USB Type-C module]
+// Power hole horizontal offset X (mm)
+hole_x_offset = 0; // [-100:1:100]
+// Power hole vertical offset Y (mm)
+hole_y_offset = -45; // [-100:1:100]
+
+/* [Cutout Dimensions] */
+// Radius for round cable hole (mm)
+cable_radius = 2.5; // [1.0:0.1:10.0]
+// Width of USB Type-C slot (mm)
+type_c_width = 9.2; // [5.0:0.1:20.0]
+// Height of USB Type-C slot (mm)
+type_c_height = 3.4; // [2.0:0.1:10.0]
+
+/* [Dimensions & Shell Geometry] */
+big_letter_height = 180; 
+big_letter_depth = 42; 
+light_block_thickness = 2.5; 
+side_wall_thickness = 3; 
+
+/* [Lid Joint Parameters] */
+lid_step_depth = 3.0; 
+lid_outer_thickness = 2.0; 
+
+/* [Name Specifications] */
+name_font_size = 50; 
+name_depth = 15; 
+groove_depth = 5; 
+
+/* [MakerWorld Render Mode] */
+part_to_render = "all"; // [all: All parts assembly, body: Lightbox body only, name: Name plate only, lid: Back lid only]
+// Layout mode for STL export (Dispersed stops parts from melting together in your slicer)
+print_layout_mode = "dispersed"; // [assembled: Assembled Preview, dispersed: Dispersed for Easy 3D Printing]
+
+/* [Visualization smoothness] */
+$fn = 60; 
+
+// Розрахунок автоматичного зміщення деталей для друку
+// Якщо активовано рознесення (dispersed), деталі відлітають вгору і вниз по Z, розриваючи контакт
+name_z_lift = (part_to_render == "all" && print_layout_mode == "dispersed") ? (big_letter_depth + 15) : (big_letter_depth - groove_depth);
+lid_z_drop = (part_to_render == "all" && print_layout_mode == "dispersed") ? -35 : -20;
+
+if (part_to_render == "all") {
+    // 1. Корпус завжди на столі
+    color("GhostWhite", 0.9) main_body();
+    
+    // 2. Ім'я автоматично піднімається вище корпуса, якщо увімкнено dispersed
+    color("Orange") 
+        translate([name_x_offset, name_y_offset, name_z_lift]) 
+            name_plate();
+            
+    // 3. Кришка автоматично опускається нижче, утворюючи повітряний зазор
+    color("DarkGray") 
+        translate([0, 0, lid_z_drop]) 
+            back_lid();
+} 
+else if (part_to_render == "body") {
+    main_body();
+} 
+else if (part_to_render == "name") {
+    name_plate();
+} 
+else if (part_to_render == "lid") {
+    back_lid();
+}
+
+// ==========================================
+// 2D GEOMETRY MODULES
+// ==========================================
+
+module base_letter_2d() {
+    offset(r = letter_rounding) {
+        offset(r = -letter_rounding) {
+            text(big_letter, size = big_letter_height, font = big_font, halign = "center", valign = "center");
+        }
+    }
+}
+
+module name_text_2d() {
+    offset(r = name_rounding) {
+        offset(r = -name_rounding) {
+            text(full_name, size = name_font_size, font = name_font, halign = "center", valign = "center", spacing = name_tracking);
+        }
+    }
+}
+
+module 3d_stand(custom_depth) {
+    if (add_stand == "yes") {
+        translate([-stand_width/2, -big_letter_height/2 - stand_height/2, 0]) {
+            cube([stand_width, stand_height, custom_depth]);
+        }
+    }
+}
+
+// ==========================================
+// 3D PARTS MODULES
+// ==========================================
+
+module main_body() {
+    difference() {
+        union() {
+            linear_extrude(height = big_letter_depth) {
+                base_letter_2d();
+            }
+            3d_stand(big_letter_depth);
+        }
+        
+        linear_extrude(height = big_letter_depth - groove_depth - light_block_thickness) {
+            offset(r = led_wall_smoothing) {
+                offset(r = -side_wall_thickness - led_wall_smoothing) {
+                    base_letter_2d();
+                }
+            }
+        }
+        
+        linear_extrude(height = lid_step_depth) {
+            offset(r = -(side_wall_thickness / 2)) {
+                base_letter_2d();
+            }
+            if (add_stand == "yes") {
+                translate([-stand_width/2 + (side_wall_thickness/2), -big_letter_height/2 - stand_height/2, 0])
+                    cube([stand_width - side_wall_thickness, stand_height, lid_step_depth + 0.1]);
+            }
+        }
+        
+        translate([name_x_offset, name_y_offset, big_letter_depth - groove_depth]) {
+            linear_extrude(height = groove_depth + 0.1) {
+                offset(r = tolerance) {
+                    name_text_2d();
+                }
+            }
+        }
+    }
+}
+
+module name_plate() {
+    linear_extrude(height = name_depth) {
+        name_text_2d();
+    }
+}
+
+module back_lid() {
+    difference() {
+        union() {
+            linear_extrude(height = lid_outer_thickness) {
+                offset(r = -(side_wall_thickness / 2) - tolerance) {
+                    base_letter_2d();
+                }
+            }
+            if (add_stand == "yes") {
+                translate([-stand_width/2 + (side_wall_thickness/2) + tolerance, -big_letter_height/2 - stand_height/2, 0])
+                    cube([stand_width - side_wall_thickness - tolerance*2, stand_height, lid_outer_thickness]);
+            }
+            
+            translate([0, 0, lid_outer_thickness]) {
+                linear_extrude(height = lid_step_depth) {
+                    offset(r = -side_wall_thickness - tolerance) {
+                        base_letter_2d();
+                    }
+                }
+                if (add_stand == "yes") {
+                    translate([-stand_width/2 + side_wall_thickness + tolerance, -big_letter_height/2 - stand_height/2, lid_outer_thickness])
+                        cube([stand_width - side_wall_thickness*2 - tolerance*2, stand_height, lid_step_depth]);
+                }
+            }
+        }
+        
+        translate([hole_x_offset, hole_y_offset, -1]) {
+            if (power_hole_type == "round_cable") {
+                cylinder(h = lid_outer_thickness + lid_step_depth + 2, r = cable_radius);
+            } 
+            else if (power_hole_type == "type_c") {
+                translate([-type_c_width/2, -type_c_height/2, 0]) {
+                    cube([type_c_width, type_c_height, lid_outer_thickness + lid_step_depth + 2]);
+                }
+            }
+        }
+    }
+}

@@ -35,6 +35,7 @@ PRESET_KEYS = [
     "le_texto", "letras_letra_selectbox", "letras_letra_ruta", "le_color_letra", "le_alto_mm",
     "le_agregar_soporte", "le_agregar_tapa",
     "le_agregar_nombre", "le_texto_nombre", "letras_nombre_selectbox", "letras_nombre_ruta", "le_alto_nombre_mm",
+    "le_color_nombre", "le_profundidad_nombre_mm", "le_nombre_tiene_ams",
     "le_n_decoraciones",
     *[f"deco_tipo_{i}" for i in range(4)], *[f"deco_forma_{i}" for i in range(4)],
     *[f"deco_emoji_elegido_{i}" for i in range(4)], *[f"deco_emoji_libre_{i}" for i in range(4)],
@@ -42,13 +43,14 @@ PRESET_KEYS = [
     *[f"deco_x_{i}" for i in range(4)], *[f"deco_y_{i}" for i in range(4)],
     "le_profundidad_decoracion_mm", "le_decoraciones_tiene_ams",
     "le_profundidad_mm", "le_espesor_pared_mm", "le_tapa_espesor_mm", "le_agujero_cable_diam_mm",
+    "le_agujero_cable_lado",
     "le_ancho_pata_mm", "le_alto_pata_mm",
 ]
 
 
 @st.cache_data(ttl=120, show_spinner=False)
 def _preview_rapido(texto, ruta_ttf, alto_mm, color_letra,
-                     agregar_nombre, texto_nombre, ruta_ttf_nombre, alto_nombre_mm, decos_tuple):
+                     agregar_nombre, texto_nombre, ruta_ttf_nombre, alto_nombre_mm, color_nombre, decos_tuple):
     decos = [
         {"nombre": n, "tam_mm": t, "x_pct": x, "y_pct": y, "emoji": e}
         for (n, t, x, y, e) in decos_tuple
@@ -56,7 +58,8 @@ def _preview_rapido(texto, ruta_ttf, alto_mm, color_letra,
     return letras.preview_rapido(
         texto, ruta_ttf, alto_mm=alto_mm, color_letra=color_letra,
         agregar_nombre=agregar_nombre, texto_nombre=texto_nombre,
-        ruta_ttf_nombre=ruta_ttf_nombre, alto_nombre_mm=alto_nombre_mm, decoraciones_frente=decos,
+        ruta_ttf_nombre=ruta_ttf_nombre, alto_nombre_mm=alto_nombre_mm, color_nombre=color_nombre,
+        decoraciones_frente=decos,
     )
 
 
@@ -91,16 +94,32 @@ with col_form:
     st.divider()
     agregar_nombre = st.checkbox(
         "Agregar nombre en cursiva abajo", value=False, key="le_agregar_nombre",
-        help="Texto macizo (sin luz, sin hueco), soldado como una sola pieza pegada al borde "
-             "de abajo de la letra — mismo color que la letra.",
+        help="Texto macizo (sin luz, sin hueco), pegado al borde de abajo de la letra — como "
+             "PIEZA APARTE, para pintarlo de otro color distinto de la letra.",
     )
     texto_nombre, ruta_ttf_nombre, alto_nombre_mm = "", None, 30.0
+    color_nombre, profundidad_nombre_mm, nombre_tiene_ams = "Blanco", 10.0, False
     if agregar_nombre:
         texto_nombre = st.text_input("Nombre", value="Bianca", max_chars=20, key="le_texto_nombre")
         ruta_ttf_nombre = selector_fuente(
             "Fuente del nombre", key="letras_nombre", default_nombre="Sacramento", texto_muestra=texto_nombre,
         )
-        alto_nombre_mm = st.slider("Alto del nombre (mm)", 10, 60, 30, step=2, key="le_alto_nombre_mm")
+        c1, c2 = st.columns(2)
+        alto_nombre_mm = c1.slider("Alto del nombre (mm)", 10, 60, 30, step=2, key="le_alto_nombre_mm")
+        color_nombre = c2.selectbox(
+            "Color del nombre (visor, no cambia el STL)", colores.NOMBRES,
+            index=colores.NOMBRES.index("Blanco"), key="le_color_nombre",
+        )
+        profundidad_nombre_mm = st.slider(
+            "Espesor del nombre (mm)", 3.0, 20.0, 10.0, step=1.0, key="le_profundidad_nombre_mm",
+            help="Grosor de la placa del nombre (no necesita ser tan gruesa como la letra — es "
+                 "maciza, no hueca).",
+        )
+        nombre_tiene_ams = st.checkbox(
+            "Tengo AMS (impresora multicolor) para el nombre", value=False, key="le_nombre_tiene_ams",
+            help="Con AMS: un .3mf combinado (letra + nombre) ya pintado por color, listo para "
+                 "imprimir de un saque. Sin AMS: STL aparte para pegar a mano.",
+        )
 
     st.divider()
     n_decoraciones = st.number_input(
@@ -160,6 +179,13 @@ with col_form:
             "Diámetro del agujero del cable (mm)", 0.0, 12.0, 6.0, step=0.5, disabled=not agregar_tapa,
             key="le_agujero_cable_diam_mm", help="0 = sin agujero.",
         )
+        LADOS_AGUJERO = ["atras", "arriba", "abajo", "izquierda", "derecha"]
+        agujero_cable_lado = st.radio(
+            "Lado del agujero del cable", LADOS_AGUJERO, horizontal=True,
+            disabled=not agregar_tapa or agujero_cable_diam_mm <= 0, key="le_agujero_cable_lado",
+            help="\"atras\": por el canto de atrás (el rebaje donde apoya la tapa). Los otros 4: "
+                 "por la pared lateral de ese lado. Va siempre en la carcasa, no en la tapa.",
+        )
         c1, c2 = st.columns(2)
         ancho_pata_mm = c1.slider(
             "Ancho de la pata (mm)", 15, 80, 40, step=5, disabled=not agregar_soporte, key="le_ancho_pata_mm",
@@ -177,7 +203,7 @@ with col_preview:
         )
         png_rapido, ancho_rapido, alto_rapido = _preview_rapido(
             texto, ruta_ttf, float(alto_mm), color_letra,
-            agregar_nombre, texto_nombre, ruta_ttf_nombre, float(alto_nombre_mm), decos_tuple,
+            agregar_nombre, texto_nombre, ruta_ttf_nombre, float(alto_nombre_mm), color_nombre, decos_tuple,
         )
         if png_rapido:
             st.image(
@@ -201,10 +227,11 @@ with col_preview:
                     texto, ruta_ttf, alto_mm=float(alto_mm), profundidad_mm=float(profundidad_mm),
                     espesor_pared_mm=float(espesor_pared_mm),
                     agregar_tapa=agregar_tapa, tapa_espesor_mm=float(tapa_espesor_mm),
-                    agujero_cable_diam_mm=float(agujero_cable_diam_mm),
+                    agujero_cable_diam_mm=float(agujero_cable_diam_mm), agujero_cable_lado=agujero_cable_lado,
                     agregar_soporte=agregar_soporte, ancho_pata_mm=ancho_pata_mm, alto_pata_mm=alto_pata_mm,
                     agregar_nombre=agregar_nombre, texto_nombre=texto_nombre,
                     ruta_ttf_nombre=ruta_ttf_nombre, alto_nombre_mm=float(alto_nombre_mm),
+                    profundidad_nombre_mm=float(profundidad_nombre_mm), nombre_tiene_ams=nombre_tiene_ams,
                     decoraciones_frente=decoraciones_frente,
                     profundidad_decoracion_mm=float(profundidad_decoracion_mm),
                     decoraciones_tiene_ams=decoraciones_tiene_ams,
@@ -226,6 +253,10 @@ with col_preview:
                     "ruta_stl": r["pieza_tapa"]["ruta_stl"], "color": "#9a9a9a", "nombre": "tapa",
                     "offset": (0, 0, float(profundidad_mm)),
                 })
+            if r["pieza_nombre"]:
+                piezas_visor.append({
+                    "ruta_stl": r["pieza_nombre"]["ruta_stl"], "color": colores.hex_de(color_nombre), "nombre": "nombre",
+                })
             if r["ruta_stl_decoraciones_multicolor"]:
                 piezas_visor.append({"ruta_stl": r["ruta_stl_decoraciones_multicolor"], "multicolor": True})
             for i, d in enumerate(r["decoraciones"]):
@@ -236,7 +267,7 @@ with col_preview:
             html_visor = preview3d.armar_html_visor(piezas_visor)
             if html_visor:
                 components.html(html_visor, height=460)
-                st.caption("Arrastrá para rotar, scroll para zoom. Letra + tapa (si hay) + decoraciones, en su color real de posición.")
+                st.caption("Arrastrá para rotar, scroll para zoom. Letra + tapa/nombre/decoraciones (si hay), en su color real de posición.")
             else:
                 st.image(r["ruta_png"], use_container_width=True)
 
@@ -289,6 +320,23 @@ with col_preview:
                 with open(s["ruta_stl"], "rb") as f:
                     st.download_button(
                         "⬇ Descargar STL (base de escritorio)", f, file_name=os.path.basename(s["ruta_stl"]),
+                        mime="model/stl", use_container_width=True,
+                    )
+
+            if r["ruta_3mf_nombre"]:
+                with open(r["ruta_3mf_nombre"], "rb") as f:
+                    st.download_button(
+                        "⬇ 3MF (letra + nombre, para AMS, recomendado)", f, file_name=os.path.basename(r["ruta_3mf_nombre"]),
+                        mime="model/3mf", use_container_width=True, type="primary",
+                    )
+                st.caption("Abre directo en Bambu Studio con los colores ya puestos — no hace falta dividir nada.")
+            if r["pieza_nombre"]:
+                n = r["pieza_nombre"]
+                if not n["watertight"]:
+                    st.caption("Nombre: no quedó perfectamente watertight, revisalo antes de imprimir.")
+                with open(n["ruta_stl"], "rb") as f:
+                    st.download_button(
+                        "⬇ Descargar STL (nombre)", f, file_name=os.path.basename(n["ruta_stl"]),
                         mime="model/stl", use_container_width=True,
                     )
 

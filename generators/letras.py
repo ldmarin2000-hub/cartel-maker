@@ -45,13 +45,20 @@ CARPETA_SALIDA = "output"
 DECORACIONES = [n for n in decoraciones.NOMBRES_VALIDOS if n != "ninguno"]
 
 
-def _armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm):
+LEDGE_ANCHO_MM = 2.0  # contorno interno (rebaje) donde apoya/encastra la tapa
+
+
+def _armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm):
     """Arma la letra como cáscara hueca: cara de adelante sólida y fina
     (`espesor_pared_mm`, para que pase la luz), paredes laterales del
     mismo espesor, atrás ABIERTO (para meter el LED/pila y poder
-    cambiarla) — no un hueco "cerrado" con piso al final. Si algún trazo
-    de la letra es más angosto que 2x el espesor de pared, esa parte
-    queda maciza (no hay dónde hacer hueco) — no es un error."""
+    cambiarla). Justo antes del borde de atrás, en los últimos
+    `tapa_espesor_mm` de profundidad, el hueco se ensancha hasta dejar
+    un REBAJE de `LEDGE_ANCHO_MM` (en vez de `espesor_pared_mm`) — un
+    escalón donde apoya/encastra la tapa (como una tapa de caja con
+    rebajo), no un simple tope a tope. Si algún trazo de la letra es más
+    angosto que 2x el espesor de pared, esa parte queda maciza (no hay
+    dónde hacer hueco) — no es un error."""
     piezas_afuera = mesh3d.piezas_desde_geom(poly, profundidad_mm)
     afuera = trimesh.util.concatenate(piezas_afuera) if len(piezas_afuera) > 1 else piezas_afuera[0]
 
@@ -61,58 +68,128 @@ def _armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm):
     if hueco_poly.is_empty or hueco_poly.area < 1:
         return afuera, False  # letra/trazo muy angosto para hacerle hueco -> queda maciza
 
+    z_ledge = max(profundidad_mm - tapa_espesor_mm, espesor_pared_mm)
     sobresalto_mm = 5  # que el hueco sobrepase el fondo, para que quede ABIERTO atrás, no un piso ciego
-    piezas_hueco = mesh3d.piezas_desde_geom(
-        hueco_poly, profundidad_mm - espesor_pared_mm + sobresalto_mm, z=espesor_pared_mm
-    )
+    piezas_hueco = mesh3d.piezas_desde_geom(hueco_poly, z_ledge - espesor_pared_mm, z=espesor_pared_mm)
+
+    if _ledge_activo(espesor_pared_mm):
+        ledge_poly = poly.buffer(-LEDGE_ANCHO_MM, join_style=1)
+        if not ledge_poly.is_empty and ledge_poly.area >= 1:
+            piezas_hueco += mesh3d.piezas_desde_geom(
+                ledge_poly, profundidad_mm - z_ledge + sobresalto_mm, z=z_ledge
+            )
+    else:
+        piezas_hueco += mesh3d.piezas_desde_geom(hueco_poly, profundidad_mm - z_ledge + sobresalto_mm, z=z_ledge)
+
     hueco = trimesh.util.concatenate(piezas_hueco) if len(piezas_hueco) > 1 else piezas_hueco[0]
 
     carcasa = trimesh.boolean.difference([afuera, hueco], engine="manifold")
     return carcasa, True
 
 
-def _punto_agujero_cable(poly, margen_mm=6):
-    """Busca un punto cerca del borde inferior de `poly`, centrado en X,
-    que caiga en material SÓLIDO (no en un hueco de la letra, como el
-    interior de una "O") — ahí va el agujerito del cable. Devuelve
-    (x, y) o None si no encontró ningún punto sólido cerca del borde."""
+def _ledge_activo(espesor_pared_mm):
+    """El rebaje (LEDGE_ANCHO_MM) solo funciona como tope real si es más
+    angosto que la pared normal — si no, no hay escalón donde la tapa
+    pueda topar (y directamente no hay margen para separarla de la
+    pared principal). Devuelve si hay margen suficiente."""
+    return espesor_pared_mm > LEDGE_ANCHO_MM + 0.2
+
+
+def _shrink_tapa(espesor_pared_mm, holgura_mm):
+    """Cuánto achicar el contorno de la letra para la tapa. Tiene que
+    quedar MÁS CHICA que la abertura del rebaje (`LEDGE_ANCHO_MM`, para
+    poder entrar) pero MÁS GRANDE que la abertura del hueco principal
+    (`espesor_pared_mm`, para que el escalón la frene y no siga de largo
+    hacia adentro) — si no hay margen entre esos dos valores, la tapa
+    queda simple (pegada por afuera, sin encastrar)."""
+    if not _ledge_activo(espesor_pared_mm):
+        return holgura_mm
+    margen_disponible = espesor_pared_mm - LEDGE_ANCHO_MM
+    return LEDGE_ANCHO_MM + min(holgura_mm, margen_disponible * 0.6)
+
+
+def _punto_y_direccion_pared(poly, lado, margen_mm=8):
+    """Punto sobre el borde exterior de `poly` y la dirección (hacia
+    afuera) para perforar un agujero RADIAL a través de la pared lateral
+    — no a través de la tapa. `lado`: "arriba", "abajo", "izquierda" o
+    "derecha" (a través de la pared del extremo elegido, cerca de ese
+    borde). Devuelve (x, y, dx, dy) con (dx, dy) vector unitario hacia
+    afuera."""
+    minx, miny, maxx, maxy = poly.bounds
+    zona = (maxy - miny) * 0.25
+    if lado == "izquierda":
+        return minx, min(miny + margen_mm, miny + zona), -1.0, 0.0
+    elif lado == "derecha":
+        return maxx, min(miny + margen_mm, miny + zona), 1.0, 0.0
+    elif lado == "arriba":
+        return (minx + maxx) / 2, max(maxy - margen_mm, maxy - zona), 0.0, 1.0
+    else:  # abajo
+        return (minx + maxx) / 2, miny, 0.0, -1.0
+
+
+def _punto_agujero_atras(poly, margen_mm_x=(0, 6, -6, 12, -12, 18, -18, 24, -24, 30, -30)):
+    """Punto en el REBAJE (el anillo sólido entre el borde y
+    `LEDGE_ANCHO_MM` hacia adentro, donde apoya la tapa) cerca del centro
+    de abajo, para el agujero "atrás" (axial, por el canto de atrás, no
+    por una pared lateral). Devuelve (x, y) o None si no encuentra
+    ningún punto en el rebaje cerca del centro."""
+    rebaje = poly.difference(poly.buffer(-LEDGE_ANCHO_MM, join_style=1))
     minx, miny, maxx, maxy = poly.bounds
     cx = (minx + maxx) / 2
-    for dx in (0, 6, -6, 12, -12, 18, -18, 24, -24, 30, -30):
-        for dy in (margen_mm, margen_mm + 4, margen_mm + 8, margen_mm + 12):
-            p = Point(cx + dx, miny + dy)
-            if poly.contains(p):
-                return (cx + dx, miny + dy)
+    y = miny + LEDGE_ANCHO_MM / 2
+    for dx in margen_mm_x:
+        p = Point(cx + dx, y)
+        if rebaje.contains(p):
+            return (cx + dx, y)
     return None
 
 
-def _armar_tapa(poly, espesor_mm, agujero_cable_diam_mm):
-    """Tapa: mismo contorno que la letra (sólida, sin hueco), fina, para
-    cerrar el hueco por atrás después de meter el LED — con un
-    agujerito cerca del borde inferior para sacar el cable. Devuelve
-    (tapa, tiene_agujero)."""
-    piezas = mesh3d.piezas_desde_geom(poly, espesor_mm)
-    tapa = trimesh.util.concatenate(piezas) if len(piezas) > 1 else piezas[0]
+def _armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, profundidad_mm, tapa_espesor_mm):
+    """Cilindro para perforar la carcasa con el agujero del cable — no en
+    la tapa. "arriba"/"abajo"/"izquierda"/"derecha": RADIAL, a través de
+    la pared lateral, a mitad de profundidad. "atras": AXIAL, por el
+    canto de atrás (el rebaje donde apoya la tapa), de afuera hacia
+    adentro en el eje Z. Devuelve el cilindro, o None si "atras" no
+    encontró un punto válido en el rebaje (letra muy angosta ahí)."""
+    radio = agujero_cable_diam_mm / 2
+    if lado == "atras":
+        if not _ledge_activo(espesor_pared_mm):
+            return None
+        punto = _punto_agujero_atras(poly)
+        if punto is None:
+            return None
+        x, y = punto
+        z_afuera = profundidad_mm + 4
+        z_adentro = profundidad_mm - tapa_espesor_mm - 4
+        return trimesh.creation.cylinder(radius=radio, segment=[(x, y, z_afuera), (x, y, z_adentro)], sections=32)
 
-    if agujero_cable_diam_mm <= 0:
-        return tapa, False
-    punto = _punto_agujero_cable(poly)
-    if punto is None:
-        return tapa, False  # letra muy angosta/compleja, no encontramos un lugar sólido -> sin agujero
+    x, y, dx, dy = _punto_y_direccion_pared(poly, lado)
+    z = profundidad_mm * 0.5
+    margen_afuera, margen_adentro = 3.0, espesor_pared_mm + 4.0
+    p1 = (x + dx * margen_afuera, y + dy * margen_afuera, z)
+    p2 = (x - dx * margen_adentro, y - dy * margen_adentro, z)
+    return trimesh.creation.cylinder(radius=radio, segment=[p1, p2], sections=32)
 
-    cx, cy = punto
-    agujero = trimesh.creation.cylinder(radius=agujero_cable_diam_mm / 2, height=espesor_mm + 4, sections=32)
-    agujero.apply_translation([cx, cy, espesor_mm / 2])
-    tapa = trimesh.boolean.difference([tapa, agujero], engine="manifold")
-    return tapa, True
+
+def _armar_tapa(poly, espesor_mm, espesor_pared_mm, holgura_mm=1.0):
+    """Tapa: contorno de la letra achicado (`_shrink_tapa` — para que
+    entre en el rebaje de `_armar_carcasa_hueca` y tope ahí, en vez de
+    seguir de largo hacia el hueco principal), sólida y fina, para cerrar
+    el hueco por atrás después de meter el LED. Sin agujero de cable —
+    ese va en la carcasa (`_armar_agujero_pared`), no acá."""
+    tapa_poly = poly.buffer(-_shrink_tapa(espesor_pared_mm, holgura_mm), join_style=1)
+    piezas = mesh3d.piezas_desde_geom(tapa_poly, espesor_mm)
+    return trimesh.util.concatenate(piezas) if len(piezas) > 1 else piezas[0]
 
 
 def _armar_nombre_cursiva(poly_letra, texto_nombre, ruta_ttf_nombre, alto_nombre_mm, raster_px, solape_mm=3.0):
     """Arma el polígono 2D del nombre (fuente cursiva/script, sin luz),
     centrado en X y pegado al borde inferior de `poly_letra` con
-    `solape_mm` de superposición (para que la unión booleana suelde bien,
-    no quede apenas tocándose). Devuelve (poligono, ancho_mm), o (None, 0)
-    si no se pudo extraer el texto."""
+    `solape_mm` de superposición (para que la unión con la pata/base
+    suelde bien, y para que quede un poco "encastrado" contra la letra —
+    misma idea que la ranura de la referencia, pero sin cortar un hueco:
+    acá alcanza con superponer un poco los dos sólidos). Devuelve
+    (poligono, ancho_mm), o (None, 0) si no se pudo extraer el texto."""
     nombre_poly, ancho_nombre_mm = texto2d.texto_a_poligono(texto_nombre, ruta_ttf_nombre, alto_nombre_mm, raster_px)
     if nombre_poly is None:
         return None, 0
@@ -171,24 +248,24 @@ def _armar_decoraciones_frente(poly_letra, decoraciones_lista, profundidad_decor
 
 def preview_rapido(texto, ruta_ttf, alto_mm=150, color_letra="Amarillo",
                     agregar_nombre=False, texto_nombre="", ruta_ttf_nombre=None, alto_nombre_mm=30,
-                    decoraciones_frente=None):
+                    color_nombre="Blanco", decoraciones_frente=None):
     """Preview 2D instantáneo — solo polígonos shapely (letra + nombre si
     hay + decoraciones posicionadas), SIN el hueco/cáscara/booleanas 3D
     de `_armar_carcasa_hueca` — para ver el resultado (tamaño, posición
     de las decoraciones) mientras se ajustan los parámetros, antes de
-    tocar "Generar letra" (que sí arma la malla 3D real y tarda más).
-    Devuelve (png_bytes, ancho_mm, alto_mm) o (None, 0, 0)."""
+    tocar "Generar letra" (que sí arma la malla 3D real y tarda más). El
+    nombre se dibuja en su propio color (`color_nombre`) — es una pieza
+    aparte, no del mismo color que la letra. Devuelve (png_bytes,
+    ancho_mm, alto_mm) o (None, 0, 0)."""
     if not os.path.exists(ruta_ttf) or not texto.strip():
         return None, 0, 0
     poly, _ = texto2d.texto_a_poligono(texto, ruta_ttf, alto_mm, raster_px=250)
     if poly is None:
         return None, 0, 0
 
-    contenido = poly
+    nombre_poly = None
     if agregar_nombre and texto_nombre.strip() and ruta_ttf_nombre and os.path.exists(ruta_ttf_nombre):
         nombre_poly, _ = _armar_nombre_cursiva(poly, texto_nombre, ruta_ttf_nombre, alto_nombre_mm, raster_px=250)
-        if nombre_poly is not None:
-            contenido = unary_union([contenido, nombre_poly])
 
     decos = []
     for d in (decoraciones_frente or []):
@@ -198,11 +275,11 @@ def preview_rapido(texto, ruta_ttf, alto_mm=150, color_letra="Amarillo",
         x, y = _posicion_decoracion_libre(poly, d.get("x_pct", 50), d.get("y_pct", 85))
         decos.append(translate(forma_deco, xoff=x, yoff=y))
 
-    minx, miny, maxx, maxy = contenido.bounds
-    for dec in decos:
-        dminx, dminy, dmaxx, dmaxy = dec.bounds
-        minx, miny = min(minx, dminx), min(miny, dminy)
-        maxx, maxy = max(maxx, dmaxx), max(maxy, dmaxy)
+    minx, miny, maxx, maxy = poly.bounds
+    for extra in ([nombre_poly] if nombre_poly is not None else []) + decos:
+        eminx, eminy, emaxx, emaxy = extra.bounds
+        minx, miny = min(minx, eminx), min(miny, eminy)
+        maxx, maxy = max(maxx, emaxx), max(maxy, emaxy)
     w, h = max(maxx - minx, 1), max(maxy - miny, 1)
 
     def dibujar(ax, geom, color):
@@ -215,7 +292,9 @@ def preview_rapido(texto, ruta_ttf, alto_mm=150, color_letra="Amarillo",
                 ax.fill(xr, yr, color="#1a1a1a")
 
     fig, ax = plt.subplots(figsize=(6, 6 * h / w + 1))
-    dibujar(ax, contenido, colores.hex_de(color_letra))
+    dibujar(ax, poly, colores.hex_de(color_letra))
+    if nombre_poly is not None:
+        dibujar(ax, nombre_poly, colores.hex_de(color_nombre))
     for i, dec in enumerate(decos):
         dibujar(ax, dec, preview3d.color_decoracion(i))
     ax.set_xlim(minx - 2, maxx + 2)
@@ -252,9 +331,10 @@ def _guardar_preview(ruta_png, malla, titulo):
 
 
 def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.5,
-            agregar_tapa=True, tapa_espesor_mm=3.0, agujero_cable_diam_mm=6.0,
+            agregar_tapa=True, tapa_espesor_mm=3.0, agujero_cable_diam_mm=6.0, agujero_cable_lado="atras",
             agregar_soporte=True, ancho_pata_mm=40, alto_pata_mm=15,
             agregar_nombre=False, texto_nombre="", ruta_ttf_nombre=None, alto_nombre_mm=30,
+            profundidad_nombre_mm=10.0, nombre_tiene_ams=False,
             decoraciones_frente=None, profundidad_decoracion_mm=4.0, decoraciones_tiene_ams=False,
             raster_px=600, carpeta_salida=CARPETA_SALIDA):
     """Arma la letra iluminada (hueca, con soporte de escritorio si hace
@@ -265,16 +345,27 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
     `profundidad_mm`: cuánto sobresale la letra de la mesa (ahí adentro
     va la luz). `espesor_pared_mm`: grosor de la cara de adelante y las
     paredes — más fino deja pasar más luz pero es más frágil.
-    `agregar_tapa`: exporta una tapa aparte (mismo contorno, sólida) para
-    cerrar el hueco después de meter el LED, con un agujerito de
-    `agujero_cable_diam_mm` cerca del borde inferior para el cable (0
-    para no hacer agujero).
+    `agregar_tapa`: exporta una tapa aparte (contorno de la letra
+    achicado con holgura) para cerrar el hueco después de meter el LED —
+    encastra en un REBAJE de la propia carcasa que la frena (no sigue de
+    largo hacia el hueco principal), ver `_armar_carcasa_hueca`/
+    `LEDGE_ANCHO_MM`. El agujero para el cable (`agujero_cable_diam_mm`,
+    0 = sin agujero) va en la CARCASA, no en la tapa —
+    `agujero_cable_lado` elige por dónde: "atras" (por el canto de atrás,
+    el rebaje donde apoya la tapa), "arriba", "abajo", "izquierda" o
+    "derecha" (por la pared lateral del lado elegido).
 
     `agregar_nombre`/`texto_nombre`/`ruta_ttf_nombre`/`alto_nombre_mm`:
     nombre en cursiva pegado abajo de la letra — macizo, sin hueco (no
-    lleva luz), soldado como una sola pieza (mismo color que la letra).
-    Si también hay soporte de escritorio, la pata sale del borde de abajo
-    del conjunto letra+nombre, no de la letra sola.
+    lleva luz), como PIEZA APARTE (`profundidad_nombre_mm`, más fina que
+    la letra — es una placa, no necesita todo el volumen) para poder
+    pintarla de otro color, como en las referencias de este tipo de
+    lámpara. `nombre_tiene_ams=True` exporta un .3mf combinado con la
+    letra ya pintado por triángulo (abre listo en Bambu Studio, ver
+    core/exportar_3mf.py); si no, un STL aparte para pegar a mano. La
+    pata del soporte de escritorio (si hay) sale de la pieza que quede
+    más abajo del conjunto (el nombre, si está agregado; si no, la
+    letra), para que el que se apoya en la mesa sea justo eso.
 
     `decoraciones_frente`: lista de dicts `{"nombre", "tam_mm", "x_pct",
     "y_pct"}` (una de core.decoraciones.NOMBRES_VALIDOS, posición 0-100%
@@ -294,39 +385,63 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
         raise ValueError("no se pudo extraer la letra (probá otra fuente)")
 
     info = []
-    carcasa, quedo_hueca = _armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm)
+    carcasa, quedo_hueca = _armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm)
     if not quedo_hueca:
         info.append(
             "La letra quedó maciza (ningún trazo es más ancho que 2x el espesor de pared) — "
             "probá una letra más grande, una fuente más gruesa, o bajar el espesor de pared."
         )
+    elif agregar_tapa and agujero_cable_diam_mm > 0:
+        agujero = _armar_agujero_pared(
+            poly, espesor_pared_mm, agujero_cable_diam_mm, agujero_cable_lado, profundidad_mm, tapa_espesor_mm
+        )
+        if agujero is None:
+            info.append(
+                f"No pude ubicar el agujero del cable \"{agujero_cable_lado}\" (letra muy angosta "
+                f"ahí, o la pared queda muy fina para el rebaje) — probá otro lado, o hacelo a "
+                f"mano con una mecha."
+            )
+        else:
+            carcasa = trimesh.boolean.difference([carcasa, agujero], engine="manifold")
+            info.append(
+                f"Agujero de {agujero_cable_diam_mm:.0f}mm para el cable en la pared "
+                f"({agujero_cable_lado}) — la tapa queda lisa, solo para cerrar."
+            )
 
     contenido_2d = poly
+    malla_nombre = None
     if agregar_nombre and texto_nombre.strip():
         nombre_poly, _ = _armar_nombre_cursiva(poly, texto_nombre, ruta_ttf_nombre, alto_nombre_mm, raster_px)
         if nombre_poly is None:
             info.append(f"No se pudo extraer el nombre {texto_nombre!r} (probá otra fuente) — sigo sin él.")
         else:
             contenido_2d = unary_union([contenido_2d, nombre_poly])
-            piezas_nombre = mesh3d.piezas_desde_geom(nombre_poly, profundidad_mm)
+            piezas_nombre = mesh3d.piezas_desde_geom(nombre_poly, profundidad_nombre_mm)
             malla_nombre = trimesh.util.concatenate(piezas_nombre) if len(piezas_nombre) > 1 else piezas_nombre[0]
-            carcasa = trimesh.boolean.union([carcasa, malla_nombre], engine="manifold")
-            info.append(f"Nombre {texto_nombre!r} agregado abajo, macizo (sin luz), soldado a la letra.")
 
+    # La pata (si hay soporte) se suelda a la pieza que quede más abajo del conjunto
+    # (el nombre, si está agregado — normalmente termina siendo el borde inferior de
+    # todo; si no, la letra) — así lo que se apoya en la mesa es esa misma pieza.
     pieza_soporte = None
     if agregar_soporte:
         poly_con_pata, ancho_pata_mm = geometry.agregar_pata_escritorio(
             contenido_2d, ancho_pata_mm=ancho_pata_mm, alto_pata_mm=alto_pata_mm
         )
         pata_poly = poly_con_pata.difference(contenido_2d)
-        piezas_pata = mesh3d.piezas_desde_geom(pata_poly, profundidad_mm)
+        profundidad_pata_mm = profundidad_nombre_mm if malla_nombre is not None else profundidad_mm
+        piezas_pata = mesh3d.piezas_desde_geom(pata_poly, profundidad_pata_mm)
         if piezas_pata:
             pata_solida = trimesh.util.concatenate(piezas_pata) if len(piezas_pata) > 1 else piezas_pata[0]
-            carcasa = trimesh.boolean.union([carcasa, pata_solida], engine="manifold")
+            if malla_nombre is not None:
+                malla_nombre = trimesh.boolean.union([malla_nombre, pata_solida], engine="manifold")
+            else:
+                carcasa = trimesh.boolean.union([carcasa, pata_solida], engine="manifold")
         info.append(
             f"Pata de {ancho_pata_mm:.0f}mm agregada abajo (sólida, sin hueco) para encastrar en "
             f"la base de escritorio (STL aparte) — para las letras que no se paran solas."
         )
+    else:
+        profundidad_pata_mm = profundidad_mm
 
     piezas_deco = []
     if decoraciones_frente:
@@ -340,11 +455,34 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
     ruta_png = os.path.join(carpeta_salida, f"letra_{base_nombre}_preview.png")
 
     carcasa.export(ruta_stl)
-    if piezas_deco:
-        malla_preview = trimesh.util.concatenate([carcasa] + [m for m, _ in piezas_deco])
-        _guardar_preview(ruta_png, malla_preview, f"Letra {texto!r}")
+    piezas_preview = [carcasa] + [m for m, _ in piezas_deco] + ([malla_nombre] if malla_nombre is not None else [])
+    if len(piezas_preview) > 1:
+        _guardar_preview(ruta_png, trimesh.util.concatenate(piezas_preview), f"Letra {texto!r}")
     else:
         _guardar_preview(ruta_png, carcasa, f"Letra {texto!r}")
+
+    pieza_nombre = None
+    ruta_3mf_nombre = None
+    if malla_nombre is not None:
+        ruta_nombre = os.path.join(carpeta_salida, f"letra_{base_nombre}_nombre.stl")
+        malla_nombre.export(ruta_nombre)
+        pieza_nombre = {
+            "ruta_stl": ruta_nombre,
+            "vertices": len(malla_nombre.vertices),
+            "watertight": malla_nombre.is_watertight,
+        }
+        if nombre_tiene_ams:
+            ruta_3mf_nombre = os.path.join(carpeta_salida, f"letra_{base_nombre}_con_nombre.3mf")
+            pieza.exportar_multicolor_3mf([carcasa, malla_nombre], ruta_3mf_nombre)
+            info.append(
+                "Nombre + letra combinados en un .3mf ya pintado por color (abre directo en "
+                "Bambu Studio) — para imprimir de un saque con AMS."
+            )
+        else:
+            info.append(
+                f"Nombre exportado como STL aparte ({os.path.basename(ruta_nombre)}) para pegar "
+                f"a mano de otro color después de imprimir."
+            )
 
     decoraciones_export = []
     ruta_stl_decoraciones_multicolor = None
@@ -372,12 +510,12 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
 
     if agregar_soporte:
         pieza_soporte = pieza.exportar_base_escritorio(
-            ancho_pata_mm, profundidad_mm, alto_pata_mm, f"letra_{base_nombre}", carpeta_salida
+            ancho_pata_mm, profundidad_pata_mm, alto_pata_mm, f"letra_{base_nombre}", carpeta_salida
         )
 
     pieza_tapa = None
     if agregar_tapa:
-        malla_tapa, tiene_agujero = _armar_tapa(poly, tapa_espesor_mm, agujero_cable_diam_mm)
+        malla_tapa = _armar_tapa(poly, tapa_espesor_mm, espesor_pared_mm)
         ruta_tapa = os.path.join(carpeta_salida, f"letra_{base_nombre}_tapa.stl")
         malla_tapa.export(ruta_tapa)
         pieza_tapa = {
@@ -385,21 +523,15 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
             "vertices": len(malla_tapa.vertices),
             "watertight": malla_tapa.is_watertight,
         }
-        if tiene_agujero:
-            info.append(
-                f"Tapa agregada (STL aparte) para cerrar el hueco después de meter el LED, con "
-                f"agujerito de {agujero_cable_diam_mm:.0f}mm cerca del borde inferior para el cable."
-            )
-        else:
-            info.append(
-                "Tapa agregada (STL aparte) para cerrar el hueco después de meter el LED — no le "
-                "pude poner el agujero del cable (no encontré un lugar sólido cerca del borde); "
-                "hacelo a mano con una mecha."
-            )
+        info.append(
+            "Tapa agregada (STL aparte, 1mm de holgura) para cerrar el hueco después de meter "
+            "el LED — encastra en el rebaje de la carcasa."
+        )
 
     minx, miny, minz = carcasa.bounds[0]
     maxx, maxy, maxz = carcasa.bounds[1]
-    for m, _ in piezas_deco:
+    piezas_para_bounds = [m for m, _ in piezas_deco] + ([malla_nombre] if malla_nombre is not None else [])
+    for m in piezas_para_bounds:
         (dminx, dminy, dminz), (dmaxx, dmaxy, dmaxz) = m.bounds
         minx, miny, minz = min(minx, dminx), min(miny, dminy), min(minz, dminz)
         maxx, maxy, maxz = max(maxx, dmaxx), max(maxy, dmaxy), max(maxz, dmaxz)
@@ -412,6 +544,8 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
         "ruta_stl": ruta_stl,
         "pieza_soporte": pieza_soporte,
         "pieza_tapa": pieza_tapa,
+        "pieza_nombre": pieza_nombre,
+        "ruta_3mf_nombre": ruta_3mf_nombre,
         "decoraciones": decoraciones_export,
         "ruta_stl_decoraciones_multicolor": ruta_stl_decoraciones_multicolor,
         "ancho_mm": ancho_mm,
@@ -474,6 +608,10 @@ def ejecutar():
         print(f"  ✓ STL (base escritorio) -> {r['pieza_soporte']['ruta_stl']}")
     if r["pieza_tapa"]:
         print(f"  ✓ STL (tapa) -> {r['pieza_tapa']['ruta_stl']}")
+    if r["pieza_nombre"]:
+        print(f"  ✓ STL (nombre) -> {r['pieza_nombre']['ruta_stl']}")
+    if r["ruta_3mf_nombre"]:
+        print(f"  ✓ 3MF (letra + nombre, para AMS) -> {r['ruta_3mf_nombre']}")
     if r["ruta_stl_decoraciones_multicolor"]:
         print(f"  ✓ STL (decoraciones multicolor) -> {r['ruta_stl_decoraciones_multicolor']}")
     for d in r["decoraciones"]:

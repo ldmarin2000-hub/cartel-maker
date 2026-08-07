@@ -360,19 +360,24 @@ def generar(nombre, ruta_ttf, alto_mm=20,
     )
 
     ruta_stl_multicolor = None
+    ruta_3mf_multicolor = None
     if tiene_ams:
-        # Los slicers (Bambu Studio incluido) re-acomodan cada STL que importás por
-        # separado, así que 2 archivos sueltos NO quedan alineados aunque el archivo
-        # diga que van pegados. La solución: un solo STL con las 2 piezas ya adentro
-        # (sin fusionar, cada una como su propio cuerpo) — al ser un solo import no hay
-        # reacomodo, y en Bambu Studio "Partir en objetos" las separa para pintarlas.
+        # El .3mf pintado (ver core/exportar_3mf.py) es la opción recomendada: abre
+        # directo en Bambu Studio con los colores ya puestos. El .stl combinado queda
+        # como respaldo (por si alguien lo necesita en otro slicer) — los slicers
+        # re-acomodan cada STL que importás por separado, así que 2 archivos sueltos NO
+        # quedan alineados aunque el archivo diga que van pegados; con el combinado, al
+        # menos queda un solo import con las piezas en su lugar, aunque dividirlo en
+        # objetos para pintarlas resultó frágil en la práctica.
+        ruta_3mf_multicolor = os.path.join(carpeta_salida, f"{base_nombre}_multicolor.3mf")
+        pieza.exportar_multicolor_3mf([malla_base, malla_texto], ruta_3mf_multicolor)
         ruta_stl_multicolor = os.path.join(carpeta_salida, f"{base_nombre}_multicolor.stl")
         pieza.exportar_multicolor([malla_base, malla_texto], ruta_stl_multicolor)
         info = [
-            "Con AMS: descargá el STL multicolor (ya trae las 2 piezas pegadas en su "
-            "posición real). En Bambu Studio: clic derecho sobre el objeto → \"Partir en "
-            "objetos\", seleccioná las piezas del texto/decoración y asignales un color, "
-            "y la base el otro — un solo trabajo de impresión, sin pegar nada a mano."
+            "Con AMS: descargá el .3mf multicolor — abre directo en Bambu Studio con los "
+            "colores ya asignados (base y texto/decoración), sin dividir nada a mano. Si "
+            "preferís el STL combinado (para otro slicer), también está: clic derecho → "
+            "\"Partir en objetos\" y asignales color ahí."
         ]
     else:
         info = [
@@ -386,6 +391,7 @@ def generar(nombre, ruta_ttf, alto_mm=20,
         "ruta_stl_base": ruta_stl_base,
         "ruta_stl_texto": ruta_stl_texto,
         "ruta_stl_multicolor": ruta_stl_multicolor,
+        "ruta_3mf_multicolor": ruta_3mf_multicolor,
         "ancho_mm": ancho_mm,
         "alto_mm": alto_total_mm,
         "vertices_base": len(malla_base.vertices), "watertight_base": malla_base.is_watertight,
@@ -442,7 +448,9 @@ def ejecutar():
     print(f"  ✓ preview -> {r['ruta_png']}")
     print(f"  ✓ STL (base)  -> {r['ruta_stl_base']}  ({r['vertices_base']} vért., watertight={r['watertight_base']})")
     print(f"  ✓ STL (texto) -> {r['ruta_stl_texto']}  ({r['vertices_texto']} vért., watertight={r['watertight_texto']})")
+    if r["ruta_3mf_multicolor"]:
+        print(f"  ✓ 3MF (multicolor, para AMS, recomendado) -> {r['ruta_3mf_multicolor']}")
     if r["ruta_stl_multicolor"]:
-        print(f"  ✓ STL (multicolor, para AMS) -> {r['ruta_stl_multicolor']}")
+        print(f"  ✓ STL (multicolor, respaldo) -> {r['ruta_stl_multicolor']}")
     print(f"  {'✓' if r['entra_a1'] else '⚠'} {r['mensaje_a1']}")
     print()
