@@ -15,30 +15,38 @@ import streamlit.components.v1 as components
 
 from core import colores, geometry, preview3d
 from generators import neon
-from ui_streamlit import selector_fuente
+from ui_streamlit import bloque_presets, selector_fuente
 
 st.set_page_config(page_title="Cartel de neón · Cartel Maker", page_icon="🔥", layout="wide")
 
 st.title("🔥 Cartel de neón (texto trazado)")
 st.caption(neon.DESCRIPCION)
 
+PRESET_KEYS = [
+    "ne_texto", "neon_selectbox", "neon_ruta", "ne_color_tubo", "ne_alto_mm", "ne_modo_led",
+    "ne_led_ancho_mm", "ne_led_prof_mm", "ne_redondeo_mm", "ne_fondo",
+    "ne_agregar_canal_salida", "ne_cable_ancho_mm", "ne_agregar_agujeros", "ne_agujero_cable_diam_mm",
+    "ne_tipo_montaje", "ne_n_orejas_montaje", "ne_ancho_pata_mm", "ne_alto_pata_mm",
+]
 
 col_form, col_preview = st.columns([1, 1.3])
 
 with col_form:
-    texto = st.text_input("Texto", value="Mis 15")
+    bloque_presets("neon", PRESET_KEYS)
+
+    texto = st.text_input("Texto", value="Mis 15", key="ne_texto")
 
     ruta_ttf = selector_fuente("Fuente", key="neon", default_nombre="Pacifico", texto_muestra=texto)
 
     color_tubo = st.selectbox(
         "Color del tubo LED (visor, no cambia el STL)", colores.NOMBRES,
-        index=colores.NOMBRES.index("Rosa Fluor"),
+        index=colores.NOMBRES.index("Rosa Fluor"), key="ne_color_tubo",
         help="Solo para ver cómo queda en el visor 3D — el LED de verdad se elige aparte al comprar la tira.",
     )
 
-    alto_mm = st.slider("Alto del texto (mm)", min_value=20, max_value=250, value=90, step=5)
+    alto_mm = st.slider("Alto del texto (mm)", min_value=20, max_value=250, value=90, step=5, key="ne_alto_mm")
     modo_led = st.radio(
-        "Modo LED", ["neon", "ws2812"], horizontal=True,
+        "Modo LED", ["neon", "ws2812"], horizontal=True, key="ne_modo_led",
         help="neon: tubo flex, sigue curvas cerradas. ws2812: tira rígida de costado, "
              "necesita letras más rectas.",
     )
@@ -46,15 +54,19 @@ with col_form:
     default_ancho_led = 6.0 if modo_led == "neon" else 10.0
     default_prof_canal = 8.0 if modo_led == "neon" else 4.0
     with st.expander("Ajustes finos"):
-        led_ancho_mm = st.number_input("Ancho del LED (mm)", value=default_ancho_led, step=0.5)
-        led_prof_mm = st.number_input("Profundidad del canal (mm)", value=default_prof_canal, step=0.5)
+        led_ancho_mm = st.number_input(
+            "Ancho del LED (mm)", value=default_ancho_led, step=0.5, key="ne_led_ancho_mm",
+        )
+        led_prof_mm = st.number_input(
+            "Profundidad del canal (mm)", value=default_prof_canal, step=0.5, key="ne_led_prof_mm",
+        )
         redondeo_mm = st.slider(
-            "Redondeo de bordes (mm)", 0.0, 3.0, 0.5, step=0.1,
+            "Redondeo de bordes (mm)", 0.0, 3.0, 0.5, step=0.1, key="ne_redondeo_mm",
             help="Suaviza las esquinas filosas que a veces deja el trazado en curvas cerradas "
                  "de la fuente. 0 = sin suavizar. Valores muy altos pueden achicar detalles finos.",
         )
         fondo = st.radio(
-            "Placa de fondo", list(geometry.FONDOS_VALIDOS), horizontal=True,
+            "Placa de fondo", list(geometry.FONDOS_VALIDOS), horizontal=True, key="ne_fondo",
             help="contorno: sigue las letras, gasta poco material pero las letras separadas "
                  "quedan unidas solo por puentes finos. rect_hundido: rectángulo macizo, el canal "
                  "queda como zanja (más rígido, gasta más). rect_plano: rectángulo fino con las "
@@ -62,32 +74,42 @@ with col_form:
         )
         st.divider()
         agregar_canal_salida = st.checkbox(
-            "Agregar canalcito de salida", value=True,
+            "Agregar canalcito de salida", value=True, key="ne_agregar_canal_salida",
             help="Un canalcito recto desde la punta más conveniente del recorrido hasta "
                  "afuera de la placa, para sacar el cable de alimentación general.",
         )
-        cable_ancho_mm = st.number_input("Ancho del canalcito de salida (mm)", value=4.0, step=0.5,
-                                          disabled=not agregar_canal_salida)
+        cable_ancho_mm = st.number_input(
+            "Ancho del canalcito de salida (mm)", value=4.0, step=0.5,
+            disabled=not agregar_canal_salida, key="ne_cable_ancho_mm",
+        )
         agregar_agujeros = st.checkbox(
-            "Agregar agujeros de conexión", value=True,
+            "Agregar agujeros de conexión", value=True, key="ne_agregar_agujeros",
             help="Un agujerito hacia atrás en cada punta suelta del recorrido (entre letras, y "
                  "también en la salida general) para poder soldar/conectar el cable ahí — el "
                  "cable entre letras corre pegado a la parte de atrás del cartel.",
         )
-        agujero_cable_diam_mm = st.number_input("Diámetro de los agujeros (mm)", value=5.0, step=0.5,
-                                                 disabled=not agregar_agujeros)
+        agujero_cable_diam_mm = st.number_input(
+            "Diámetro de los agujeros (mm)", value=5.0, step=0.5,
+            disabled=not agregar_agujeros, key="ne_agujero_cable_diam_mm",
+        )
         tipo_montaje = st.radio(
-            "Montaje", list(neon.TIPOS_MONTAJE), horizontal=True,
+            "Montaje", list(neon.TIPOS_MONTAJE), horizontal=True, key="ne_tipo_montaje",
             help="colgado: orejas arriba con agujero bocallave para un tornillo. escritorio: "
                  "una pata abajo que encastra a presión en una base impresa aparte, para que se "
                  "pare solo. ninguno: sin nada de esto.",
         )
-        n_orejas_montaje = st.slider("Cantidad de orejas de montaje", 1, 4, 2,
-                                      disabled=tipo_montaje != "colgado")
-        ancho_pata_mm = st.number_input("Ancho de la pata (mm)", value=40.0, step=5.0,
-                                         disabled=tipo_montaje != "escritorio")
-        alto_pata_mm = st.number_input("Alto de la pata (mm)", value=15.0, step=1.0,
-                                        disabled=tipo_montaje != "escritorio")
+        n_orejas_montaje = st.slider(
+            "Cantidad de orejas de montaje", 1, 4, 2,
+            disabled=tipo_montaje != "colgado", key="ne_n_orejas_montaje",
+        )
+        ancho_pata_mm = st.number_input(
+            "Ancho de la pata (mm)", value=40.0, step=5.0,
+            disabled=tipo_montaje != "escritorio", key="ne_ancho_pata_mm",
+        )
+        alto_pata_mm = st.number_input(
+            "Alto de la pata (mm)", value=15.0, step=1.0,
+            disabled=tipo_montaje != "escritorio", key="ne_alto_pata_mm",
+        )
         st.caption("Si el cartel es más ancho que la Bambu A1, se parte en módulos con cola de milano automáticamente.")
 
     generar_click = st.button("Generar cartel", type="primary", use_container_width=True)

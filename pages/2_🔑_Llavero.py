@@ -15,27 +15,48 @@ import streamlit.components.v1 as components
 
 from core import colores, preview3d
 from generators import llavero
-from ui_streamlit import selector_fuente
+from ui_streamlit import bloque_presets, selector_fuente
 
 st.set_page_config(page_title="Llavero · Cartel Maker", page_icon="🔑", layout="wide")
 
 st.title("🔑 Llavero")
 st.caption(llavero.DESCRIPCION)
 
+PRESET_KEYS = [
+    "ll_nombre", "llavero_selectbox", "llavero_ruta", "ll_alto_mm",
+    "ll_color_base", "ll_color_texto", "ll_decoracion", "ll_decoracion_lado", "ll_aro_lado",
+    "ll_tiene_ams", "ll_decoracion_tam", "ll_deco_x", "ll_deco_y", "ll_aro_r",
+    "ll_espesor_texto_mm", "ll_espesor_base_mm", "ll_borde_mm",
+]
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _preview_rapido(nombre, ruta_ttf, alto_mm, color_base, color_texto,
+                     decoracion, decoracion_lado, decoracion_tam, deco_x, deco_y, aro_lado, aro_r, borde_mm):
+    return llavero.preview_rapido(
+        nombre, ruta_ttf, alto_mm=alto_mm, color_base=color_base, color_texto=color_texto,
+        decoracion=decoracion, decoracion_lado=decoracion_lado, decoracion_tam=decoracion_tam,
+        deco_x=deco_x, deco_y=deco_y, aro_lado=aro_lado, aro_r=aro_r, borde_mm=borde_mm,
+    )
+
 
 col_form, col_preview = st.columns([1, 1.3])
 
 with col_form:
-    nombre = st.text_input("Nombre / texto", value="Bianca")
+    bloque_presets("llavero", PRESET_KEYS)
+
+    nombre = st.text_input("Nombre / texto", value="Bianca", key="ll_nombre")
 
     ruta_ttf = selector_fuente("Fuente", key="llavero", default_nombre="Lobster", texto_muestra=nombre)
 
-    alto_mm = st.slider("Alto del texto (mm)", 10, 60, 20)
+    alto_mm = st.slider("Alto del texto (mm)", 10, 60, 20, key="ll_alto_mm")
 
     c1, c2 = st.columns(2)
-    color_base = c1.selectbox("Color base (filamento)", llavero.COLORES, index=llavero.COLORES.index("Blanco"))
+    color_base = c1.selectbox(
+        "Color base (filamento)", llavero.COLORES, index=llavero.COLORES.index("Blanco"), key="ll_color_base",
+    )
     color_texto = c2.selectbox(
-        "Color texto (filamento)", llavero.COLORES, index=llavero.COLORES.index("Rosa Fluor")
+        "Color texto (filamento)", llavero.COLORES, index=llavero.COLORES.index("Rosa Fluor"), key="ll_color_texto",
     )
     c1.markdown(
         f'<div style="height:22px;border-radius:4px;background:{colores.hex_de(color_base)};'
@@ -46,11 +67,14 @@ with col_form:
         f'border:1px solid #0003"></div>', unsafe_allow_html=True,
     )
 
-    decoracion = st.selectbox("Decoración", llavero.DECORACIONES, index=llavero.DECORACIONES.index("corazon"))
+    decoracion = st.selectbox(
+        "Decoración", llavero.DECORACIONES, index=llavero.DECORACIONES.index("corazon"), key="ll_decoracion",
+    )
     svg_subido = st.file_uploader(
         "...o subí tu propio ícono/logo (SVG, opcional)", type=["svg"],
         help="Si subís un SVG, reemplaza a la decoración de la lista de arriba. Funciona con "
-             "casi cualquier ícono simple (un solo color, sin fotos ni degradados).",
+             "casi cualquier ícono simple (un solo color, sin fotos ni degradados). No entra en "
+             "el preset ni en la vista rápida — solo en el llavero generado.",
     )
     decoracion_svg = None
     if svg_subido is not None:
@@ -58,12 +82,16 @@ with col_form:
         decoracion_svg = os.path.join("output", f"_subido_{svg_subido.name}")
         with open(decoracion_svg, "wb") as f:
             f.write(svg_subido.getvalue())
-    decoracion_lado = st.radio("Lado de la decoración", llavero.LADOS_DECO, horizontal=True)
+    decoracion_lado = st.radio(
+        "Lado de la decoración", llavero.LADOS_DECO, horizontal=True, key="ll_decoracion_lado",
+    )
 
-    aro_lado = st.radio("Aro (para colgar del llavero)", llavero.LADOS_ARO, horizontal=True)
+    aro_lado = st.radio(
+        "Aro (para colgar del llavero)", llavero.LADOS_ARO, horizontal=True, key="ll_aro_lado",
+    )
 
     tiene_ams = st.checkbox(
-        "Tengo AMS (impresora multicolor)", value=False,
+        "Tengo AMS (impresora multicolor)", value=False, key="ll_tiene_ams",
         help="Con AMS, la pieza de texto se exporta ya alineada sobre la base (importás las "
              "2 juntas en Bambu Studio, sin moverlas, un color por objeto, y las imprimís en "
              "un solo trabajo — sin pegar nada a mano). Sin AMS, cada pieza sale apoyada en "
@@ -71,17 +99,33 @@ with col_form:
     )
 
     with st.expander("Ajustes finos"):
-        decoracion_tam = st.slider("Tamaño de la decoración", 3, 20, 7)
-        deco_x = st.slider("Ajuste horizontal de la decoración", -40, 40, 0)
-        deco_y = st.slider("Ajuste vertical de la decoración", -40, 40, 0)
-        aro_r = st.slider("Radio del agujero del aro (mm)", 1.0, 5.0, 2.0, step=0.25)
-        espesor_texto_mm = st.slider("Espesor del texto/decoración (mm)", 1.0, 6.0, 2.0, step=0.5)
-        espesor_base_mm = st.slider("Espesor de la base (mm)", 1.0, 8.0, 3.0, step=0.5)
-        borde_mm = st.slider("Margen del borde (mm)", 1.0, 10.0, 3.0, step=0.5)
+        decoracion_tam = st.slider("Tamaño de la decoración", 3, 20, 7, key="ll_decoracion_tam")
+        deco_x = st.slider("Ajuste horizontal de la decoración", -40, 40, 0, key="ll_deco_x")
+        deco_y = st.slider("Ajuste vertical de la decoración", -40, 40, 0, key="ll_deco_y")
+        aro_r = st.slider("Radio del agujero del aro (mm)", 1.0, 5.0, 2.0, step=0.25, key="ll_aro_r")
+        espesor_texto_mm = st.slider(
+            "Espesor del texto/decoración (mm)", 1.0, 6.0, 2.0, step=0.5, key="ll_espesor_texto_mm",
+        )
+        espesor_base_mm = st.slider("Espesor de la base (mm)", 1.0, 8.0, 3.0, step=0.5, key="ll_espesor_base_mm")
+        borde_mm = st.slider("Margen del borde (mm)", 1.0, 10.0, 3.0, step=0.5, key="ll_borde_mm")
 
     generar_click = st.button("Generar llavero", type="primary", use_container_width=True)
 
 with col_preview:
+    if nombre.strip() and not svg_subido:
+        png_rapido, ancho_rapido, alto_rapido = _preview_rapido(
+            nombre, ruta_ttf, float(alto_mm), color_base, color_texto,
+            decoracion, decoracion_lado, decoracion_tam, deco_x, deco_y, aro_lado, aro_r, borde_mm,
+        )
+        if png_rapido:
+            st.image(
+                png_rapido,
+                caption=f"Vista rápida (2D) — ~{ancho_rapido:.0f} x {alto_rapido:.0f} mm. "
+                        f"Al generar sale la malla 3D real (con volumen, para imprimir).",
+                use_container_width=True,
+            )
+            st.divider()
+
     if not generar_click:
         st.info("Completá el formulario y apretá **Generar llavero**.")
     elif not nombre.strip():

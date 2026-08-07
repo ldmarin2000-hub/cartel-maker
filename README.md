@@ -68,14 +68,17 @@ core/               lógica compartida entre generadores (raster, esqueleto,
                     armado final: nombre de archivo, export multicolor/
                     sueltas, soporte de escritorio, chequeo A1), colores
                     (paleta de filamento curada), fuentes (catálogo +
-                    categorías + preview en vivo), chequeos, ui, wrapper
+                    categorías + preview en vivo), presets (guardar/cargar
+                    combinaciones de parámetros), chequeos, ui, wrapper
                     OpenSCAD)
 generators/         un archivo por generador (neon.py, letras.py, llavero.py):
-                    generar() es la lógica pura que usan tanto app.py como main.py
-ui_streamlit.py     widgets de Streamlit compartidos entre páginas (ej. el
-                    selector de fuente) — no es core/ porque SÍ depende de
-                    Streamlit; no va en pages/ porque cualquier .py suelto
-                    ahí se vuelve una página nueva del menú
+                    generar() es la lógica pura que usan tanto app.py como main.py;
+                    llavero.py y letras.py también tienen preview_rapido()
+                    (2D, sin mesh3d/booleanas, para la vista rápida)
+ui_streamlit.py     widgets de Streamlit compartidos entre páginas (selector
+                    de fuente, bloque de presets) — no es core/ porque SÍ
+                    depende de Streamlit; no va en pages/ porque cualquier
+                    .py suelto ahí se vuelve una página nueva del menú
 scad/               archivos .scad paramétricos (Customizer de OpenSCAD)
 fonts/curadas/      12 Google Fonts bajadas y categorizadas a mano (script,
                     manuscrita, display, redondeada) — licencia OFL, ver
@@ -84,7 +87,34 @@ fonts/              tus propios .ttf (además de los de fonts/curadas/)
 assets/vendor/      model-viewer.min.js vendoreado (Apache-2.0, Google) para
                     el visor 3D — offline, no pide nada a internet
 output/             STL + preview + SVG generados (no se versiona)
+presets/            combinaciones de parámetros guardadas, por generador
+                    (no se versiona — son tuyos, no del repo)
 ```
+
+### Presets y vista rápida
+
+Cada página tiene un bloque **"💾 Presets guardados"** arriba del
+formulario: guardá la combinación actual de parámetros con un nombre
+(`core/presets.py`, un .json por preset en `presets/<generador>/`) y
+volvé a cargarla después — pisa los widgets del formulario vía
+`st.session_state` y fuerza un rerun (`ui_streamlit.py::bloque_presets`).
+No cubre `st.file_uploader` (SVG propio): esos no se pueden pre-cargar
+programáticamente.
+
+Llavero y Letras (los dos generadores con sliders de posición de
+decoración, donde más hace falta feedback inmediato) muestran además una
+**vista rápida en 2D** que se actualiza sola con cada cambio de parámetro,
+sin tocar "Generar": es la geometría plana (texto + decoración
+posicionada), sin el hueco/las booleanas 3D reales, así que sale en
+~0.2-0.3s en vez de los varios segundos que tarda la malla 3D
+watertight — `generators/llavero.py::preview_rapido()` y
+`generators/letras.py::preview_rapido()`, cacheadas con `st.cache_data`
+para que ajustar un slider y volver al valor anterior sea instantáneo.
+Neón y Ambigrama no la tienen: en neón el trazado ya se ve razonablemente
+bien por la tipografía elegida (menos que ajustar a ciegas), y en
+ambigrama el resultado real depende de la intersección booleana entre
+los 2 lados — un preview plano de un solo lado sería más confuso que
+útil.
 
 ### Fuentes y colores curados
 
@@ -161,7 +191,14 @@ letra iluminada; acá solo vive el mecanismo que se repetía igual.
    no reescribirlo); para el color, las opciones de `core.colores.NOMBRES`
    + `core.colores.hex_de(...)`; para el preview 3D, armar la lista de
    piezas (`{"ruta_stl", "color", "nombre"}`) y pasarla a
-   `core.preview3d.armar_html_visor(...)`.
+   `core.preview3d.armar_html_visor(...)`; para presets, ponerle `key=`
+   a cada widget que valga la pena guardar, juntar esos keys en una lista
+   `PRESET_KEYS`, y llamar `ui_streamlit.bloque_presets("mi_generador",
+   PRESET_KEYS)` arriba del formulario. Si además conviene una vista
+   rápida (generadores con sliders de posición, tipo llavero/letras),
+   sumar un `preview_rapido(...)` al generador que arme solo la
+   geometría 2D (sin mesh3d/booleanas) y llamarlo cacheado con
+   `st.cache_data` en cada rerun de la página, no solo al generar.
 3. Listo — `main.py` lo lista solo por consola, y Streamlit lo agrega solo
    al menú lateral por estar en `pages/`.
 

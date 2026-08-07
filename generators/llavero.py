@@ -10,6 +10,7 @@ borde con aros para colgar, y extruye/exporta con core/mesh3d.py — el
 mismo pipeline que ya usa el generador de neón.
 """
 
+import io
 import os
 
 import matplotlib
@@ -113,6 +114,32 @@ def _guardar_preview(ruta_png, base, contenido, color_base, color_texto, nombre)
     ax.set_title(nombre, color="#333")
     fig.savefig(ruta_png, dpi=130, bbox_inches="tight", facecolor="#f5f5dc")
     plt.close(fig)
+
+
+def preview_rapido(nombre, ruta_ttf, alto_mm=20,
+                    color_base="Blanco", color_texto="Rosa Fluor",
+                    decoracion="corazon", decoracion_lado="derecha", decoracion_tam=7,
+                    deco_x=0, deco_y=0, aro_lado="izquierda", aro_r=2, borde_mm=3):
+    """Preview 2D instantáneo — solo la geometría plana (texto + decoración
+    + borde + aro, `_armar_geometria`), SIN mesh3d ni booleanas 3D — para
+    ver el resultado mientras se ajustan los parámetros, antes de tocar
+    "Generar llavero" (que sí arma la malla 3D real y tarda más). No
+    soporta ícono propio en SVG (`decoracion_svg`): esa ruta cambia con
+    cada archivo subido y no vale la pena cachear. Devuelve
+    (png_bytes, ancho_mm, alto_mm) o (None, 0, 0) si no se pudo generar."""
+    if not os.path.exists(ruta_ttf) or decoracion not in decoraciones.NOMBRES_VALIDOS:
+        return None, 0, 0
+    try:
+        contenido, base, ancho_mm, alto_mm_real = _armar_geometria(
+            nombre, ruta_ttf, alto_mm, decoracion, decoracion_lado, decoracion_tam,
+            deco_x, deco_y, aro_lado, aro_r, borde_mm, raster_px=250,
+        )
+    except (ValueError, FileNotFoundError):
+        return None, 0, 0
+
+    buf = io.BytesIO()
+    _guardar_preview(buf, base, contenido, color_base, color_texto, nombre)
+    return buf.getvalue(), ancho_mm, alto_mm_real
 
 
 def generar(nombre, ruta_ttf, alto_mm=20,

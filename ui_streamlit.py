@@ -9,15 +9,19 @@ esto SOLO lo usa la app visual). Vive en la raíz, no en pages/, porque
 Streamlit trata cada .py suelto adentro de pages/ como una página
 nueva del menú — un helper ahí adentro rompería el menú.
 
-Por ahora: el selector de fuente agrupado por categoría (curadas
-primero) con preview en vivo, que se repetía igual en las 4 páginas
-(neón, llavero, letras -dos veces-, ambigrama -dos veces-).
+- `selector_fuente`: selector de fuente agrupado por categoría (curadas
+  primero) con preview en vivo, que se repetía igual en las 4 páginas
+  (neón, llavero, letras -dos veces-, ambigrama -dos veces-).
+- `bloque_presets`: cargar/guardar/borrar combinaciones de parámetros
+  guardadas (core/presets.py) — funciona pisando `st.session_state` de
+  los widgets del formulario, así que esos widgets necesitan `key=`
+  explícito (los mismos `key` que se le pasan a `bloque_presets`).
 """
 
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import fuentes
+from core import fuentes, presets
 
 OTRA_RUTA = "✏️ Otra ruta..."
 
@@ -65,3 +69,49 @@ def selector_fuente(label, key, default_nombre="Comic Sans MS", texto_muestra=No
             components.html(html_preview, height=60)
 
     return ruta_ttf
+
+
+def bloque_presets(generador, keys):
+    """Cargar/guardar/borrar combinaciones de parámetros guardadas para
+    `generador` (ej. "llavero") — un preset guarda el valor actual de
+    cada `key` en `keys` (los mismos `key=` que le diste a los widgets
+    del formulario) y, al cargarlo, los pisa en `st.session_state` y
+    fuerza un `st.rerun()` para que el próximo render de esos widgets
+    ya salga con esos valores. Funciona en cualquier lugar de la
+    página (no hace falta que esté antes de los widgets — el rerun se
+    encarga de eso)."""
+    with st.expander("💾 Presets guardados"):
+        existentes = presets.listar(generador)
+
+        c1, c2 = st.columns([2, 1])
+        elegido = c1.selectbox(
+            "Cargar preset", ["—"] + existentes, key=f"{generador}_preset_elegido",
+        )
+        if c2.button(
+            "Cargar", key=f"{generador}_preset_cargar",
+            disabled=(elegido == "—"), use_container_width=True,
+        ):
+            valores = presets.cargar(generador, elegido)
+            if valores:
+                for k, v in valores.items():
+                    if k in keys:
+                        st.session_state[k] = v
+                st.rerun()
+
+        c3, c4 = st.columns([2, 1])
+        nombre_nuevo = c3.text_input(
+            "Guardar como", key=f"{generador}_preset_nombre", placeholder="ej: Cumple de Bianca",
+        )
+        if c4.button(
+            "Guardar", key=f"{generador}_preset_guardar",
+            disabled=not nombre_nuevo.strip(), use_container_width=True,
+        ):
+            valores = {k: st.session_state[k] for k in keys if k in st.session_state}
+            presets.guardar(generador, nombre_nuevo.strip(), valores)
+            st.success(f"Preset '{nombre_nuevo}' guardado.")
+            st.rerun()
+
+        if existentes and elegido != "—":
+            if st.button(f"🗑️ Borrar '{elegido}'", key=f"{generador}_preset_borrar"):
+                presets.borrar(generador, elegido)
+                st.rerun()

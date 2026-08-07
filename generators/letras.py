@@ -23,6 +23,7 @@ las decoraciones del llavero — core/decoraciones.py —, con export
 multicolor para AMS o un STL por pieza para pegar a mano).
 """
 
+import io
 import os
 
 import matplotlib
@@ -34,7 +35,7 @@ from shapely.affinity import translate
 from shapely.geometry import Point
 from shapely.ops import unary_union
 
-from core import bambu_a1, decoraciones, geometry, mesh3d, pieza, texto2d
+from core import bambu_a1, colores, decoraciones, geometry, mesh3d, pieza, preview3d, texto2d
 
 NOMBRE = "Letra iluminada de pie"
 DESCRIPCION = "Letra/inicial grande, hueca por dentro para una luz LED — con soporte de escritorio si hace falta."
@@ -153,6 +154,66 @@ def _armar_decoraciones_frente(poly_letra, decoraciones_lista, profundidad_decor
         malla = trimesh.util.concatenate(trozos) if len(trozos) > 1 else trozos[0]
         piezas.append((malla, d))
     return piezas
+
+
+def preview_rapido(texto, ruta_ttf, alto_mm=150, color_letra="Amarillo",
+                    agregar_nombre=False, texto_nombre="", ruta_ttf_nombre=None, alto_nombre_mm=30,
+                    decoraciones_frente=None):
+    """Preview 2D instantáneo — solo polígonos shapely (letra + nombre si
+    hay + decoraciones posicionadas), SIN el hueco/cáscara/booleanas 3D
+    de `_armar_carcasa_hueca` — para ver el resultado (tamaño, posición
+    de las decoraciones) mientras se ajustan los parámetros, antes de
+    tocar "Generar letra" (que sí arma la malla 3D real y tarda más).
+    Devuelve (png_bytes, ancho_mm, alto_mm) o (None, 0, 0)."""
+    if not os.path.exists(ruta_ttf) or not texto.strip():
+        return None, 0, 0
+    poly, _ = texto2d.texto_a_poligono(texto, ruta_ttf, alto_mm, raster_px=250)
+    if poly is None:
+        return None, 0, 0
+
+    contenido = poly
+    if agregar_nombre and texto_nombre.strip() and ruta_ttf_nombre and os.path.exists(ruta_ttf_nombre):
+        nombre_poly, _ = _armar_nombre_cursiva(poly, texto_nombre, ruta_ttf_nombre, alto_nombre_mm, raster_px=250)
+        if nombre_poly is not None:
+            contenido = unary_union([contenido, nombre_poly])
+
+    decos = []
+    for d in (decoraciones_frente or []):
+        forma_deco = decoraciones.forma(d["nombre"], d["tam_mm"])
+        if forma_deco is None:
+            continue
+        x, y = _posicion_decoracion_libre(poly, d.get("x_pct", 50), d.get("y_pct", 85))
+        decos.append(translate(forma_deco, xoff=x, yoff=y))
+
+    minx, miny, maxx, maxy = contenido.bounds
+    for dec in decos:
+        dminx, dminy, dmaxx, dmaxy = dec.bounds
+        minx, miny = min(minx, dminx), min(miny, dminy)
+        maxx, maxy = max(maxx, dmaxx), max(maxy, dmaxy)
+    w, h = max(maxx - minx, 1), max(maxy - miny, 1)
+
+    def dibujar(ax, geom, color):
+        pols = list(geom.geoms) if geom.geom_type == "MultiPolygon" else [geom]
+        for pg in pols:
+            xs, ys = pg.exterior.xy
+            ax.fill(xs, ys, color=color)
+            for anillo in pg.interiors:
+                xr, yr = anillo.xy
+                ax.fill(xr, yr, color="#1a1a1a")
+
+    fig, ax = plt.subplots(figsize=(6, 6 * h / w + 1))
+    dibujar(ax, contenido, colores.hex_de(color_letra))
+    for i, dec in enumerate(decos):
+        dibujar(ax, dec, preview3d.color_decoracion(i))
+    ax.set_xlim(minx - 2, maxx + 2)
+    ax.set_ylim(miny - 2, maxy + 2)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    buf = io.BytesIO()
+    fig.savefig(buf, dpi=120, bbox_inches="tight", facecolor="#1a1a1a")
+    plt.close(fig)
+    return buf.getvalue(), maxx - minx, maxy - miny
 
 
 def _guardar_preview(ruta_png, malla, titulo):

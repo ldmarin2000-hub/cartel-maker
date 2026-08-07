@@ -15,7 +15,7 @@ import streamlit.components.v1 as components
 
 from core import colores, preview3d
 from generators import ambigrama
-from ui_streamlit import selector_fuente
+from ui_streamlit import bloque_presets, selector_fuente
 
 st.set_page_config(page_title="Ambigrama · Cartel Maker", page_icon="🔀", layout="wide")
 
@@ -29,6 +29,15 @@ st.info(
     "juntarlas — ojo: palabras muy largas en una caja angosta tienen un límite físico y pueden "
     "quedar ilegibles por más que ajustes el espaciado."
 )
+
+PRESET_KEYS = [
+    "frente_tipo", "frente_valor", "ambigrama_frente_selectbox", "ambigrama_frente_ruta",
+    "frente_espaciado", "frente_forma",
+    "costado_tipo", "costado_valor", "ambigrama_costado_selectbox", "ambigrama_costado_ruta",
+    "costado_espaciado", "costado_forma",
+    "am_ancho_mm", "am_profundidad_mm", "am_alto_mm", "am_agregar_aro",
+    "am_aro_radio_hueco", "am_aro_radio_tab", "am_aro_borde_label", "am_color_pieza",
+]
 
 
 def _form_lado(etiqueta, key_prefix, default_texto, default_forma):
@@ -66,6 +75,8 @@ def _form_lado(etiqueta, key_prefix, default_texto, default_forma):
 col_form, col_preview = st.columns([1, 1.3])
 
 with col_form:
+    bloque_presets("ambigrama", PRESET_KEYS)
+
     c1, c2 = st.columns(2)
     with c1:
         tipo_f, valor_f, ttf_f, esp_f = _form_lado("De arriba/abajo", "frente", "Mia", "corazon")
@@ -75,13 +86,17 @@ with col_form:
     with st.expander("Ajustes finos"):
         st.caption("La caja compartida a la que se fuerzan los 2 lados (como el 55x20x55 del original):")
         c1, c2, c3 = st.columns(3)
-        ancho_mm = c1.number_input("Ancho (mm)", value=55.0, step=5.0)
-        profundidad_mm = c2.number_input("Profundidad (mm)", value=20.0, step=5.0)
-        alto_mm = c3.number_input("Alto (mm)", value=55.0, step=5.0)
-        agregar_aro = st.checkbox("Agregar aro para colgar", value=True)
+        ancho_mm = c1.number_input("Ancho (mm)", value=55.0, step=5.0, key="am_ancho_mm")
+        profundidad_mm = c2.number_input("Profundidad (mm)", value=20.0, step=5.0, key="am_profundidad_mm")
+        alto_mm = c3.number_input("Alto (mm)", value=55.0, step=5.0, key="am_alto_mm")
+        agregar_aro = st.checkbox("Agregar aro para colgar", value=True, key="am_agregar_aro")
         c1, c2 = st.columns(2)
-        aro_radio_hueco = c1.number_input("Radio del agujero (mm)", value=2.0, step=0.25, disabled=not agregar_aro)
-        aro_radio_tab = c2.number_input("Radio del aro (mm)", value=6.0, step=0.5, disabled=not agregar_aro)
+        aro_radio_hueco = c1.number_input(
+            "Radio del agujero (mm)", value=2.0, step=0.25, disabled=not agregar_aro, key="am_aro_radio_hueco",
+        )
+        aro_radio_tab = c2.number_input(
+            "Radio del aro (mm)", value=6.0, step=0.5, disabled=not agregar_aro, key="am_aro_radio_tab",
+        )
         aro_borde_label = st.radio(
             "Dónde va el aro",
             [
@@ -91,7 +106,7 @@ with col_form:
                 "Lado de frente — abajo (loop)",
                 "Lado de frente — arriba (loop)",
             ],
-            disabled=not agregar_aro,
+            disabled=not agregar_aro, key="am_aro_borde_label",
             help="Automático prueba primero un loop parado que nace de una punta (p.ej. la de "
                  "un corazón puesto \"de frente\") y si no hay una punta sólida ahí, cae a un "
                  "disco plano en el borde más angosto del contenido \"de arriba\". Los otros 4 "
@@ -109,7 +124,7 @@ with col_form:
 
     color_pieza = st.selectbox(
         "Color de filamento (visor, no cambia el STL)", colores.NOMBRES,
-        index=colores.NOMBRES.index("Dorado"),
+        index=colores.NOMBRES.index("Dorado"), key="am_color_pieza",
     )
 
     generar_click = st.button("Generar ambigrama", type="primary", use_container_width=True)
