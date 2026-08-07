@@ -236,14 +236,14 @@ def _guardar_preview(ruta_png, base, contenido, color_base, color_texto, nombre)
             ax.fill(xs, ys, color=color)
             for anillo in pg.interiors:
                 xr, yr = anillo.xy
-                ax.fill(xr, yr, color="white")
+                ax.fill(xr, yr, color="#1a1a1a")
 
     dibujar(base, colores.hex_de(color_base))
     dibujar(contenido, colores.hex_de(color_texto))
     ax.set_aspect("equal")
     ax.axis("off")
-    ax.set_title(nombre, color="#333")
-    fig.savefig(ruta_png, dpi=130, bbox_inches="tight", facecolor="#f5f5dc")
+    ax.set_title(nombre, color="#ccc")
+    fig.savefig(ruta_png, dpi=130, bbox_inches="tight", facecolor="#1a1a1a")
     plt.close(fig)
 
 

@@ -31,6 +31,7 @@ forma compacta) va a salir visiblemente distorsionado/apretado. Avisamos
 cuando eso pasa.
 """
 
+import io
 import os
 
 import matplotlib
@@ -124,11 +125,70 @@ def _guardar_preview(ruta_png, malla, titulo_frente, titulo_costado):
         ax.set_ylim(miny, maxy)
         ax.set_zlim(minz, maxz)
         ax.view_init(elev=elev, azim=azim)
-        ax.set_title(titulo)
+        ax.set_title(titulo, color="#ccc")
         ax.set_box_aspect((dx, dy, dz))
         ax.set_axis_off()
-    fig.savefig(ruta_png, dpi=110, facecolor="white")
+    fig.savefig(ruta_png, dpi=110, facecolor="#1a1a1a")
     plt.close(fig)
+
+
+def preview_rapido(tipo_frente, valor_frente, tipo_costado, valor_costado,
+                    ruta_ttf_frente=None, ruta_ttf_costado=None,
+                    espaciado_frente=0.0, espaciado_costado=0.0,
+                    ancho_mm=55, profundidad_mm=20, alto_mm=55):
+    """Preview 2D instantáneo de cada lado POR SEPARADO, ya escalado a la
+    caja compartida (`texto2d.escalar_a_caja`) — SIN la extrusión ni la
+    intersección booleana 3D, que es lo que tarda. OJO: esto NO es el
+    resultado final (que es la intersección de los dos, y puede dejar
+    menos de lo que se ve acá si las formas no se solapan bien) — es
+    para juzgar de un vistazo el trazado/espaciado de cada lado antes de
+    tocar "Generar ambigrama". Devuelve png_bytes, o None si no se pudo
+    sacar ninguno de los 2 lados."""
+    poly_f = poly_c = None
+    try:
+        poly_f = texto2d.escalar_a_caja(
+            _preparar_lado_crudo(tipo_frente, valor_frente, ruta_ttf_frente, espaciado_frente),
+            ancho_mm, profundidad_mm,
+        )
+    except (ValueError, FileNotFoundError):
+        pass
+    try:
+        poly_c = texto2d.escalar_a_caja(
+            _preparar_lado_crudo(tipo_costado, valor_costado, ruta_ttf_costado, espaciado_costado),
+            ancho_mm, alto_mm,
+        )
+    except (ValueError, FileNotFoundError):
+        pass
+    if poly_f is None and poly_c is None:
+        return None
+
+    def dibujar(ax, geom, color):
+        if geom is None:
+            return
+        pols = list(geom.geoms) if geom.geom_type == "MultiPolygon" else [geom]
+        for pg in pols:
+            xs, ys = pg.exterior.xy
+            ax.fill(xs, ys, color=color)
+            for anillo in pg.interiors:
+                xr, yr = anillo.xy
+                ax.fill(xr, yr, color="#1a1a1a")
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8, 4.2))
+    dibujar(ax1, poly_f, "#e91e63")
+    ax1.set_title("De arriba/abajo" if poly_f is not None else "De arriba/abajo (no se pudo generar)",
+                  color="#ccc", fontsize=10)
+    dibujar(ax2, poly_c, "#38bdf8")
+    ax2.set_title("De frente" if poly_c is not None else "De frente (no se pudo generar)",
+                  color="#ccc", fontsize=10)
+    for ax in (ax1, ax2):
+        ax.set_aspect("equal")
+        ax.axis("off")
+    fig.patch.set_facecolor("#1a1a1a")
+
+    buf = io.BytesIO()
+    fig.savefig(buf, dpi=110, facecolor="#1a1a1a")
+    plt.close(fig)
+    return buf.getvalue()
 
 
 def generar(tipo_frente, valor_frente, tipo_costado, valor_costado,
