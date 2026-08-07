@@ -11,12 +11,19 @@ en vez de OpenSCAD).
 import math
 
 from shapely.affinity import affine_transform
-from shapely.geometry import Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from core import imagen_import, svg_import, texto2d
 
-NOMBRES_VALIDOS = ("ninguno", "corazon", "estrella", "flor", "gato", "rayo", "luna", "rombo", "circulo")
+NOMBRES_VALIDOS = (
+    "ninguno",
+    "corazon", "estrella", "flor", "gato", "rayo", "luna", "rombo", "circulo",
+    # abstracto
+    "triangulo", "hexagono", "cruz", "escudo", "onda", "infinito", "engranaje",
+    # mascota
+    "perro", "pajaro", "pez", "oso", "conejo",
+)
 
 # Emojis/pictogramas y signos/símbolos como decoración: mismo pipeline que el
 # texto (core/texto2d.py), con una fuente MONOCROMA de contorno vectorizable
@@ -104,6 +111,112 @@ def _circulo(t):
     return Point(0, 0).buffer(t, resolution=32)
 
 
+# --- Set "abstracto" (logo geométrico, sin figura reconocible) ---------
+
+def _triangulo(t):
+    return Polygon([(0, t), (t * 0.87, -t * 0.5), (-t * 0.87, -t * 0.5)])
+
+
+def _hexagono(t):
+    return Polygon([(t * math.cos(math.radians(60 * i)), t * math.sin(math.radians(60 * i))) for i in range(6)])
+
+
+def _cruz(t):
+    brazo = t * 0.32
+    h = Polygon([(-t, brazo), (t, brazo), (t, -brazo), (-t, -brazo)])
+    v = Polygon([(brazo, t), (brazo, -t), (-brazo, -t), (-brazo, t)])
+    return unary_union([h, v])
+
+
+def _escudo(t):
+    """Escudo/blasón: arriba ancho y plano, termina en punta abajo — pensado
+    para el modo "emblema" (texto/ícono adentro, en vez del anillo circular
+    default)."""
+    pts = [
+        (-t, t), (t, t), (t, t * 0.1),
+        (0, -t * 1.1),
+        (-t, t * 0.1),
+    ]
+    base = Polygon(pts)
+    return base.buffer(t * 0.06, join_style="round").buffer(-t * 0.06, join_style="round")
+
+
+def _onda(t):
+    """Cinta en forma de S — una curva senoidal engrosada, logo abstracto
+    tipo "onda/flujo"."""
+    xs = [i / 60 * 2 * math.pi for i in range(61)]
+    centro = [(t * (x / (2 * math.pi) * 2 - 1), t * 0.45 * math.sin(x)) for x in xs]
+    return LineString(centro).buffer(t * 0.16, cap_style="round", join_style="round")
+
+
+def _infinito(t):
+    r_ext, r_int, dx = t * 0.55, t * 0.28, t * 0.5
+    anillo_izq = Point(-dx, 0).buffer(r_ext, resolution=32).difference(Point(-dx, 0).buffer(r_int, resolution=32))
+    anillo_der = Point(dx, 0).buffer(r_ext, resolution=32).difference(Point(dx, 0).buffer(r_int, resolution=32))
+    return unary_union([anillo_izq, anillo_der])
+
+
+def _engranaje(t):
+    n_dientes = 8
+    r_ext, r_int, r_eje = t, t * 0.72, t * 0.32
+    pts = []
+    for i in range(n_dientes * 4):
+        frac = (i % 4) / 4
+        a = math.radians(i * (360 / (n_dientes * 4)))
+        r = r_ext if frac < 0.5 else r_int
+        pts.append((r * math.cos(a), r * math.sin(a)))
+    cuerpo = Polygon(pts).buffer(0)
+    eje = Point(0, 0).buffer(r_eje, resolution=32)
+    return cuerpo.difference(eje)
+
+
+# --- Set "mascota" (animal estilizado, para logos tipo mascota) --------
+
+def _perro(t):
+    cabeza = Point(0, 0).buffer(t * 0.75, resolution=32)
+    orejas = []
+    for m in (-1, 1):
+        orejas.append(
+            Point(m * t * 0.62, t * 0.15).buffer(t * 0.32, resolution=24)
+            .intersection(Polygon([(m * t * 2, t * 2), (m * t * 2, -t * 2), (0, -t * 2), (0, t * 2)]))
+        )
+    hocico = Point(0, -t * 0.55).buffer(t * 0.38, resolution=24)
+    return unary_union([cabeza] + orejas + [hocico])
+
+
+def _pajaro(t):
+    cuerpo = Point(-t * 0.1, 0).buffer(t * 0.62, resolution=32)
+    ala = Polygon([(-t * 0.15, t * 0.1), (t * 0.05, t * 0.75), (t * 0.35, t * 0.05)])
+    pico = Polygon([(t * 0.45, 0.05 * t), (t * 1.05, 0), (t * 0.45, -0.15 * t)])
+    return unary_union([cuerpo, ala, pico])
+
+
+def _pez(t):
+    cuerpo = Point(-t * 0.15, 0).buffer(t * 0.6, resolution=32)
+    cola = Polygon([(t * 0.3, t * 0.5), (t * 0.95, 0), (t * 0.3, -t * 0.5)])
+    return unary_union([cuerpo, cola])
+
+
+def _oso(t):
+    cabeza = Point(0, 0).buffer(t * 0.8, resolution=32)
+    orejas = [Point(m * t * 0.55, t * 0.62).buffer(t * 0.26, resolution=24) for m in (-1, 1)]
+    hocico = Point(0, -t * 0.35).buffer(t * 0.4, resolution=24)
+    return unary_union([cabeza] + orejas + [hocico])
+
+
+def _conejo(t):
+    cabeza = Point(0, -t * 0.15).buffer(t * 0.62, resolution=32)
+    orejas = []
+    for m in (-1, 1):
+        orejas.append(
+            affine_transform(
+                Point(0, 0).buffer(t * 0.2, resolution=20),
+                [1, 0, 0, 1.9, m * t * 0.28, t * 0.85],
+            )
+        )
+    return unary_union([cabeza] + orejas)
+
+
 _FORMAS = {
     "corazon": _corazon,
     "estrella": _estrella,
@@ -113,6 +226,18 @@ _FORMAS = {
     "luna": _luna,
     "rombo": _rombo,
     "circulo": _circulo,
+    "triangulo": _triangulo,
+    "hexagono": _hexagono,
+    "cruz": _cruz,
+    "escudo": _escudo,
+    "onda": _onda,
+    "infinito": _infinito,
+    "engranaje": _engranaje,
+    "perro": _perro,
+    "pajaro": _pajaro,
+    "pez": _pez,
+    "oso": _oso,
+    "conejo": _conejo,
 }
 
 

@@ -36,6 +36,15 @@ PALETA = [
     ("Dorado", "#C9A94F"),
     ("Cobre", "#B87333"),
     ("Transparente/Natural", "#DCE8E8"),
+    ("Cian", "#00BCD4"),
+    ("Verde Menta", "#26A69A"),
+    ("Naranja Oscuro", "#D2691E"),
+    ("Rojo Óxido", "#A0522D"),
+    ("Gris Oscuro", "#404040"),
+    ("Azul Cielo", "#87CEEB"),
+    ("Violeta Oscuro", "#663399"),
+    ("Coral", "#FF7F50"),
+    ("Teal", "#008080"),
 ]
 
 NOMBRES = [nombre for nombre, _ in PALETA]
