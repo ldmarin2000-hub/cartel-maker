@@ -69,12 +69,14 @@ core/               lógica compartida entre generadores (raster, esqueleto,
                     sueltas, soporte de escritorio, chequeo A1), colores
                     (paleta de filamento curada), fuentes (catálogo +
                     categorías + preview en vivo), presets (guardar/cargar
-                    combinaciones de parámetros), chequeos, ui, wrapper
-                    OpenSCAD)
-generators/         un archivo por generador (neon.py, letras.py, llavero.py):
-                    generar() es la lógica pura que usan tanto app.py como main.py;
-                    llavero.py y letras.py también tienen preview_rapido()
-                    (2D, sin mesh3d/booleanas, para la vista rápida)
+                    combinaciones de parámetros), heightmap (imagen -> grilla
+                    de alturas -> relieve 3D watertight, para esculturas),
+                    chequeos, ui, wrapper OpenSCAD)
+generators/         un archivo por generador (neon.py, letras.py, llavero.py,
+                    ambigrama.py, esculturas.py): generar() es la lógica pura
+                    que usan tanto app.py como main.py; casi todos también
+                    tienen preview_rapido() (vista rápida sin la malla 3D
+                    final)
 ui_streamlit.py     widgets de Streamlit compartidos entre páginas (selector
                     de fuente, bloque de presets) — no es core/ porque SÍ
                     depende de Streamlit; no va en pages/ porque cualquier
@@ -108,7 +110,7 @@ volvé a cargarla después — pisa los widgets del formulario vía
 No cubre `st.file_uploader` (SVG propio): esos no se pueden pre-cargar
 programáticamente.
 
-Las 4 páginas muestran una **vista rápida en 2D** que se actualiza sola
+Las páginas muestran una **vista rápida** que se actualiza sola
 con cada cambio de parámetro, sin tocar "Generar" — cacheada con
 `st.cache_data` para que ajustar un slider y volver al valor anterior sea
 instantáneo:
@@ -128,11 +130,16 @@ instantáneo:
   quedar más chico si las formas no se solapan bien) — está etiquetado
   como tal en la UI, es para juzgar el trazado/espaciado de cada lado
   antes de tocar "Generar".
+- **Esculturas** (`generators/esculturas.py::preview_rapido()`): a
+  diferencia de los otros previews (2D plano), acá es la MISMA malla 3D
+  de relieve pero a resolución baja (45px de grilla en vez de 120-180),
+  renderizada como imagen sombreada — ~0.4-0.6s en vez de varios
+  segundos, para juzgar el relieve mientras se ajustan los sliders.
 
-Fondo oscuro (`#1a1a1a`) consistente en los 4 previews (2D instantáneo y
-el PNG de respaldo que se muestra si el visor 3D no puede armarse) —
-antes neón y el respaldo de llavero usaban un beige/blanco que
-desentonaba con el resto de la app.
+Fondo oscuro (`#1a1a1a`) consistente en todos los previews (2D
+instantáneo, el sombreado de esculturas, y el PNG de respaldo que se
+muestra si el visor 3D no puede armarse) — antes neón y el respaldo de
+llavero usaban un beige/blanco que desentonaba con el resto de la app.
 
 ### Fuentes y colores curados
 
@@ -389,3 +396,21 @@ letra iluminada; acá solo vive el mecanismo que se repetía igual.
   sueltas para pintar de otro color: un STL por decoración para pegar a
   mano, o un solo STL multicolor si hay AMS (mismo criterio que el
   llavero).
+- **Esculturas (relieve desde imagen)** (`core/heightmap.py` +
+  `generators/esculturas.py`, página debajo de Ambigrama en el menú):
+  a diferencia de `core/imagen_import.py` (que solo saca el CONTORNO,
+  una silueta plana), acá el BRILLO de cada píxel modula la ALTURA de
+  una grilla — cada zona clara/oscura de la foto/logo queda más alta o
+  más baja, un relieve tallado de verdad (no una silueta ni una nube de
+  puntos). Malla watertight: superficie de arriba con Z variable + piso
+  plano (`espesor_base_mm`, para que no se rompa donde el relieve es
+  bajo) + 4 paredes laterales cerrando el volumen — la orientación de
+  cada pared no se derivó a mano, `trimesh.fix_normals()` la resuelve
+  sola en base a la conectividad (con `fill_holes` de respaldo si algo
+  queda abierto). Toggle "Zonas oscuras/claras" (`oscuro_alto`) decide
+  qué extremo de brillo sobresale más. Tres calidades de grilla (Rápida
+  70px, Normal 120px, Alta 180px de lado mayor — más detalle = más lento
+  y más pesado el STL; benchmarks: 45px ~0.4s, 120px ~4s, 180px ~8s) más
+  un preview instantáneo a resolución baja mientras se ajustan los
+  sliders. Mantiene la proporción real de la imagen subida
+  (`ajustar_caja_a_proporcion`) en vez de estirarla a cuadrado.
