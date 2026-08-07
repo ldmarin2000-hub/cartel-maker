@@ -14,7 +14,7 @@ from shapely.affinity import affine_transform
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
-from core import svg_import, texto2d
+from core import imagen_import, svg_import, texto2d
 
 NOMBRES_VALIDOS = ("ninguno", "corazon", "estrella", "flor", "gato", "rayo", "luna", "rombo", "circulo")
 
@@ -140,6 +140,27 @@ def forma_desde_svg(ruta_svg, tam):
         return None
     escala = (2 * tam) / lado_mayor
     return affine_transform(crudo, [escala, 0, 0, escala, 0, 0])
+
+
+def forma_desde_imagen(ruta_imagen, tam, umbral=128, invertir=False):
+    """Como forma_desde_svg(), pero para una imagen rasterizada (PNG,
+    JPG, etc — un logo/ícono simple, silueta clara sobre fondo liso o
+    transparente, no una foto) en vez de un SVG (core/imagen_import.py).
+    `invertir=True` si el logo es claro sobre fondo oscuro (por default
+    asume oscuro sobre claro, o usa el canal alfa si el PNG tiene
+    transparencia). Mismo resultado final que las demás formas: centrado
+    en el origen, escalado para que su lado más largo mida `2*tam`.
+    Devuelve None si no se pudo sacar ninguna forma con área."""
+    crudo = imagen_import.imagen_a_poligono_crudo(ruta_imagen, umbral=umbral, invertir=invertir)
+    if crudo is None:
+        return None
+    minx, miny, maxx, maxy = crudo.bounds
+    lado_mayor = max(maxx - minx, maxy - miny)
+    if lado_mayor <= 0:
+        return None
+    escala = (2 * tam) / lado_mayor
+    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
+    return affine_transform(crudo, [escala, 0, 0, escala, -cx * escala, -cy * escala])
 
 
 def forma_desde_emoji(caracter, tam, ruta_ttf=None):

@@ -249,19 +249,44 @@ letra iluminada; acá solo vive el mecanismo que se repetía igual.
 - **Llavero**: **Python puro, sin OpenSCAD** (`generators/llavero.py` +
   `core/texto2d.py` + `core/decoraciones.py` + `core/mesh3d.py`). El texto
   se saca directo del contorno de la fuente (con huecos correctos, ej. la
-  "o"), así que las medidas son reales — ya no estimadas. 8 decoraciones
-  (corazón, estrella, flor, gato, rayo, luna, rombo, círculo) porteadas a
-  shapely, más la opción de subir un ícono/logo propio en SVG
-  (`core/svg_import.py`, ver más abajo). Exporta un STL por pieza (base y
-  texto), más un preview a
-  color. Toggle "Tengo AMS": con AMS se exporta además un STL multicolor
-  (base + texto ya combinados como cuerpos separados en su posición real,
-  vía `trimesh.util.concatenate`, sin fusionar) — un solo archivo, un solo
-  import a Bambu Studio, sin el problema de que el slicer reacomode 2 STL
-  sueltos y los desalinee. Ahí adentro: clic derecho → "Partir en objetos"
-  para pintarlas cada una de su color. Sin AMS, cada pieza se exporta
-  apoyada en el suelo para imprimirla sola y pegarla después.
-  `scad/llaveros.scad` queda como referencia/backup, ya no se usa.
+  "o"), así que las medidas son reales — ya no estimadas. Exporta un STL
+  por pieza (base y texto), más un preview a color. Toggle "Tengo AMS": con
+  AMS se exporta además un STL multicolor (base + texto ya combinados como
+  cuerpos separados en su posición real, vía `trimesh.util.concatenate`,
+  sin fusionar) — un solo archivo, un solo import a Bambu Studio, sin el
+  problema de que el slicer reacomode 2 STL sueltos y los desalinee. Ahí
+  adentro: clic derecho → "Partir en objetos" para pintarlas cada una de
+  su color. Sin AMS, cada pieza se exporta apoyada en el suelo para
+  imprimirla sola y pegarla después. `scad/llaveros.scad` queda como
+  referencia/backup, ya no se usa.
+
+  **5 formatos de identidad visual** (`MODOS_LOGO`, selector "Tipo de
+  logo" — de los 7 "tipos de logo" típicos de una infografía de branding,
+  Abstracto y Mascota son sobre QUÉ ícono elegís, no sobre la estructura,
+  ya cubiertos por la lista + emoji/símbolo + SVG/imagen; los otros 5 sí
+  cambian cómo se arma la geometría, `_armar_geometria`):
+  - *Imagotipo*: texto + ícono uno al lado del otro, independientes (el
+    comportamiento de siempre).
+  - *Isologo*: texto + ícono fusionados, el ícono centrado ENCIMA del
+    texto en vez de al costado.
+  - *Isotipo* ("Pictórico"): solo el ícono, sin texto — `nombre` se
+    ignora, hace falta elegir un ícono (de la lista, emoji/símbolo, SVG o
+    imagen propia).
+  - *Monograma* ("Monográfico"): solo texto/iniciales, superpuestas con
+    espaciado negativo (`core/texto2d.py::texto_a_poligono_crudo`,
+    misma técnica que usa el ambigrama para achicar palabras largas en
+    cajas angostas) — con anillo circular opcional.
+  - *Emblema*: texto y/o ícono (como isologo, o isotipo si no hay texto)
+    siempre encerrados en un anillo tipo insignia (Starbucks, Warner
+    Bros) — `_agregar_marco`, el mismo anillo que monograma.
+
+  **Ícono desde 4 fuentes** (`_resolver_forma_decoracion`, prioridad si
+  vinieran varias a la vez: SVG > imagen > emoji > lista): 8 formas
+  predefinidas (corazón, estrella, flor, gato, rayo, luna, rombo,
+  círculo), un SVG propio (`core/svg_import.py`), un emoji/pictograma o
+  símbolo/signo (`core/decoraciones.py::forma_desde_emoji`, ver más
+  abajo), o **una imagen propia rasterizada** (PNG/JPG —
+  `core/imagen_import.py`, ver más abajo).
 - **Ambigrama**: enganchado al menú y a la app visual
   (`generators/ambigrama.py` + `core/mesh3d.py`). Un contenido (texto o
   decoración) de arriba/abajo y otro de frente — cada uno extruido en un eje
@@ -306,6 +331,21 @@ letra iluminada; acá solo vive el mecanismo que se repetía igual.
   vectorizar. El selector de la UI trae una paleta curada de ~24 emoji +
   18 símbolos verificados, más un campo para pegar cualquier otro
   carácter unicode.
+- **Imagen propia (PNG/JPG) → 3D** (`core/imagen_import.py` +
+  `core/decoraciones.py::forma_desde_imagen`): subís un logo/ícono
+  rasterizado cualquiera (silueta clara sobre fondo liso o transparente,
+  no una foto) y se vectoriza por contorno con el MISMO método que ya usa
+  el texto (marching squares vía scikit-image + huecos con
+  `core/poligonos.py`) — no hace falta ninguna librería nueva. Usa el
+  canal alfa como máscara si el PNG tiene transparencia (lo más común
+  para un logo recortado); si no, umbraliza por luminosidad (oscuro =
+  forma, sobre fondo claro — `invertir=True` para el caso contrario).
+  Una vez vectorizada, la imagen es un polígono shapely más: entra al
+  mismo pipeline que cualquier decoración (llavero: isotipo/imagotipo/
+  isologo/emblema; posición, tamaño, export multicolor) y al mismo visor
+  3D interactivo (`core/preview3d.py`) que todo lo demás — no hizo falta
+  una vía especial para "editar"/"interactuar" con el resultado, ya
+  viene gratis de reusar el pipeline existente.
 - **Letra iluminada de pie** (`generators/letras.py`): una letra/inicial
   grande, hueca por dentro para meterle una luz LED — Python puro,
   reutiliza `core/texto2d.py` (la letra como polígono relleno) y
