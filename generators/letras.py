@@ -34,7 +34,7 @@ from shapely.affinity import translate
 from shapely.geometry import Point
 from shapely.ops import unary_union
 
-from core import bambu_a1, decoraciones, geometry, mesh3d, soporte, texto2d
+from core import bambu_a1, decoraciones, geometry, mesh3d, pieza, texto2d
 
 NOMBRE = "Letra iluminada de pie"
 DESCRIPCION = "Letra/inicial grande, hueca por dentro para una luz LED — con soporte de escritorio si hace falta."
@@ -42,11 +42,6 @@ DESCRIPCION = "Letra/inicial grande, hueca por dentro para una luz LED — con s
 CARPETA_SALIDA = "output"
 
 DECORACIONES = [n for n in decoraciones.NOMBRES_VALIDOS if n != "ninguno"]
-
-
-def _nombre_archivo(texto):
-    limpio = "".join(c if c.isalnum() else "_" for c in texto).strip("_")
-    return limpio or "letra"
 
 
 def _armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm):
@@ -266,7 +261,7 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
             info.append("Alguna decoración no se pudo generar (nombre no reconocido) y se salteó.")
 
     os.makedirs(carpeta_salida, exist_ok=True)
-    base_nombre = _nombre_archivo(texto)
+    base_nombre = pieza.nombre_archivo(texto, default="letra")
     ruta_stl = os.path.join(carpeta_salida, f"letra_{base_nombre}.stl")
     ruta_png = os.path.join(carpeta_salida, f"letra_{base_nombre}_preview.png")
 
@@ -284,31 +279,27 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
             ruta_stl_decoraciones_multicolor = os.path.join(
                 carpeta_salida, f"letra_{base_nombre}_decoraciones_multicolor.stl"
             )
-            malla_multicolor = trimesh.util.concatenate([m for m, _ in piezas_deco])
-            malla_multicolor.export(ruta_stl_decoraciones_multicolor)
+            pieza.exportar_multicolor([m for m, _ in piezas_deco], ruta_stl_decoraciones_multicolor)
             info.append(
                 f"{len(piezas_deco)} decoración(es) agregadas al frente — STL multicolor aparte "
                 f"(con AMS: clic derecho → \"Partir en objetos\" en Bambu Studio para pintar cada una)."
             )
         else:
-            for i, (m, d) in enumerate(piezas_deco, start=1):
-                ruta_d = os.path.join(carpeta_salida, f"letra_{base_nombre}_deco{i}_{d['nombre']}.stl")
-                m.export(ruta_d)
-                decoraciones_export.append({"ruta_stl": ruta_d, "nombre": d["nombre"]})
+            decoraciones_export = pieza.exportar_piezas_sueltas(
+                [(m, f"deco{i}_{d['nombre']}") for i, (m, d) in enumerate(piezas_deco, start=1)],
+                carpeta_salida, f"letra_{base_nombre}",
+            )
+            for exportada, (_, d) in zip(decoraciones_export, piezas_deco):
+                exportada["nombre"] = d["nombre"]
             info.append(
                 f"{len(piezas_deco)} decoración(es) agregadas al frente — un STL por pieza para "
                 f"pegarlas a mano después de imprimir la letra."
             )
 
     if agregar_soporte:
-        ruta_soporte = os.path.join(carpeta_salida, f"letra_{base_nombre}_base_escritorio.stl")
-        malla_soporte = soporte.generar_base(ancho_pata_mm, profundidad_mm, alto_pata_mm)
-        malla_soporte.export(ruta_soporte)
-        pieza_soporte = {
-            "ruta_stl": ruta_soporte,
-            "vertices": len(malla_soporte.vertices),
-            "watertight": malla_soporte.is_watertight,
-        }
+        pieza_soporte = pieza.exportar_base_escritorio(
+            ancho_pata_mm, profundidad_mm, alto_pata_mm, f"letra_{base_nombre}", carpeta_salida
+        )
 
     pieza_tapa = None
     if agregar_tapa:

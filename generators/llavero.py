@@ -12,7 +12,6 @@ mismo pipeline que ya usa el generador de neón.
 
 import os
 
-import trimesh
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -20,7 +19,7 @@ from shapely.affinity import translate
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union
 
-from core import bambu_a1, decoraciones, fuentes, mesh3d, texto2d, ui
+from core import bambu_a1, decoraciones, fuentes, mesh3d, pieza, texto2d, ui
 
 NOMBRE = "Llavero"
 DESCRIPCION = "Llavero paramétrico (texto + decoración + aro), en Python puro. STL por color."
@@ -33,11 +32,6 @@ COLORES = ["White", "Black", "Silver", "Gray", "Pink", "HotPink", "DeepPink", "R
 DECORACIONES = list(decoraciones.NOMBRES_VALIDOS)
 LADOS_DECO = ["izquierda", "derecha", "arriba"]
 LADOS_ARO = ["izquierda", "derecha", "ambos", "ninguno"]
-
-
-def _nombre_archivo(texto):
-    limpio = "".join(c if c.isalnum() else "_" for c in texto).strip("_")
-    return limpio or "llavero"
 
 
 def _posicion_decoracion(minx, maxx, maxy, cy, decoracion_lado, decoracion_tam):
@@ -154,7 +148,7 @@ def generar(nombre, ruta_ttf, alto_mm=20,
     )
 
     os.makedirs(carpeta_salida, exist_ok=True)
-    base_nombre = _nombre_archivo(nombre)
+    base_nombre = pieza.nombre_archivo(nombre, default="llavero")
     ruta_png = os.path.join(carpeta_salida, f"{base_nombre}_preview.png")
     ruta_stl_base = os.path.join(carpeta_salida, f"{base_nombre}_base.stl")
     ruta_stl_texto = os.path.join(carpeta_salida, f"{base_nombre}_texto.stl")
@@ -182,8 +176,7 @@ def generar(nombre, ruta_ttf, alto_mm=20,
         # (sin fusionar, cada una como su propio cuerpo) — al ser un solo import no hay
         # reacomodo, y en Bambu Studio "Partir en objetos" las separa para pintarlas.
         ruta_stl_multicolor = os.path.join(carpeta_salida, f"{base_nombre}_multicolor.stl")
-        malla_multicolor = trimesh.util.concatenate([malla_base, malla_texto])
-        malla_multicolor.export(ruta_stl_multicolor)
+        pieza.exportar_multicolor([malla_base, malla_texto], ruta_stl_multicolor)
         info = [
             "Con AMS: descargá el STL multicolor (ya trae las 2 piezas pegadas en su "
             "posición real). En Bambu Studio: clic derecho sobre el objeto → \"Partir en "

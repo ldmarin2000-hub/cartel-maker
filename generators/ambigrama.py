@@ -39,7 +39,7 @@ import matplotlib.pyplot as plt
 import trimesh
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-from core import bambu_a1, decoraciones, mesh3d, svg_import, texto2d, ui
+from core import decoraciones, mesh3d, pieza, svg_import, texto2d, ui
 
 NOMBRE = "Ambigrama (2 caras)"
 DESCRIPCION = "Un contenido de arriba/abajo, otro de frente — mismo objeto, 2 lecturas distintas."
@@ -108,12 +108,6 @@ def _etiqueta_lado(tipo, valor):
     if tipo == "svg" and valor:
         return os.path.splitext(os.path.basename(valor))[0]
     return str(valor)
-
-
-def _nombre_archivo(valor_frente, valor_costado):
-    crudo = f"{valor_frente}_{valor_costado}"
-    limpio = "".join(c if c.isalnum() else "_" for c in crudo).strip("_")
-    return limpio or "ambigrama"
 
 
 def _guardar_preview(ruta_png, malla, titulo_frente, titulo_costado):
@@ -200,23 +194,21 @@ def generar(tipo_frente, valor_frente, tipo_costado, valor_costado,
             info.append(f"El aro necesitó {n_puentes_aro} puente(s) extra para quedar bien soldado.")
 
     os.makedirs(carpeta_salida, exist_ok=True)
-    base_nombre = _nombre_archivo(etiqueta_frente, etiqueta_costado)
+    base_nombre = pieza.nombre_archivo(f"{etiqueta_frente}_{etiqueta_costado}", default="ambigrama")
     ruta_stl = os.path.join(carpeta_salida, f"ambigrama_{base_nombre}.stl")
     ruta_png = os.path.join(carpeta_salida, f"ambigrama_{base_nombre}_preview.png")
 
     malla.export(ruta_stl)
     _guardar_preview(ruta_png, malla, etiqueta_frente, etiqueta_costado)
 
-    minx, miny, minz = malla.bounds[0]
-    maxx, maxy, maxz = malla.bounds[1]
-    entra_a1, mensaje_a1 = bambu_a1.chequear_tamano(
-        maxx - minx, maxy - miny, maxz - minz, nombre="ambigrama"
+    ancho_final_mm, profundidad_final_mm, alto_final_mm, entra_a1, mensaje_a1 = pieza.chequear_desde_malla(
+        malla, nombre="ambigrama"
     )
 
     return {
         "ruta_stl": ruta_stl,
         "ruta_png": ruta_png,
-        "ancho_mm": maxx - minx, "profundidad_mm": maxy - miny, "alto_mm": maxz - minz,
+        "ancho_mm": ancho_final_mm, "profundidad_mm": profundidad_final_mm, "alto_mm": alto_final_mm,
         "vertices": len(malla.vertices),
         "watertight": malla.is_watertight,
         "info": info,

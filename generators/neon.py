@@ -16,7 +16,7 @@ mostrar el error.
 import glob
 import os
 
-from core import bambu_a1, checks, fuentes, geometry, mesh3d, modulos, preview, raster, skeleton, soporte, ui
+from core import bambu_a1, checks, fuentes, geometry, mesh3d, modulos, pieza, preview, raster, skeleton, ui
 
 TIPOS_MONTAJE = ("colgado", "escritorio", "ninguno")
 
@@ -27,11 +27,6 @@ CARPETA_FUENTES = "fonts"
 CARPETA_SALIDA = "output"
 
 VENTANA_AJUSTE_CORTE_MM = 40  # cuánto se puede correr un corte para no caer en un hueco
-
-
-def _nombre_archivo(texto):
-    limpio = "".join(c if c.isalnum() else "_" for c in texto).strip("_")
-    return limpio or "salida"
 
 
 def generar(texto, ruta_ttf, alto_mm, modo_led,
@@ -130,7 +125,7 @@ def generar(texto, ruta_ttf, alto_mm, modo_led,
         info.append(f"Cartel partido en {len(mods)} módulos (con cola de milano) porque supera los {ancho_max_modulo_mm:.0f} mm.")
 
     os.makedirs(carpeta_salida, exist_ok=True)
-    base = _nombre_archivo(texto)
+    base = pieza.nombre_archivo(texto, default="salida")
 
     piezas_resultado = []
     for m in mods:
@@ -146,13 +141,7 @@ def generar(texto, ruta_ttf, alto_mm, modo_led,
 
     pieza_soporte = None
     if tipo_montaje == "escritorio":
-        ruta_soporte = os.path.join(carpeta_salida, f"{base}_base_escritorio.stl")
-        malla_soporte = soporte.generar_base(ancho_pata_mm, placa_mm, alto_pata_mm)
-        malla_soporte.export(ruta_soporte)
-        pieza_soporte = {
-            "ruta_stl": ruta_soporte, "vertices": len(malla_soporte.vertices),
-            "watertight": malla_soporte.is_watertight,
-        }
+        pieza_soporte = pieza.exportar_base_escritorio(ancho_pata_mm, placa_mm, alto_pata_mm, base, carpeta_salida)
 
     ruta_png = os.path.join(carpeta_salida, f"{base}_preview.png")
     preview.guardar_preview(ruta_png, placa_final, canal, lineas, texto, ancho_total_mm, alto_total_mm,

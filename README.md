@@ -63,8 +63,10 @@ pages/             una página de Streamlit por generador (capa visual)
 main.py            menú interactivo de consola, descubre generadores automáticamente
 core/               lógica compartida entre generadores (raster, esqueleto,
                     texto2d/decoraciones, geometría, malla 3D, preview 2D,
-                    preview3d (visor interactivo), chequeos, ui, catálogo
-                    de fuentes, wrapper OpenSCAD)
+                    preview3d (visor interactivo), pieza (mecánica de
+                    armado final: nombre de archivo, export multicolor/
+                    sueltas, soporte de escritorio, chequeo A1), chequeos,
+                    ui, catálogo de fuentes, wrapper OpenSCAD)
 generators/         un archivo por generador (neon.py, letras.py, llavero.py):
                     generar() es la lógica pura que usan tanto app.py como main.py
 scad/               archivos .scad paramétricos (Customizer de OpenSCAD)
@@ -92,15 +94,43 @@ aparte para no dar una posición falsa. Un STL combinado tipo AMS
 cada cuerpo se colorea distinto, para distinguir las piezas aunque
 vengan en un solo archivo.
 
+### Mecánica compartida (`core/pieza.py`)
+
+Lo que se repetía casi textual en los 4 generadores (armar el resultado
+final, no la geometría en sí, que es propia de cada uno) está en
+`core/pieza.py` — un generador nuevo (lámpara, accesorio, lo que sea)
+arranca con esto ya resuelto:
+
+- `nombre_archivo(texto, default)` — sanitiza un nombre para usarlo de
+  archivo.
+- `exportar_multicolor(piezas, ruta_stl)` — combina piezas ya
+  posicionadas en un solo STL sin fusionar (truco AMS: en Bambu Studio,
+  "Partir en objetos" las separa para pintar cada una).
+- `exportar_piezas_sueltas(piezas_con_nombre, carpeta_salida, prefijo)`
+  — un STL por pieza, para pegar a mano.
+- `exportar_base_escritorio(...)` — la base con ranura a presión
+  (`core/soporte.py`) que ya usan el neón y la letra iluminada.
+- `chequear_desde_malla(malla, nombre)` — mide por bounds y chequea
+  contra la Bambu A1 (`core/bambu_a1.py`) en un solo llamado.
+
+Cada función es un primitivo independiente — la política (qué exportar
+suelto, qué combinar, cuándo agregar soporte) sigue en cada
+`generators/*.py`, que es donde varía de verdad entre un llavero y una
+letra iluminada; acá solo vive el mecanismo que se repetía igual.
+
 ### Agregar un generador nuevo
 
 1. Crear `generators/mi_generador.py` con una función `generar(**params)`
    que haga todo el trabajo (sin `input()`/`print()`) y devuelva un dict
    con rutas, medidas y avisos — más `NOMBRE`, `DESCRIPCION` y `ejecutar()`
    (wrapper de consola que pide los parámetros con `core/ui.py` y llama a
-   `generar()`).
+   `generar()`). Para el armado final (nombre de archivo, export
+   multicolor/sueltas, soporte de escritorio, chequeo A1), usar
+   `core/pieza.py` en vez de reescribirlo.
 2. Sumar `pages/N_emoji_MiGenerador.py`: los widgets del formulario +
-   `generators.mi_generador.generar(...)`.
+   `generators.mi_generador.generar(...)` — para el preview 3D, armar la
+   lista de piezas (`{"ruta_stl", "color", "nombre"}`) y pasarla a
+   `core.preview3d.armar_html_visor(...)`.
 3. Listo — `main.py` lo lista solo por consola, y Streamlit lo agrega solo
    al menú lateral por estar en `pages/`.
 
