@@ -14,6 +14,7 @@ mostrar el error.
 """
 
 import glob
+import io
 import os
 
 from core import bambu_a1, checks, fuentes, geometry, mesh3d, modulos, pieza, preview, raster, skeleton, ui
@@ -29,28 +30,18 @@ CARPETA_SALIDA = "output"
 VENTANA_AJUSTE_CORTE_MM = 40  # cuánto se puede correr un corte para no caer en un hueco
 
 
-def generar(texto, ruta_ttf, alto_mm, modo_led,
-            led_ancho_mm=None, led_prof_mm=None, fondo="contorno",
-            holgura_mm=0.4, pared_mm=2.4, placa_mm=3.0, fondo_margen=8,
-            raster_px=320, poda_frac=0.06, simplify_mm=0.4, redondeo_mm=0.5,
-            agregar_canal_salida=True, cable_ancho_mm=4.0,
-            agregar_agujeros=True, agujero_cable_diam_mm=5.0,
-            tipo_montaje="colgado", n_orejas_montaje=2,
-            ancho_pata_mm=40.0, alto_pata_mm=15.0,
-            ancho_max_modulo_mm=None,
-            carpeta_salida=CARPETA_SALIDA):
-    """Corre el pipeline completo y devuelve un dict con las rutas, medidas
-    y avisos. No pregunta nada ni imprime nada — así lo puede llamar tanto
-    la CLI como la app visual."""
-    if led_ancho_mm is None:
-        led_ancho_mm = 6.0 if modo_led == "neon" else 10.0
-    if led_prof_mm is None:
-        led_prof_mm = 8.0 if modo_led == "neon" else 4.0
-    if ancho_max_modulo_mm is None:
-        ancho_max_modulo_mm = bambu_a1.ANCHO_MAX_RECOMENDADO_MM
-    if tipo_montaje not in TIPOS_MONTAJE:
-        raise ValueError(f"tipo_montaje debe ser uno de {TIPOS_MONTAJE}, recibí {tipo_montaje!r}")
-
+def _armar_2d(texto, ruta_ttf, alto_mm, modo_led,
+              led_ancho_mm, holgura_mm, pared_mm, fondo, fondo_margen, redondeo_mm,
+              raster_px, poda_frac, simplify_mm,
+              agregar_canal_salida, cable_ancho_mm,
+              agregar_agujeros, agujero_cable_diam_mm,
+              tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm,
+              ancho_max_modulo_mm):
+    """Pipeline 2D puro (raster -> esqueleto -> geometría), SIN mesh3d ni
+    STL — compartido entre `generar()` y `preview_rapido()`. Es la parte
+    cara en tiempo de fuente/trazado pero barata en cómputo (nada de
+    booleanas 3D), así que sirve de vista rápida sin esperar el export.
+    Devuelve un dict con todo lo que necesita cada uno para seguir."""
     if not os.path.exists(ruta_ttf):
         raise FileNotFoundError(f"no encuentro la fuente: {ruta_ttf}")
 
@@ -119,6 +110,85 @@ def generar(texto, ruta_ttf, alto_mm, modo_led,
     if cortes_locales:
         cortes_locales, avisos_corte = modulos.ajustar_cortes(placa_final, cortes_locales, VENTANA_AJUSTE_CORTE_MM)
         avisos += avisos_corte
+
+    return {
+        "placa_final": placa_final, "canal": canal, "paredes": paredes, "lineas": lineas,
+        "cortes_locales": cortes_locales, "ancho_mm": ancho_mm, "ancho_pata_mm": ancho_pata_mm,
+        "ancho_total_mm": ancho_total_mm, "alto_total_mm": alto_total_mm,
+        "avisos": avisos, "info": info,
+    }
+
+
+def preview_rapido(texto, ruta_ttf, alto_mm, modo_led,
+                    led_ancho_mm=None, fondo="contorno",
+                    holgura_mm=0.4, pared_mm=2.4, fondo_margen=8,
+                    raster_px=220, poda_frac=0.06, simplify_mm=0.4, redondeo_mm=0.5,
+                    agregar_canal_salida=True, cable_ancho_mm=4.0,
+                    agregar_agujeros=True, agujero_cable_diam_mm=5.0,
+                    tipo_montaje="colgado", n_orejas_montaje=2,
+                    ancho_pata_mm=40.0, alto_pata_mm=15.0, ancho_max_modulo_mm=None):
+    """Preview 2D instantáneo — el mismo trazado/placa que ve `generar()`
+    (`_armar_2d`, ni un paso menos: orejas, agujeros, salida de cable,
+    líneas de corte, todo), pero SIN mesh3d ni export a STL, que es la
+    parte lenta. Devuelve (png_bytes, ancho_mm, alto_mm) o (None, 0, 0)
+    si no se pudo generar."""
+    if led_ancho_mm is None:
+        led_ancho_mm = 6.0 if modo_led == "neon" else 10.0
+    if ancho_max_modulo_mm is None:
+        ancho_max_modulo_mm = bambu_a1.ANCHO_MAX_RECOMENDADO_MM
+    if not os.path.exists(ruta_ttf) or not texto.strip():
+        return None, 0, 0
+    try:
+        d = _armar_2d(
+            texto, ruta_ttf, alto_mm, modo_led, led_ancho_mm, holgura_mm, pared_mm, fondo, fondo_margen,
+            redondeo_mm, raster_px, poda_frac, simplify_mm, agregar_canal_salida, cable_ancho_mm,
+            agregar_agujeros, agujero_cable_diam_mm, tipo_montaje, n_orejas_montaje, ancho_pata_mm,
+            alto_pata_mm, ancho_max_modulo_mm,
+        )
+    except (ValueError, FileNotFoundError):
+        return None, 0, 0
+
+    buf = io.BytesIO()
+    preview.guardar_preview(
+        buf, d["placa_final"], d["canal"], d["lineas"], texto,
+        d["ancho_total_mm"], d["alto_total_mm"], modo_led, cortes=d["cortes_locales"], paredes=d["paredes"],
+    )
+    return buf.getvalue(), d["ancho_total_mm"], d["alto_total_mm"]
+
+
+def generar(texto, ruta_ttf, alto_mm, modo_led,
+            led_ancho_mm=None, led_prof_mm=None, fondo="contorno",
+            holgura_mm=0.4, pared_mm=2.4, placa_mm=3.0, fondo_margen=8,
+            raster_px=320, poda_frac=0.06, simplify_mm=0.4, redondeo_mm=0.5,
+            agregar_canal_salida=True, cable_ancho_mm=4.0,
+            agregar_agujeros=True, agujero_cable_diam_mm=5.0,
+            tipo_montaje="colgado", n_orejas_montaje=2,
+            ancho_pata_mm=40.0, alto_pata_mm=15.0,
+            ancho_max_modulo_mm=None,
+            carpeta_salida=CARPETA_SALIDA):
+    """Corre el pipeline completo y devuelve un dict con las rutas, medidas
+    y avisos. No pregunta nada ni imprime nada — así lo puede llamar tanto
+    la CLI como la app visual."""
+    if led_ancho_mm is None:
+        led_ancho_mm = 6.0 if modo_led == "neon" else 10.0
+    if led_prof_mm is None:
+        led_prof_mm = 8.0 if modo_led == "neon" else 4.0
+    if ancho_max_modulo_mm is None:
+        ancho_max_modulo_mm = bambu_a1.ANCHO_MAX_RECOMENDADO_MM
+    if tipo_montaje not in TIPOS_MONTAJE:
+        raise ValueError(f"tipo_montaje debe ser uno de {TIPOS_MONTAJE}, recibí {tipo_montaje!r}")
+
+    d = _armar_2d(
+        texto, ruta_ttf, alto_mm, modo_led, led_ancho_mm, holgura_mm, pared_mm, fondo, fondo_margen,
+        redondeo_mm, raster_px, poda_frac, simplify_mm, agregar_canal_salida, cable_ancho_mm,
+        agregar_agujeros, agujero_cable_diam_mm, tipo_montaje, n_orejas_montaje, ancho_pata_mm,
+        alto_pata_mm, ancho_max_modulo_mm,
+    )
+    placa_final, canal, paredes, lineas = d["placa_final"], d["canal"], d["paredes"], d["lineas"]
+    cortes_locales, avisos, info = d["cortes_locales"], d["avisos"], d["info"]
+    ancho_mm, ancho_pata_mm = d["ancho_mm"], d["ancho_pata_mm"]
+    ancho_total_mm, alto_total_mm = d["ancho_total_mm"], d["alto_total_mm"]
+
     mods, avisos_dovetail = modulos.dividir_en_modulos(placa_final, paredes, cortes_locales)
     avisos += avisos_dovetail
     if len(mods) > 1:

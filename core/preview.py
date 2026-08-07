@@ -33,9 +33,9 @@ def guardar_preview(ruta_png, placa, canal, lineas, texto, ancho_mm, alto_mm, mo
     w, h = max(maxx - minx, 1), max(maxy - miny, 1)
 
     fig, ax = plt.subplots(figsize=(10, 10 * h / w + 1))
-    _dibujar_poligono(ax, placa, color="#222")
+    _dibujar_poligono(ax, placa, color="#3a3a3a")
     if paredes is not None:
-        _dibujar_poligono(ax, paredes, color="#555")  # relieve (paredes del canal)
+        _dibujar_poligono(ax, paredes, color="#666")  # relieve (paredes del canal)
     _dibujar_poligono(ax, canal, color="#111")
     for ls in lineas:
         x, y = ls.xy
@@ -47,6 +47,6 @@ def guardar_preview(ruta_png, placa, canal, lineas, texto, ancho_mm, alto_mm, mo
 
     ax.set_aspect("equal")
     ax.axis("off")
-    ax.set_title(f"{texto}  ·  {ancho_mm:.0f}x{alto_mm:.0f}mm  ·  {modo_led}", color="#333")
-    fig.savefig(ruta_png, dpi=120, bbox_inches="tight", facecolor="#f5f5dc")
+    ax.set_title(f"{texto}  ·  {ancho_mm:.0f}x{alto_mm:.0f}mm  ·  {modo_led}", color="#ccc")
+    fig.savefig(ruta_png, dpi=120, bbox_inches="tight", facecolor="#1a1a1a")
     plt.close(fig)

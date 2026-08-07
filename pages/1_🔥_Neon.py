@@ -29,6 +29,19 @@ PRESET_KEYS = [
     "ne_tipo_montaje", "ne_n_orejas_montaje", "ne_ancho_pata_mm", "ne_alto_pata_mm",
 ]
 
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _preview_rapido(texto, ruta_ttf, alto_mm, modo_led, led_ancho_mm, fondo, redondeo_mm,
+                     agregar_canal_salida, cable_ancho_mm, agregar_agujeros, agujero_cable_diam_mm,
+                     tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm):
+    return neon.preview_rapido(
+        texto, ruta_ttf, alto_mm, modo_led, led_ancho_mm=led_ancho_mm, fondo=fondo, redondeo_mm=redondeo_mm,
+        agregar_canal_salida=agregar_canal_salida, cable_ancho_mm=cable_ancho_mm,
+        agregar_agujeros=agregar_agujeros, agujero_cable_diam_mm=agujero_cable_diam_mm,
+        tipo_montaje=tipo_montaje, n_orejas_montaje=n_orejas_montaje,
+        ancho_pata_mm=ancho_pata_mm, alto_pata_mm=alto_pata_mm,
+    )
+
 col_form, col_preview = st.columns([1, 1.3])
 
 with col_form:
@@ -115,6 +128,21 @@ with col_form:
     generar_click = st.button("Generar cartel", type="primary", use_container_width=True)
 
 with col_preview:
+    if texto.strip():
+        png_rapido, ancho_rapido, alto_rapido = _preview_rapido(
+            texto, ruta_ttf, float(alto_mm), modo_led, led_ancho_mm, fondo, redondeo_mm,
+            agregar_canal_salida, cable_ancho_mm, agregar_agujeros, agujero_cable_diam_mm,
+            tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm,
+        )
+        if png_rapido:
+            st.image(
+                png_rapido,
+                caption=f"Vista rápida (2D) — ~{ancho_rapido:.0f} x {alto_rapido:.0f} mm. "
+                        f"Al generar sale la malla 3D real (con volumen, para imprimir).",
+                use_container_width=True,
+            )
+            st.divider()
+
     if not generar_click:
         st.info("Completá el formulario y apretá **Generar cartel**.")
     elif not texto.strip():

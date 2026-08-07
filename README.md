@@ -108,20 +108,31 @@ volvé a cargarla después — pisa los widgets del formulario vía
 No cubre `st.file_uploader` (SVG propio): esos no se pueden pre-cargar
 programáticamente.
 
-Llavero y Letras (los dos generadores con sliders de posición de
-decoración, donde más hace falta feedback inmediato) muestran además una
-**vista rápida en 2D** que se actualiza sola con cada cambio de parámetro,
-sin tocar "Generar": es la geometría plana (texto + decoración
-posicionada), sin el hueco/las booleanas 3D reales, así que sale en
-~0.2-0.3s en vez de los varios segundos que tarda la malla 3D
-watertight — `generators/llavero.py::preview_rapido()` y
-`generators/letras.py::preview_rapido()`, cacheadas con `st.cache_data`
-para que ajustar un slider y volver al valor anterior sea instantáneo.
-Neón y Ambigrama no la tienen: en neón el trazado ya se ve razonablemente
-bien por la tipografía elegida (menos que ajustar a ciegas), y en
-ambigrama el resultado real depende de la intersección booleana entre
-los 2 lados — un preview plano de un solo lado sería más confuso que
-útil.
+Las 4 páginas muestran una **vista rápida en 2D** que se actualiza sola
+con cada cambio de parámetro, sin tocar "Generar" — cacheada con
+`st.cache_data` para que ajustar un slider y volver al valor anterior sea
+instantáneo:
+
+- **Llavero/Letras** (`preview_rapido()` en cada `generators/*.py`): la
+  geometría plana (texto + decoración posicionada), sin el hueco/las
+  booleanas 3D reales — ~0.2-0.3s en vez de los varios segundos que tarda
+  la malla 3D watertight.
+- **Neón** (`generators/neon.py::preview_rapido()`): el trazado/placa
+  COMPLETO (orejas, agujeros, salida de cable, líneas de corte — el
+  mismo pipeline 2D que usa `generar()`, `_armar_2d`), sin mesh3d ni
+  export a STL — ~1-2s en vez de ~3s.
+- **Ambigrama** (`generators/ambigrama.py::preview_rapido()`): cada lado
+  por separado, ya escalado a la caja compartida, SIN la extrusión ni la
+  intersección booleana 3D — ~0.3s en vez de ~2s. Ojo: esto NO es el
+  resultado final (que es la intersección de los dos lados, y puede
+  quedar más chico si las formas no se solapan bien) — está etiquetado
+  como tal en la UI, es para juzgar el trazado/espaciado de cada lado
+  antes de tocar "Generar".
+
+Fondo oscuro (`#1a1a1a`) consistente en los 4 previews (2D instantáneo y
+el PNG de respaldo que se muestra si el visor 3D no puede armarse) —
+antes neón y el respaldo de llavero usaban un beige/blanco que
+desentonaba con el resto de la app.
 
 ### Fuentes y colores curados
 

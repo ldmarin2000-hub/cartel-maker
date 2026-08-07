@@ -40,6 +40,16 @@ PRESET_KEYS = [
 ]
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _preview_rapido(tipo_f, valor_f, tipo_c, valor_c, ttf_f, ttf_c, esp_f, esp_c,
+                     ancho_mm, profundidad_mm, alto_mm):
+    return ambigrama.preview_rapido(
+        tipo_f, valor_f, tipo_c, valor_c, ruta_ttf_frente=ttf_f, ruta_ttf_costado=ttf_c,
+        espaciado_frente=esp_f, espaciado_costado=esp_c,
+        ancho_mm=ancho_mm, profundidad_mm=profundidad_mm, alto_mm=alto_mm,
+    )
+
+
 def _form_lado(etiqueta, key_prefix, default_texto, default_forma):
     st.subheader(etiqueta)
     tipo = st.radio("Tipo", ambigrama.TIPOS_CONTENIDO, horizontal=True, key=f"{key_prefix}_tipo")
@@ -130,6 +140,20 @@ with col_form:
     generar_click = st.button("Generar ambigrama", type="primary", use_container_width=True)
 
 with col_preview:
+    if tipo_f != "svg" and tipo_c != "svg":
+        png_rapido = _preview_rapido(
+            tipo_f, valor_f, tipo_c, valor_c, ttf_f, ttf_c, esp_f, esp_c,
+            float(ancho_mm), float(profundidad_mm), float(alto_mm),
+        )
+        if png_rapido:
+            st.image(
+                png_rapido,
+                caption="Vista rápida (2D) de cada lado por separado — NO es el resultado final "
+                        "(que es la intersección de los dos). Al generar sale la pieza 3D real.",
+                use_container_width=True,
+            )
+            st.divider()
+
     if not generar_click:
         st.info("Completá el formulario y apretá **Generar ambigrama**.")
     elif tipo_f == "texto" and not valor_f.strip():
