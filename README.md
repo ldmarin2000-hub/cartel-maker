@@ -158,6 +158,15 @@ aparte para no dar una posición falsa. Un STL combinado tipo AMS
 cada cuerpo se colorea distinto, para distinguir las piezas aunque
 vengan en un solo archivo.
 
+Toolbar del visor (arriba a la derecha, aparece en cada instancia):
+4 vistas preset (Frente/3-4/Costado/Arriba — mueven la cámara con
+`camera-orbit` de model-viewer), un botón de reset a la vista por
+defecto, y pantalla completa (`Fullscreen API` nativa del browser, con
+detección — si el navegador no la permite en ese contexto, el botón se
+oculta solo en vez de quedar roto). Luz ajustada para que se vea más
+"foto de producto": `tone-mapping="commerce"`, sombra más suave
+(`shadow-softness`), exposición un poco más alta.
+
 ### Mecánica compartida (`core/pieza.py`)
 
 Lo que se repetía casi textual en los 4 generadores (armar el resultado

@@ -20,11 +20,25 @@ ejemplo) sin arrastrar una dependencia de Streamlit.
 
 import base64
 import os
+import uuid
 
 import numpy as np
 import trimesh
 
 from core import colores
+
+# Vistas preset del toolbar del visor (etiqueta, camera-orbit de model-viewer
+# "theta phi radio" — theta gira alrededor del eje vertical, phi es el ángulo
+# polar desde arriba: 90deg = de frente/horizontal, cerca de 0deg = mirando
+# casi derecho hacia abajo). radio "auto" deja que model-viewer calcule la
+# distancia que encuadra el modelo entero, para cualquier tamaño de pieza.
+VISTAS_PRESET = [
+    ("Frente", "0deg 80deg auto"),
+    ("3/4", "45deg 60deg auto"),
+    ("Costado", "90deg 80deg auto"),
+    ("Arriba", "0deg 10deg auto"),
+]
+VISTA_RESET = "45deg 60deg auto"  # misma que "3/4" — default razonable para cualquier pieza
 
 _RUTA_BUNDLE_MODEL_VIEWER = os.path.join(
     os.path.dirname(__file__), "..", "assets", "vendor", "model-viewer.min.js"
@@ -110,25 +124,85 @@ def armar_html_visor(piezas, height_px=480, fondo="#12141a"):
 
     glb_b64 = base64.b64encode(escena.export(file_type="glb")).decode("ascii")
     bundle_js = _leer_bundle_model_viewer()
+    uid = uuid.uuid4().hex[:8]
+
+    botones_vista = "\n".join(
+        f'<button class="v3d-btn v3d-vista" data-orbit="{orbit}">{etiqueta}</button>'
+        for etiqueta, orbit in VISTAS_PRESET
+    )
 
     return f"""
 <script type="module">{bundle_js}</script>
 <style>
-  .visor3d-wrap {{ width: 100%; height: {height_px}px; border-radius: 10px; overflow: hidden; }}
-  model-viewer {{ width: 100%; height: 100%; background: {fondo}; }}
+  .visor3d-wrap {{
+    position: relative; width: 100%; height: {height_px}px;
+    border-radius: 10px; overflow: hidden; background: {fondo};
+  }}
+  .visor3d-wrap:fullscreen {{ border-radius: 0; }}
+  .visor3d-wrap:fullscreen model-viewer {{ height: 100vh; }}
+  #mv-{uid} {{ width: 100%; height: 100%; background: {fondo}; }}
+  .v3d-toolbar {{
+    position: absolute; top: 8px; right: 8px; z-index: 2;
+    display: flex; gap: 4px; background: rgba(10,10,14,0.55);
+    padding: 4px; border-radius: 8px; backdrop-filter: blur(4px);
+  }}
+  .v3d-btn {{
+    font: 11px system-ui, sans-serif; color: #eee; background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 4px 8px;
+    cursor: pointer; white-space: nowrap; transition: background 0.15s;
+  }}
+  .v3d-btn:hover {{ background: rgba(255,255,255,0.22); }}
+  .v3d-icon {{ font-size: 13px; padding: 4px 7px; }}
 </style>
-<div class="visor3d-wrap">
+<div class="visor3d-wrap" id="wrap-{uid}">
   <model-viewer
+      id="mv-{uid}"
       src="data:model/gltf-binary;base64,{glb_b64}"
       camera-controls
       auto-rotate
       rotation-per-second="16deg"
       shadow-intensity="1"
-      exposure="1.15"
+      shadow-softness="0.8"
+      exposure="1.2"
+      tone-mapping="commerce"
       environment-image="neutral"
       interaction-prompt="none">
   </model-viewer>
+  <div class="v3d-toolbar">
+    {botones_vista}
+    <button class="v3d-btn v3d-icon v3d-reset" title="Volver a la vista inicial">⟳</button>
+    <button class="v3d-btn v3d-icon v3d-fullscreen" title="Pantalla completa">⛶</button>
+  </div>
 </div>
+<script>
+(() => {{
+  const mv = document.getElementById('mv-{uid}');
+  const wrap = document.getElementById('wrap-{uid}');
+  wrap.querySelectorAll('.v3d-vista').forEach(btn => {{
+    btn.addEventListener('click', () => {{
+      mv.removeAttribute('auto-rotate');
+      mv.cameraOrbit = btn.dataset.orbit;
+    }});
+  }});
+  wrap.querySelector('.v3d-reset').addEventListener('click', () => {{
+    mv.removeAttribute('auto-rotate');
+    mv.cameraOrbit = '{VISTA_RESET}';
+    mv.fieldOfView = 'auto';
+  }});
+  const btnFull = wrap.querySelector('.v3d-fullscreen');
+  if (!document.fullscreenEnabled) {{
+    btnFull.style.display = 'none';
+  }} else {{
+    btnFull.addEventListener('click', () => {{
+      if (!document.fullscreenElement) {{
+        wrap.requestFullscreen().catch(() => {{}});
+      }} else {{
+        document.exitFullscreen();
+      }}
+    }});
+  }}
+}})();
+</script>
 """
 
 
