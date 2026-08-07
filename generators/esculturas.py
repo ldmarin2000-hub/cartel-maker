@@ -51,6 +51,9 @@ def _guardar_preview_sombreado(destino, malla, titulo):
         ax.set_title(sub, color="#ccc")
         ax.set_box_aspect((dx, dy, dz))
         ax.set_axis_off()
+        ax.set_facecolor("#1a1a1a")
+        for pane in (ax.xaxis.pane, ax.yaxis.pane, ax.zaxis.pane):
+            pane.set_alpha(0.0)
     fig.suptitle(titulo, color="#ccc")
     fig.savefig(destino, dpi=110, facecolor="#1a1a1a")
     plt.close(fig)
