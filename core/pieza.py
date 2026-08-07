@@ -23,7 +23,7 @@ import os
 
 import trimesh
 
-from core import bambu_a1, soporte
+from core import bambu_a1, exportar_3mf, soporte
 
 
 def nombre_archivo(texto, default="pieza"):
@@ -44,6 +44,18 @@ def exportar_multicolor(piezas, ruta_stl):
     malla = trimesh.util.concatenate(piezas)
     malla.export(ruta_stl)
     return malla
+
+
+def exportar_multicolor_3mf(piezas, ruta_3mf):
+    """`piezas`: lista de trimesh.Trimesh ya en su posición real
+    ensamblada, cada una de un color/pieza distinta (mismo contrato que
+    exportar_multicolor). Exporta un .3mf con la malla ya PINTADA por
+    triángulo según la pieza de origen (core/exportar_3mf.py) — abre
+    directo en Bambu Studio con los colores puestos, sin que el usuario
+    tenga que dividir el objeto (lo que resultó frágil con el STL
+    combinado: a veces Bambu Studio ni lo dividía bien). Devuelve la
+    cantidad de triángulos escritos."""
+    return exportar_3mf.exportar_pintado(piezas, ruta_3mf)
 
 
 def exportar_piezas_sueltas(piezas_con_nombre, carpeta_salida, prefijo):

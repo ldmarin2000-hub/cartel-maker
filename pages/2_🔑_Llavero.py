@@ -301,11 +301,21 @@ with col_preview:
             if not r["watertight_base"] or not r["watertight_texto"]:
                 st.caption("Alguna pieza no quedó perfectamente watertight (modo multi-cuerpo de respaldo), pero igual imprime bien.")
 
+            if r["ruta_3mf_multicolor"]:
+                with open(r["ruta_3mf_multicolor"], "rb") as f:
+                    st.download_button(
+                        "⬇ 3MF multicolor (para AMS, recomendado)", f, file_name=os.path.basename(r["ruta_3mf_multicolor"]),
+                        mime="model/3mf", use_container_width=True, type="primary",
+                    )
+                st.caption(
+                    "Abre directo en Bambu Studio con los colores ya puestos (base y "
+                    "texto/decoración) — no hace falta dividir nada."
+                )
             if r["ruta_stl_multicolor"]:
                 with open(r["ruta_stl_multicolor"], "rb") as f:
                     st.download_button(
-                        "⬇ STL multicolor (para AMS)", f, file_name=os.path.basename(r["ruta_stl_multicolor"]),
-                        mime="model/stl", use_container_width=True, type="primary",
+                        "⬇ STL multicolor (respaldo, para otro slicer)", f, file_name=os.path.basename(r["ruta_stl_multicolor"]),
+                        mime="model/stl", use_container_width=True,
                     )
                 st.caption("O si preferís, las piezas sueltas de siempre:")
 
