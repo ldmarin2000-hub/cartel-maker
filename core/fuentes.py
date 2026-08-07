@@ -23,13 +23,14 @@ CARPETA_FUENTES_CURADAS = "fonts/curadas"
 CARPETA_FUENTES_SISTEMA_WINDOWS = r"C:\Windows\Fonts"
 
 # Nombre amigable (el que devuelve _nombre_amigable) -> (categoría, emoji).
-# Las 12 son Google Fonts (licencia OFL, ver fonts/curadas/LICENSES/) elegidas
-# para cubrir estilos bien distintos entre sí — no son 300 variantes de lo
-# mismo, son 12 herramientas para 12 propósitos distintos.
+# Las 24 son Google Fonts (licencia OFL, ver fonts/curadas/LICENSES/)
+# elegidas para cubrir estilos bien distintos entre sí — no son 300
+# variantes de lo mismo, son 24 herramientas para 24 propósitos distintos.
 CATEGORIAS_CURADAS = {
     "Pacifico": ("Script", "🖋️"),
     "Sacramento": ("Script", "🖋️"),
     "Lobster": ("Script", "🖋️"),
+    "Great Vibes": ("Script", "🖋️"),
     "Kalam Bold": ("Manuscrita", "✍️"),
     "Indie Flower": ("Manuscrita", "✍️"),
     "Bangers": ("Display", "💥"),
@@ -38,10 +39,24 @@ CATEGORIAS_CURADAS = {
     "Righteous": ("Display", "💥"),
     "Passion One Bold": ("Display", "💥"),
     "Amatic SC Bold": ("Display", "💥"),
+    "Shrikhand": ("Display", "💥"),
+    "Fredericka the Great": ("Display", "💥"),
     "Poppins Bold": ("Redondeada", "⚪"),
+    "Bebas Neue": ("Condensada", "📏"),
+    "Oswald": ("Condensada", "📏"),
+    "Playfair Display": ("Elegante", "🎩"),
+    "Abril Fatface": ("Elegante", "🎩"),
+    "Montserrat Bold": ("Geométrica", "🔷"),
+    "Monoton": ("Retro/Neón", "🕹️"),
+    "Courier Prime": ("Retro/Neón", "🕹️"),
+    "Boogaloo": ("Retro/Neón", "🕹️"),
+    "Orbitron": ("Futurista", "🚀"),
 }
 
-ORDEN_CATEGORIAS = ["Script", "Manuscrita", "Display", "Redondeada", "Tus fuentes", "Sistema"]
+ORDEN_CATEGORIAS = [
+    "Script", "Manuscrita", "Display", "Redondeada", "Condensada", "Elegante",
+    "Geométrica", "Retro/Neón", "Futurista", "Tus fuentes", "Sistema",
+]
 
 
 def _nombre_amigable(ruta):

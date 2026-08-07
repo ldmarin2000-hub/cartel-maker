@@ -14,7 +14,7 @@ carteles LED de letras de palo, llaveros, y lo que se vaya agregando.
 
 3. Todos los generadores (neón, llavero, letras, ambigrama) son Python
    puro — no hace falta instalar nada más, ni OpenSCAD. Las fuentes se
-   listan automáticamente (12 curadas en `fonts/curadas/` + las que
+   listan automáticamente (24 curadas en `fonts/curadas/` + las que
    pongas en `fonts/` + las instaladas en Windows, `C:\Windows\Fonts`),
    agrupadas por estilo con preview real tipeado en la fuente — así no
    hay que escribir rutas a mano ni adivinar cómo se ve.
@@ -80,9 +80,10 @@ ui_streamlit.py     widgets de Streamlit compartidos entre páginas (selector
                     depende de Streamlit; no va en pages/ porque cualquier
                     .py suelto ahí se vuelve una página nueva del menú
 scad/               archivos .scad paramétricos (Customizer de OpenSCAD)
-fonts/curadas/      12 Google Fonts de LETRAS bajadas y categorizadas a mano
-                    (script, manuscrita, display, redondeada) — licencia OFL,
-                    ver fonts/curadas/LICENSES/. Esta carpeta la escanea
+fonts/curadas/      24 Google Fonts de LETRAS bajadas y categorizadas a mano
+                    (script, manuscrita, display, redondeada, condensada,
+                    elegante, geométrica, retro/neón, futurista) — licencia
+                    OFL, ver fonts/curadas/LICENSES/. Esta carpeta la escanea
                     core/fuentes.py para el selector de fuentes de texto.
 fonts/simbolos/     2 fuentes monocromas de contorno (Noto Emoji, Noto Sans
                     Symbols 2) para decoraciones tipo emoji/pictograma/signo
@@ -125,13 +126,16 @@ los 2 lados — un preview plano de un solo lado sería más confuso que
 ### Fuentes y colores curados
 
 El selector de fuente (`ui_streamlit.py::selector_fuente`, usado en las 4
-páginas) agrupa por categoría — Script, Manuscrita, Display, Redondeada
-(las 12 curadas de `fonts/curadas/`), después "Tus fuentes" (`fonts/`) y
-al final "Sistema" (Windows, suelen ser cientos) — y debajo muestra un
-preview real: el texto tipeado de verdad en la fuente elegida (no una
-imagen genérica "Aa"), embebiendo el .ttf como `@font-face` en base64
+páginas) agrupa por categoría — Script, Manuscrita, Display, Redondeada,
+Condensada, Elegante, Geométrica, Retro/Neón, Futurista (las 24 curadas de
+`fonts/curadas/`), después "Tus fuentes" (`fonts/`) y al final "Sistema"
+(Windows, suelen ser cientos) — y debajo muestra un preview real: el texto
+tipeado de verdad en la fuente elegida (no una imagen genérica "Aa"),
+embebiendo el .ttf como `@font-face` en base64
 (`core/fuentes.py::html_preview_fuente`). Se ve exactamente cómo va a
-quedar antes de generar nada.
+quedar antes de generar nada. El default del generador de neón es
+`Monoton` (letras de doble trazo, diseñada imitando tubos de neón de
+verdad) en vez de una fuente cualquiera.
 
 Los colores (`core/colores.py`) son una paleta curada de ~22 tonos que
 se corresponden con filamentos PLA reales (no nombres CSS genéricos

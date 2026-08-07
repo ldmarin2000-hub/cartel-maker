@@ -36,7 +36,7 @@ with col_form:
 
     texto = st.text_input("Texto", value="Mis 15", key="ne_texto")
 
-    ruta_ttf = selector_fuente("Fuente", key="neon", default_nombre="Pacifico", texto_muestra=texto)
+    ruta_ttf = selector_fuente("Fuente", key="neon", default_nombre="Monoton", texto_muestra=texto)
 
     color_tubo = st.selectbox(
         "Color del tubo LED (visor, no cambia el STL)", colores.NOMBRES,
