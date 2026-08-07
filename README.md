@@ -71,6 +71,8 @@ core/               lógica compartida entre generadores (raster, esqueleto,
                     categorías + preview en vivo), presets (guardar/cargar
                     combinaciones de parámetros), heightmap (imagen -> grilla
                     de alturas -> relieve 3D watertight, para esculturas),
+                    ia3d (puente hacia estatua 3D completa por IA — local vía
+                    subprocess a C:\ia3d_venv, o scaffold de API externa),
                     chequeos, ui, wrapper OpenSCAD)
 generators/         un archivo por generador (neon.py, letras.py, llavero.py,
                     ambigrama.py, esculturas.py): generar() es la lógica pura
@@ -98,6 +100,9 @@ assets/vendor/      model-viewer.min.js vendoreado (Apache-2.0, Google) para
 output/             STL + preview + SVG generados (no se versiona)
 presets/            combinaciones de parámetros guardadas, por generador
                     (no se versiona — son tuyos, no del repo)
+setup_ia3d.bat      crea C:\ia3d_venv (torch + diffusers + rembg, ~3-4GB) —
+                    correr una vez para habilitar "Estatua 3D completa (IA
+                    local)" en la página de Esculturas
 ```
 
 ### Presets y vista rápida
@@ -414,3 +419,37 @@ letra iluminada; acá solo vive el mecanismo que se repetía igual.
   un preview instantáneo a resolución baja mientras se ajustan los
   sliders. Mantiene la proporción real de la imagen subida
   (`ajustar_caja_a_proporcion`) en vez de estirarla a cuadrado.
+
+  La misma página tiene un selector **"Modo"** con dos caminos más,
+  para cuando lo que se busca no es un relieve de una sola cara sino
+  una figura/estatua completa (ej.: un personaje o una persona en una
+  pose) — eso es un problema distinto, de reconstrucción 3D real, que
+  no se resuelve con geometría clásica:
+  - **Estatua 3D completa (IA local)** (`core/ia3d.py` +
+    `core/ia3d_worker.py`): corre [Shap-E](https://github.com/openai/shap-e)
+    (OpenAI, vía `diffusers`) en la propia máquina, gratis y sin mandar
+    la foto a ningún lado. Vive en un **venv aparte** (`C:\ia3d_venv`,
+    creado con `setup_ia3d.bat`) por una limitación de Windows: los
+    archivos de licencia internos de `torch` tienen rutas tan anidadas
+    que superan el límite de 260 caracteres si el proyecto vive en una
+    carpeta de nombre largo (como esta) — un venv de ruta corta lo
+    evita sin tocar ninguna config del sistema. La app principal (que
+    NO tiene `torch` como dependencia) lo invoca por `subprocess`, se
+    comunican por archivos. `core/ia3d_worker.py` recorta el sujeto
+    del fondo (`rembg`) y lo centra sobre blanco antes de mandarlo al
+    modelo (mejora mucho el resultado), rota de Y-up a Z-up para que
+    quede parada como el resto de las piezas, y aplica el mismo
+    watertight-check + `fix_normals`/`fill_holes` de respaldo que
+    `heightmap.py`. Sin GPU es lento (minutos por estatua, según la
+    calidad elegida) y la fidelidad a la pose/proporciones reales es
+    más rústica que un servicio pago — es la opción gratis, no la de
+    mejor calidad.
+  - **Estatua 3D completa (API externa)**: scaffold para conectar un
+    servicio pago (Tripo3D o Meshy — mejor fidelidad y más rápido) —
+    `core/ia3d.py::generar_api` ya tiene el selector de proveedor y el
+    campo de API key en la UI (`type="password"`, vive solo en
+    `st.session_state` de esa sesión del navegador, nunca se guarda en
+    disco ni se commitea), pero la llamada real a cada proveedor
+    todavía no está implementada (cada uno tiene su propio flujo de
+    tarea asincrónica + polling) — por ahora tira `NotImplementedError`
+    con el link a la doc del proveedor elegido.
