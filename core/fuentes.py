@@ -3,12 +3,15 @@
 """
 core/fuentes.py
 ------------------
-Catálogo de fuentes .ttf/.otf disponibles: las del proyecto (`fonts/`) más
-las instaladas en Windows (`C:\\Windows\\Fonts`), con su nombre real (no
-el nombre de archivo) para poder elegirlas de una lista en vez de tener
-que escribir o pegar una ruta cada vez.
+Catálogo de fuentes .ttf/.otf disponibles: las curadas del proyecto
+(`fonts/curadas/`, Google Fonts bajadas y categorizadas a mano — ver
+`CATEGORIAS_CURADAS`), las que el usuario puso sueltas en `fonts/`, y
+las instaladas en Windows (`C:\\Windows\\Fonts`) — con su nombre real
+(no el nombre de archivo) para poder elegirlas de una lista en vez de
+tener que escribir o pegar una ruta cada vez.
 """
 
+import base64
 import glob
 import os
 import platform
@@ -16,7 +19,29 @@ import platform
 from PIL import ImageFont
 
 CARPETA_FUENTES_PROYECTO = "fonts"
+CARPETA_FUENTES_CURADAS = "fonts/curadas"
 CARPETA_FUENTES_SISTEMA_WINDOWS = r"C:\Windows\Fonts"
+
+# Nombre amigable (el que devuelve _nombre_amigable) -> (categoría, emoji).
+# Las 12 son Google Fonts (licencia OFL, ver fonts/curadas/LICENSES/) elegidas
+# para cubrir estilos bien distintos entre sí — no son 300 variantes de lo
+# mismo, son 12 herramientas para 12 propósitos distintos.
+CATEGORIAS_CURADAS = {
+    "Pacifico": ("Script", "🖋️"),
+    "Sacramento": ("Script", "🖋️"),
+    "Lobster": ("Script", "🖋️"),
+    "Kalam Bold": ("Manuscrita", "✍️"),
+    "Indie Flower": ("Manuscrita", "✍️"),
+    "Bangers": ("Display", "💥"),
+    "Bungee": ("Display", "💥"),
+    "Anton": ("Display", "💥"),
+    "Righteous": ("Display", "💥"),
+    "Passion One Bold": ("Display", "💥"),
+    "Amatic SC Bold": ("Display", "💥"),
+    "Poppins Bold": ("Redondeada", "⚪"),
+}
+
+ORDEN_CATEGORIAS = ["Script", "Manuscrita", "Display", "Redondeada", "Tus fuentes", "Sistema"]
 
 
 def _nombre_amigable(ruta):
@@ -31,22 +56,52 @@ def _nombre_amigable(ruta):
         return os.path.splitext(os.path.basename(ruta))[0]
 
 
+def _glob_ttf_otf(carpeta):
+    return set(glob.glob(os.path.join(carpeta, "*.ttf"))) | set(glob.glob(os.path.join(carpeta, "*.otf")))
+
+
 def listar_fuentes():
-    """Junta las fuentes de `fonts/` (del proyecto) y las instaladas en
-    Windows. Devuelve una lista de (nombre_amigable, ruta) ordenada por
-    nombre, sin duplicados de ruta."""
-    rutas = set()
-    for carpeta in (CARPETA_FUENTES_PROYECTO,):
-        rutas |= set(glob.glob(os.path.join(carpeta, "*.ttf")))
-        rutas |= set(glob.glob(os.path.join(carpeta, "*.otf")))
+    """Junta las fuentes curadas, las de `fonts/` (del proyecto) y las
+    instaladas en Windows. Devuelve una lista de (nombre_amigable, ruta)
+    ordenada por nombre, sin duplicados de ruta."""
+    rutas = _glob_ttf_otf(CARPETA_FUENTES_CURADAS) | _glob_ttf_otf(CARPETA_FUENTES_PROYECTO)
 
     if platform.system() == "Windows" and os.path.isdir(CARPETA_FUENTES_SISTEMA_WINDOWS):
-        rutas |= set(glob.glob(os.path.join(CARPETA_FUENTES_SISTEMA_WINDOWS, "*.ttf")))
-        rutas |= set(glob.glob(os.path.join(CARPETA_FUENTES_SISTEMA_WINDOWS, "*.otf")))
+        rutas |= _glob_ttf_otf(CARPETA_FUENTES_SISTEMA_WINDOWS)
 
     fuentes = [(_nombre_amigable(ruta), ruta) for ruta in rutas]
     fuentes.sort(key=lambda t: t[0].lower())
     return fuentes
+
+
+def _categoria_de(nombre_amigable, ruta):
+    if nombre_amigable in CATEGORIAS_CURADAS:
+        categoria, emoji = CATEGORIAS_CURADAS[nombre_amigable]
+        return categoria, emoji
+    ruta_norm = ruta.replace("\\", "/")
+    if CARPETA_FUENTES_SISTEMA_WINDOWS.replace("\\", "/").lower() in ruta_norm.lower():
+        return "Sistema", "🔤"
+    return "Tus fuentes", "📁"
+
+
+def listar_fuentes_agrupadas():
+    """Como `listar_fuentes()`, pero con la categoría de cada una
+    (`_categoria_de`) para armar un selector agrupado — curadas primero
+    (por estilo), después las que el usuario puso en `fonts/`, y al
+    final las instaladas en Windows (suelen ser cientos, quedan
+    últimas). Devuelve una lista de (nombre_amigable, ruta, categoria,
+    emoji), ordenada por categoría (orden de `ORDEN_CATEGORIAS`) y
+    dentro de cada una por nombre."""
+    fuentes = listar_fuentes()
+    con_categoria = [(nombre, ruta, *_categoria_de(nombre, ruta)) for nombre, ruta in fuentes]
+
+    def orden(item):
+        _, _, categoria, _ = item
+        idx = ORDEN_CATEGORIAS.index(categoria) if categoria in ORDEN_CATEGORIAS else len(ORDEN_CATEGORIAS)
+        return (idx, item[0].lower())
+
+    con_categoria.sort(key=orden)
+    return con_categoria
 
 
 def buscar_por_nombre(consulta):
@@ -61,3 +116,35 @@ def buscar_por_nombre(consulta):
         return None
     coincidencias.sort(key=lambda t: len(t[0]))  # preferí la coincidencia más "exacta" (nombre más corto)
     return coincidencias[0][1]
+
+
+def html_preview_fuente(ruta_ttf, texto_muestra="Cartel Maker Aa 123", tam_px=42, color_texto="#eee"):
+    """HTML de una línea de texto tipeada de verdad en `ruta_ttf` (no una
+    imagen pre-renderizada): embebe el .ttf como @font-face en base64, así
+    se ve exactamente la fuente elegida antes de generar nada — incluye
+    los acentos/símbolos reales que vaya a tener el texto del usuario, no
+    un "Aa" genérico. Devuelve None si no se pudo leer el archivo."""
+    try:
+        with open(ruta_ttf, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("ascii")
+    except OSError:
+        return None
+    formato = "opentype" if ruta_ttf.lower().endswith(".otf") else "truetype"
+    return f"""
+<style>
+  @font-face {{
+    font-family: "vista-previa-fuente";
+    src: url(data:font/{formato};base64,{b64}) format("{formato}");
+  }}
+  .vista-previa-fuente {{
+    font-family: "vista-previa-fuente", sans-serif;
+    font-size: {tam_px}px;
+    color: {color_texto};
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.3;
+  }}
+</style>
+<div class="vista-previa-fuente">{texto_muestra}</div>
+"""

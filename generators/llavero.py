@@ -19,16 +19,14 @@ from shapely.affinity import translate
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union
 
-from core import bambu_a1, decoraciones, fuentes, mesh3d, pieza, texto2d, ui
+from core import bambu_a1, colores, decoraciones, fuentes, mesh3d, pieza, texto2d, ui
 
 NOMBRE = "Llavero"
 DESCRIPCION = "Llavero paramétrico (texto + decoración + aro), en Python puro. STL por color."
 
 CARPETA_SALIDA = "output"
 
-COLORES = ["White", "Black", "Silver", "Gray", "Pink", "HotPink", "DeepPink", "Red", "Orange",
-           "Gold", "Yellow", "Lime", "Green", "SkyBlue", "Blue", "Purple", "Violet",
-           "Turquoise", "SaddleBrown"]
+COLORES = colores.NOMBRES
 DECORACIONES = list(decoraciones.NOMBRES_VALIDOS)
 LADOS_DECO = ["izquierda", "derecha", "arriba"]
 LADOS_ARO = ["izquierda", "derecha", "ambos", "ninguno"]
@@ -108,8 +106,8 @@ def _guardar_preview(ruta_png, base, contenido, color_base, color_texto, nombre)
                 xr, yr = anillo.xy
                 ax.fill(xr, yr, color="white")
 
-    dibujar(base, color_base.lower())
-    dibujar(contenido, color_texto.lower())
+    dibujar(base, colores.hex_de(color_base))
+    dibujar(contenido, colores.hex_de(color_texto))
     ax.set_aspect("equal")
     ax.axis("off")
     ax.set_title(nombre, color="#333")
@@ -118,7 +116,7 @@ def _guardar_preview(ruta_png, base, contenido, color_base, color_texto, nombre)
 
 
 def generar(nombre, ruta_ttf, alto_mm=20,
-            color_base="White", color_texto="HotPink",
+            color_base="Blanco", color_texto="Rosa Fluor",
             decoracion="corazon", decoracion_lado="derecha", decoracion_tam=7,
             decoracion_svg=None,
             deco_x=0, deco_y=0,

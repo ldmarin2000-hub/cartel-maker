@@ -13,8 +13,9 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import fuentes, preview3d
+from core import colores, preview3d
 from generators import ambigrama
+from ui_streamlit import selector_fuente
 
 st.set_page_config(page_title="Ambigrama · Cartel Maker", page_icon="🔀", layout="wide")
 
@@ -30,25 +31,14 @@ st.info(
 )
 
 
-@st.cache_data(ttl=600)
-def _fuentes_disponibles():
-    return fuentes.listar_fuentes()
-
-
 def _form_lado(etiqueta, key_prefix, default_texto, default_forma):
     st.subheader(etiqueta)
     tipo = st.radio("Tipo", ambigrama.TIPOS_CONTENIDO, horizontal=True, key=f"{key_prefix}_tipo")
     if tipo == "texto":
         valor = st.text_input("Texto", value=default_texto, key=f"{key_prefix}_valor")
-        catalogo = _fuentes_disponibles()
-        OTRA_RUTA = "✏️ Otra ruta..."
-        opciones = [n for n, _ in catalogo] + [OTRA_RUTA]
-        idx = opciones.index("Comic Sans MS") if "Comic Sans MS" in opciones else 0
-        elegida = st.selectbox("Fuente", opciones, index=idx, key=f"{key_prefix}_fuente")
-        if elegida == OTRA_RUTA:
-            ruta_ttf = st.text_input("Ruta a la fuente .ttf", value="fonts/Pacifico.ttf", key=f"{key_prefix}_ruta")
-        else:
-            ruta_ttf = dict(catalogo)[elegida]
+        ruta_ttf = selector_fuente(
+            "Fuente", key=f"ambigrama_{key_prefix}", default_nombre="Bungee", texto_muestra=valor,
+        )
         espaciado = st.slider(
             "Espaciado entre letras", -0.4, 0.4, 0.0, step=0.05, key=f"{key_prefix}_espaciado",
             help="Negativo junta las letras (hasta tocarse/superponerse) para que una palabra "
@@ -117,6 +107,11 @@ with col_form:
             "Lado de frente — arriba (loop)": "z_max",
         }[aro_borde_label]
 
+    color_pieza = st.selectbox(
+        "Color de filamento (visor, no cambia el STL)", colores.NOMBRES,
+        index=colores.NOMBRES.index("Dorado"),
+    )
+
     generar_click = st.button("Generar ambigrama", type="primary", use_container_width=True)
 
 with col_preview:
@@ -147,7 +142,7 @@ with col_preview:
 
         if r:
             html_visor = preview3d.armar_html_visor(
-                [{"ruta_stl": r["ruta_stl"], "color": "#d8c8a8", "nombre": "ambigrama"}]
+                [{"ruta_stl": r["ruta_stl"], "color": colores.hex_de(color_pieza), "nombre": "ambigrama"}]
             )
             if html_visor:
                 components.html(html_visor, height=460)

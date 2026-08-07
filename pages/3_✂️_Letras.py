@@ -13,8 +13,9 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import fuentes, preview3d
+from core import colores, preview3d
 from generators import letras
+from ui_streamlit import selector_fuente
 
 st.set_page_config(page_title="Letras · Cartel Maker", page_icon="✂️", layout="wide")
 
@@ -29,25 +30,17 @@ st.info(
 )
 
 
-@st.cache_data(ttl=600)
-def _fuentes_disponibles():
-    return fuentes.listar_fuentes()
-
-
 col_form, col_preview = st.columns([1, 1.3])
 
 with col_form:
     texto = st.text_input("Letra(s)", value="B", max_chars=3)
 
-    catalogo = _fuentes_disponibles()
-    OTRA_RUTA = "✏️ Otra ruta..."
-    opciones = [n for n, _ in catalogo] + [OTRA_RUTA]
-    idx = opciones.index("Comic Sans MS") if "Comic Sans MS" in opciones else 0
-    elegida = st.selectbox(f"Fuente ({len(catalogo)} instaladas + las de fonts/)", opciones, index=idx)
-    if elegida == OTRA_RUTA:
-        ruta_ttf = st.text_input("Ruta a la fuente .ttf", value="fonts/Pacifico.ttf")
-    else:
-        ruta_ttf = dict(catalogo)[elegida]
+    ruta_ttf = selector_fuente("Fuente", key="letras_letra", default_nombre="Anton", texto_muestra=texto)
+
+    color_letra = st.selectbox(
+        "Color de filamento (visor, no cambia el STL)", colores.NOMBRES,
+        index=colores.NOMBRES.index("Amarillo"),
+    )
 
     alto_mm = st.slider("Alto de la letra (mm)", 50, 250, 150, step=5)
 
@@ -72,12 +65,9 @@ with col_form:
     texto_nombre, ruta_ttf_nombre, alto_nombre_mm = "", None, 30.0
     if agregar_nombre:
         texto_nombre = st.text_input("Nombre", value="Bianca", max_chars=20)
-        idx_cursiva = opciones.index("Lily Script One") if "Lily Script One" in opciones else 0
-        elegida_nombre = st.selectbox("Fuente del nombre", opciones, index=idx_cursiva, key="fuente_nombre")
-        if elegida_nombre == OTRA_RUTA:
-            ruta_ttf_nombre = st.text_input("Ruta a la fuente del nombre .ttf", value="fonts/Pacifico.ttf")
-        else:
-            ruta_ttf_nombre = dict(catalogo)[elegida_nombre]
+        ruta_ttf_nombre = selector_fuente(
+            "Fuente del nombre", key="letras_nombre", default_nombre="Sacramento", texto_muestra=texto_nombre,
+        )
         alto_nombre_mm = st.slider("Alto del nombre (mm)", 10, 60, 30, step=2)
 
     st.divider()
@@ -159,7 +149,7 @@ with col_preview:
             # el hueco abierto de atrás). El soporte de escritorio va rotado 90° respecto
             # de la letra (encastra desde abajo) — mostrarlo "pegado" sin esa rotación
             # daría una posición falsa, así que va en su propio visor aparte.
-            piezas_visor = [{"ruta_stl": r["ruta_stl"], "color": "#f5deb3", "nombre": "letra"}]
+            piezas_visor = [{"ruta_stl": r["ruta_stl"], "color": colores.hex_de(color_letra), "nombre": "letra"}]
             if r["pieza_tapa"]:
                 piezas_visor.append({
                     "ruta_stl": r["pieza_tapa"]["ruta_stl"], "color": "#9a9a9a", "nombre": "tapa",

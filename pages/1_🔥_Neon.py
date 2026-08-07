@@ -13,8 +13,9 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import fuentes, geometry, preview3d
+from core import colores, geometry, preview3d
 from generators import neon
+from ui_streamlit import selector_fuente
 
 st.set_page_config(page_title="Cartel de neón · Cartel Maker", page_icon="🔥", layout="wide")
 
@@ -22,26 +23,18 @@ st.title("🔥 Cartel de neón (texto trazado)")
 st.caption(neon.DESCRIPCION)
 
 
-@st.cache_data(ttl=600)
-def _fuentes_disponibles():
-    return fuentes.listar_fuentes()
-
-
 col_form, col_preview = st.columns([1, 1.3])
 
 with col_form:
     texto = st.text_input("Texto", value="Mis 15")
 
-    catalogo = _fuentes_disponibles()
-    OTRA_RUTA = "✏️ Otra ruta..."
-    opciones = [nombre for nombre, _ in catalogo] + [OTRA_RUTA]
-    indice_default = opciones.index("Comic Sans MS") if "Comic Sans MS" in opciones else 0
-    elegida = st.selectbox(f"Fuente ({len(catalogo)} instaladas + las de fonts/)", opciones, index=indice_default)
+    ruta_ttf = selector_fuente("Fuente", key="neon", default_nombre="Pacifico", texto_muestra=texto)
 
-    if elegida == OTRA_RUTA:
-        ruta_ttf = st.text_input("Ruta a la fuente .ttf", value="fonts/Pacifico.ttf")
-    else:
-        ruta_ttf = dict(catalogo)[elegida]
+    color_tubo = st.selectbox(
+        "Color del tubo LED (visor, no cambia el STL)", colores.NOMBRES,
+        index=colores.NOMBRES.index("Rosa Fluor"),
+        help="Solo para ver cómo queda en el visor 3D — el LED de verdad se elige aparte al comprar la tira.",
+    )
 
     alto_mm = st.slider("Alto del texto (mm)", min_value=20, max_value=250, value=90, step=5)
     modo_led = st.radio(
@@ -122,9 +115,9 @@ with col_preview:
         if r:
             # los módulos (si el cartel se partió) quedan en su posición real de X/Y
             # (por eso encastran con cola de milano) — combinan derecho en un solo visor.
+            color_tubo_hex = colores.hex_de(color_tubo)
             piezas_visor = [
-                {"ruta_stl": p["ruta_stl"], "color": "#ff5a7a" if modo_led == "neon" else "#ffb700",
-                 "nombre": f"modulo_{p['indice']}"}
+                {"ruta_stl": p["ruta_stl"], "color": color_tubo_hex, "nombre": f"modulo_{p['indice']}"}
                 for p in r["piezas"]
             ]
             html_visor = preview3d.armar_html_visor(piezas_visor)

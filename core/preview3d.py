@@ -24,11 +24,19 @@ import os
 import numpy as np
 import trimesh
 
+from core import colores
+
 _RUTA_BUNDLE_MODEL_VIEWER = os.path.join(
     os.path.dirname(__file__), "..", "assets", "vendor", "model-viewer.min.js"
 )
 
-PALETA_DECORACIONES = ["#e63946", "#2a9d8f", "#f4a261", "#e9c46a", "#264653", "#a663cc"]
+# Subsecuencia de la paleta curada (core/colores.py) elegida por contraste
+# entre sí (no colores vecinos) — para que decoración tras decoración se
+# distinga a simple vista en el visor, ciclando siempre la misma paleta que
+# usa el resto de la app (no una lista de hex aparte inventada acá).
+PALETA_DECORACIONES = [colores.hex_de(n) for n in (
+    "Rojo", "Turquesa", "Amarillo", "Púrpura", "Verde Lima", "Celeste", "Rosa Fluor", "Dorado",
+)]
 
 _bundle_cache = None
 
@@ -131,10 +139,3 @@ def color_decoracion(indice):
     return PALETA_DECORACIONES[indice % len(PALETA_DECORACIONES)]
 
 
-def nombre_color_a_hex(nombre_css):
-    """Convierte un nombre de color CSS/SVG (ej. "HotPink", los mismos
-    que ya se usan en el preview 2D con matplotlib) a hex, para
-    colorear la pieza en el visor 3D."""
-    import matplotlib.colors as mcolors
-
-    return mcolors.to_hex(nombre_css.lower())

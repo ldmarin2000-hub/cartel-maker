@@ -14,9 +14,10 @@ carteles LED de letras de palo, llaveros, y lo que se vaya agregando.
 
 3. Todos los generadores (neón, llavero, letras, ambigrama) son Python
    puro — no hace falta instalar nada más, ni OpenSCAD. Las fuentes se
-   listan automáticamente (las instaladas en Windows, `C:\Windows\Fonts`,
-   por su nombre real, más las que pongas en `fonts/`), así que no hay
-   que escribir rutas a mano.
+   listan automáticamente (12 curadas en `fonts/curadas/` + las que
+   pongas en `fonts/` + las instaladas en Windows, `C:\Windows\Fonts`),
+   agrupadas por estilo con preview real tipeado en la fuente — así no
+   hay que escribir rutas a mano ni adivinar cómo se ve.
 
 ## Uso
 
@@ -65,16 +66,43 @@ core/               lógica compartida entre generadores (raster, esqueleto,
                     texto2d/decoraciones, geometría, malla 3D, preview 2D,
                     preview3d (visor interactivo), pieza (mecánica de
                     armado final: nombre de archivo, export multicolor/
-                    sueltas, soporte de escritorio, chequeo A1), chequeos,
-                    ui, catálogo de fuentes, wrapper OpenSCAD)
+                    sueltas, soporte de escritorio, chequeo A1), colores
+                    (paleta de filamento curada), fuentes (catálogo +
+                    categorías + preview en vivo), chequeos, ui, wrapper
+                    OpenSCAD)
 generators/         un archivo por generador (neon.py, letras.py, llavero.py):
                     generar() es la lógica pura que usan tanto app.py como main.py
+ui_streamlit.py     widgets de Streamlit compartidos entre páginas (ej. el
+                    selector de fuente) — no es core/ porque SÍ depende de
+                    Streamlit; no va en pages/ porque cualquier .py suelto
+                    ahí se vuelve una página nueva del menú
 scad/               archivos .scad paramétricos (Customizer de OpenSCAD)
-fonts/              tus .ttf de Google Fonts
+fonts/curadas/      12 Google Fonts bajadas y categorizadas a mano (script,
+                    manuscrita, display, redondeada) — licencia OFL, ver
+                    fonts/curadas/LICENSES/
+fonts/              tus propios .ttf (además de los de fonts/curadas/)
 assets/vendor/      model-viewer.min.js vendoreado (Apache-2.0, Google) para
                     el visor 3D — offline, no pide nada a internet
 output/             STL + preview + SVG generados (no se versiona)
 ```
+
+### Fuentes y colores curados
+
+El selector de fuente (`ui_streamlit.py::selector_fuente`, usado en las 4
+páginas) agrupa por categoría — Script, Manuscrita, Display, Redondeada
+(las 12 curadas de `fonts/curadas/`), después "Tus fuentes" (`fonts/`) y
+al final "Sistema" (Windows, suelen ser cientos) — y debajo muestra un
+preview real: el texto tipeado de verdad en la fuente elegida (no una
+imagen genérica "Aa"), embebiendo el .ttf como `@font-face` en base64
+(`core/fuentes.py::html_preview_fuente`). Se ve exactamente cómo va a
+quedar antes de generar nada.
+
+Los colores (`core/colores.py`) son una paleta curada de ~22 tonos que
+se corresponden con filamentos PLA reales (no nombres CSS genéricos
+como "HotPink") — el llavero la usa para elegir el color real de cada
+pieza, y el resto de los generadores la usa como referencia de color en
+el visor 3D (no cambia el STL, es para que el preview se parezca a lo
+que vas a imprimir y sepas qué filamento comprar).
 
 ### Preview 3D interactivo (`core/preview3d.py`)
 
@@ -128,8 +156,11 @@ letra iluminada; acá solo vive el mecanismo que se repetía igual.
    multicolor/sueltas, soporte de escritorio, chequeo A1), usar
    `core/pieza.py` en vez de reescribirlo.
 2. Sumar `pages/N_emoji_MiGenerador.py`: los widgets del formulario +
-   `generators.mi_generador.generar(...)` — para el preview 3D, armar la
-   lista de piezas (`{"ruta_stl", "color", "nombre"}`) y pasarla a
+   `generators.mi_generador.generar(...)` — para el selector de fuente,
+   usar `ui_streamlit.selector_fuente(...)` (agrupado + preview en vivo,
+   no reescribirlo); para el color, las opciones de `core.colores.NOMBRES`
+   + `core.colores.hex_de(...)`; para el preview 3D, armar la lista de
+   piezas (`{"ruta_stl", "color", "nombre"}`) y pasarla a
    `core.preview3d.armar_html_visor(...)`.
 3. Listo — `main.py` lo lista solo por consola, y Streamlit lo agrega solo
    al menú lateral por estar en `pages/`.

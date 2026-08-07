@@ -13,8 +13,9 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import fuentes, preview3d
+from core import colores, preview3d
 from generators import llavero
+from ui_streamlit import selector_fuente
 
 st.set_page_config(page_title="Llavero · Cartel Maker", page_icon="🔑", layout="wide")
 
@@ -22,31 +23,28 @@ st.title("🔑 Llavero")
 st.caption(llavero.DESCRIPCION)
 
 
-@st.cache_data(ttl=600)
-def _fuentes_disponibles():
-    return fuentes.listar_fuentes()
-
-
 col_form, col_preview = st.columns([1, 1.3])
 
 with col_form:
     nombre = st.text_input("Nombre / texto", value="Bianca")
 
-    catalogo = _fuentes_disponibles()
-    OTRA_RUTA = "✏️ Otra ruta..."
-    opciones = [n for n, _ in catalogo] + [OTRA_RUTA]
-    indice_default = opciones.index("Lily Script One") if "Lily Script One" in opciones else 0
-    elegida = st.selectbox(f"Fuente ({len(catalogo)} instaladas + las de fonts/)", opciones, index=indice_default)
-    if elegida == OTRA_RUTA:
-        ruta_ttf = st.text_input("Ruta a la fuente .ttf", value="fonts/Pacifico.ttf")
-    else:
-        ruta_ttf = dict(catalogo)[elegida]
+    ruta_ttf = selector_fuente("Fuente", key="llavero", default_nombre="Lobster", texto_muestra=nombre)
 
     alto_mm = st.slider("Alto del texto (mm)", 10, 60, 20)
 
     c1, c2 = st.columns(2)
-    color_base = c1.selectbox("Color base (preview)", llavero.COLORES, index=llavero.COLORES.index("White"))
-    color_texto = c2.selectbox("Color texto (preview)", llavero.COLORES, index=llavero.COLORES.index("HotPink"))
+    color_base = c1.selectbox("Color base (filamento)", llavero.COLORES, index=llavero.COLORES.index("Blanco"))
+    color_texto = c2.selectbox(
+        "Color texto (filamento)", llavero.COLORES, index=llavero.COLORES.index("Rosa Fluor")
+    )
+    c1.markdown(
+        f'<div style="height:22px;border-radius:4px;background:{colores.hex_de(color_base)};'
+        f'border:1px solid #0003"></div>', unsafe_allow_html=True,
+    )
+    c2.markdown(
+        f'<div style="height:22px;border-radius:4px;background:{colores.hex_de(color_texto)};'
+        f'border:1px solid #0003"></div>', unsafe_allow_html=True,
+    )
 
     decoracion = st.selectbox("Decoración", llavero.DECORACIONES, index=llavero.DECORACIONES.index("corazon"))
     svg_subido = st.file_uploader(
@@ -106,8 +104,8 @@ with col_preview:
                 r = None
 
         if r:
-            color_base_hex = preview3d.nombre_color_a_hex(color_base)
-            color_texto_hex = preview3d.nombre_color_a_hex(color_texto)
+            color_base_hex = colores.hex_de(color_base)
+            color_texto_hex = colores.hex_de(color_texto)
             if tiene_ams:
                 # con AMS las 2 piezas ya están en su posición real (una arriba de la otra) —
                 # se puede mostrar el conjunto armado en un solo visor.
