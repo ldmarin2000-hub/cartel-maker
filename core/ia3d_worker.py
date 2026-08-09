@@ -188,6 +188,13 @@ def generar(ruta_imagen, ruta_stl, ruta_png, ancho_mm=80.0, pasos=24, guidance=3
     malla.export(ruta_stl)
     _guardar_preview(ruta_png, malla, "Estatua (IA local)")
 
+    # Comprimir PNG preview (reduce tamaño típicamente 20-40%)
+    try:
+        from core import storage
+        storage.comprimir_png(ruta_png)
+    except Exception:
+        pass
+
     print(f"OK vertices={len(malla.vertices)} caras={len(malla.faces)} watertight={malla.is_watertight}")
     print(f"OK bounds={malla.bounds.tolist()}")
 

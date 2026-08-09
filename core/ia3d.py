@@ -28,7 +28,7 @@ import time
 
 import trimesh
 
-from core import pieza
+from core import pieza, storage
 
 RAIZ_PROYECTO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PYTHON_IA3D = r"C:\ia3d_venv\Scripts\python.exe"
@@ -75,6 +75,9 @@ def generar_local(ruta_imagen, carpeta_salida="output", ancho_mm=80.0,
         raise FileNotFoundError(f"no encuentro la imagen: {ruta_imagen}")
 
     os.makedirs(carpeta_salida, exist_ok=True)
+
+    # Cleanup: borrar imágenes subidas viejas (>7 días) para liberar espacio
+    storage.limpiar_temporales(carpeta_salida, dias_antiguedad=7)
     base_nombre = pieza.nombre_archivo(
         os.path.splitext(os.path.basename(ruta_imagen))[0], default="estatua"
     )
