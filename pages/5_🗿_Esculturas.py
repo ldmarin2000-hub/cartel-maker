@@ -250,12 +250,13 @@ with col_preview:
                 mime="model/stl", use_container_width=True, type="primary",
             )
 
-    # Stats de almacenamiento (opcional)
-    with st.expander("📊 Almacenamiento"):
-        stats = storage.estadisticas_almacenamiento()
-        col1, col2 = st.columns(2)
-        col1.metric("Esculturas generadas", f"{stats['stl_count']} STL")
-        col1.metric("Previews", f"{stats['png_count']} PNG")
-        col2.metric("Espacio usado", f"{stats['tamaño_total_mb']:.0f} MB")
-        col2.metric("Modelos descargados", f"{stats['cache_modelos_gb']:.1f} GB")
-        st.caption("Los archivos temporales se limpian automáticamente cada 7 días.")
+# Stats de almacenamiento (opcional, siempre visible)
+st.divider()
+with st.expander("📊 Almacenamiento"):
+    stats = storage.estadisticas_almacenamiento()
+    col1, col2 = st.columns(2)
+    col1.metric("Esculturas generadas", f"{stats['stl_count']} STL")
+    col1.metric("Previews", f"{stats['png_count']} PNG")
+    col2.metric("Espacio usado", f"{stats['tamaño_total_mb']:.0f} MB")
+    col2.metric("Modelos descargados", f"{stats['cache_modelos_gb']:.1f} GB")
+    st.caption("Los archivos temporales se limpian automáticamente cada 7 días.")
