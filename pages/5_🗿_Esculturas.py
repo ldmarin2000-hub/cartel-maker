@@ -13,7 +13,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import colores, heightmap, ia3d, preview3d, storage
+from core import colores, heightmap, ia3d, preview3d, storage, validation
 from generators import esculturas
 from ui_streamlit import bloque_presets
 
@@ -192,25 +192,50 @@ with col_preview:
     elif not ruta_imagen:
         st.error("Subí una imagen primero.")
     elif modo == "Relieve (rápido, sin IA)":
-        with st.spinner("Tallando el relieve (puede tardar unos segundos)..."):
-            try:
-                r = esculturas.generar(
-                    ruta_imagen, ancho_mm=float(ancho_mm), alto_mm=float(alto_mm),
-                    espesor_base_mm=float(espesor_base_mm), relieve_mm=float(relieve_mm),
-                    resolucion_px=resolucion_px, suavizado_px=float(suavizado_px),
-                    oscuro_alto=oscuro_alto,
-                )
-            except (FileNotFoundError, ValueError) as e:
-                st.error(str(e))
+        # Validación antes de generar
+        try:
+            validation.validar_imagen(ruta_imagen)
+            validation.validar_dimensiones_relieve(float(ancho_mm), float(alto_mm),
+                                                   float(espesor_base_mm), float(relieve_mm))
+        except validation.ValidationError as e:
+            st.error(f"❌ {str(e)}")
+        else:
+            # Avisos (no errores)
+            avisos = validation.avisos_en_relieve(float(ancho_mm), float(alto_mm), float(suavizado_px))
+            for aviso in avisos:
+                st.warning(aviso)
+
+            with st.spinner("Tallando el relieve (puede tardar unos segundos)..."):
+                try:
+                    r = esculturas.generar(
+                        ruta_imagen, ancho_mm=float(ancho_mm), alto_mm=float(alto_mm),
+                        espesor_base_mm=float(espesor_base_mm), relieve_mm=float(relieve_mm),
+                        resolucion_px=resolucion_px, suavizado_px=float(suavizado_px),
+                        oscuro_alto=oscuro_alto,
+                    )
+                except (FileNotFoundError, ValueError) as e:
+                    st.error(str(e))
     elif modo == "Estatua 3D completa (IA local)":
         pasos = ia3d.CALIDADES_LOCAL[ia_calidad_label]
-        with st.spinner(f"Reconstruyendo el volumen ({pasos} pasos, puede tardar varios minutos en CPU)..."):
-            try:
-                r = ia3d.generar_local(
-                    ruta_imagen, ancho_mm=float(ancho_mm), pasos=pasos, quitar_fondo=ia_quitar_fondo,
-                )
-            except (FileNotFoundError, ValueError, RuntimeError) as e:
-                st.error(str(e))
+        # Validación antes de generar
+        try:
+            validation.validar_imagen(ruta_imagen)
+            validation.validar_dimensiones_estatua(float(ancho_mm))
+        except validation.ValidationError as e:
+            st.error(f"❌ {str(e)}")
+        else:
+            # Avisos (no errores)
+            avisos = validation.avisos_en_estatua(pasos)
+            for aviso in avisos:
+                st.warning(aviso)
+
+            with st.spinner(f"Reconstruyendo el volumen ({pasos} pasos, puede tardar varios minutos en CPU)..."):
+                try:
+                    r = ia3d.generar_local(
+                        ruta_imagen, ancho_mm=float(ancho_mm), pasos=pasos, quitar_fondo=ia_quitar_fondo,
+                    )
+                except (FileNotFoundError, ValueError, RuntimeError) as e:
+                    st.error(str(e))
     else:
         try:
             r = ia3d.generar_api(ruta_imagen, api_key, proveedor=api_proveedor, ancho_mm=float(ancho_mm))
