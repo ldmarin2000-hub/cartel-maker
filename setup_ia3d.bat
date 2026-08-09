@@ -17,7 +17,7 @@ REM Correr una sola vez. Si ya existe C:\ia3d_venv, no hace falta
 REM correrlo de nuevo.
 
 echo Creando entorno para "Estatua 3D completa (IA local)"...
-"%~dp0.venv\Scripts\python.exe" -m venv C:\ia3d_venv
+py -3 -m venv C:\ia3d_venv
 if errorlevel 1 goto :error
 
 echo Instalando torch y torchvision (CPU)...
