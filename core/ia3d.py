@@ -34,9 +34,9 @@ RAIZ_PROYECTO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PYTHON_IA3D = r"C:\ia3d_venv\Scripts\python.exe"
 
 CALIDADES_LOCAL = {
-    "Rápida (más rústica, ~2-5 min en CPU)": 16,
-    "Normal (~5-10 min en CPU)": 32,
-    "Alta (más fiel, ~15-25 min en CPU)": 64,
+    "Rápida (más rústica, ~1-3 min en CPU)": 16,
+    "Normal (~3-7 min en CPU)": 24,
+    "Alta (más fiel, ~8-15 min en CPU)": 48,
 }
 
 PROVEEDORES_API = {

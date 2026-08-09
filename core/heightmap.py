@@ -24,40 +24,39 @@ from skimage import exposure, filters
 RESOLUCION_MAX_PX = 180  # lado más largo de la grilla de trabajo — más = más detalle, más lento y más pesado
 
 
-def _grilla_de_alturas(ruta_imagen, resolucion_px=RESOLUCION_MAX_PX, suavizado_px=1.0, usar_clahe=True, usar_bilateral=True):
+def _grilla_de_alturas(ruta_imagen, resolucion_px=RESOLUCION_MAX_PX, suavizado_px=1.0, usar_clahe=True, usar_bilateral=False):
     """Lee `ruta_imagen`, la pasa a escala de grises y la re-muestrea a una
     grilla de como mucho `resolucion_px` de lado (mantiene la proporción
-    real de la imagen). Mejoras:
+    real de la imagen). Optimizaciones:
     - CLAHE (contrast-limited adaptive histogram equalization) si usar_clahe=True
-    - Bilateral filtering si usar_bilateral=True (edge-aware smoothing)
+    - Bilateral filtering DESHABILITADO por default (muy lento); reemplazado por median filter más rápido
     Devuelve un array 2D de floats en [0, 1] — 0 = negro, 1 = blanco."""
     img = Image.open(ruta_imagen).convert("L")
-    img_arr = np.asarray(img, dtype=np.float64) / 255.0
 
-    # CLAHE: mejora contraste adaptativo sin perder detalles
-    if usar_clahe:
-        img_arr = exposure.equalize_adapthist(img_arr, clip_limit=0.03, nbins=256)
-
-    # Bilateral filter: suaviza sin perder edges (mejor que Gaussian blur puro)
-    if usar_bilateral:
-        img_arr = filters.bilateral(img_arr, sigma_color=0.1, sigma_spatial=3)
-
-    # Gaussian blur adicional para artefactos JPG
-    if suavizado_px > 0:
-        img_pil = Image.fromarray((img_arr * 255).astype(np.uint8))
-        img_pil = img_pil.filter(ImageFilter.GaussianBlur(suavizado_px))
-        img_arr = np.asarray(img_pil, dtype=np.float64) / 255.0
-
-    # Re-muestrear a resolución target
+    # Re-muestrear PRIMERO (imagen más chica = procesos posteriores más rápidos)
     ancho_px, alto_px = img.size
     lado_mayor = max(ancho_px, alto_px)
     escala = resolucion_px / lado_mayor
     nw, nh = max(2, round(ancho_px * escala)), max(2, round(alto_px * escala))
+    img = img.resize((nw, nh), Image.LANCZOS)
 
-    img_pil = Image.fromarray((img_arr * 255).astype(np.uint8))
-    img_pil = img_pil.resize((nw, nh), Image.LANCZOS)
+    img_arr = np.asarray(img, dtype=np.float64) / 255.0
 
-    return np.asarray(img_pil, dtype=np.float64) / 255.0
+    # CLAHE: mejora contraste adaptativo sin perder detalles (rápido)
+    if usar_clahe:
+        img_arr = exposure.equalize_adapthist(img_arr, clip_limit=0.03, nbins=128)
+
+    # Bilateral filter: muy lento, reemplazado por median filter (alternativa rápida)
+    if usar_bilateral:
+        img_arr = filters.median(filters.sobel(img_arr))
+
+    # Gaussian blur para artefactos JPG
+    if suavizado_px > 0:
+        img_pil = Image.fromarray((np.clip(img_arr * 255, 0, 255)).astype(np.uint8))
+        img_pil = img_pil.filter(ImageFilter.GaussianBlur(suavizado_px))
+        img_arr = np.asarray(img_pil, dtype=np.float64) / 255.0
+
+    return img_arr
 
 
 def _malla_desde_grilla(alturas_norm, ancho_mm, alto_mm, espesor_base_mm, relieve_mm, oscuro_alto=True):

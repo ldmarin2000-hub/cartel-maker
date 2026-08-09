@@ -109,33 +109,38 @@ def _guardar_preview(destino, malla, titulo):
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from matplotlib.colors import LightSource
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-    tris = malla.vertices[malla.faces]
+    # Optimización: si hay demasiados tris, sub-muestrear para preview (no afecta STL)
+    tris_full = malla.vertices[malla.faces]
+    if len(tris_full) > 10000:
+        step = len(tris_full) // 10000
+        indices = np.arange(0, len(tris_full), step)
+        tris = tris_full[indices]
+        face_normals = malla.face_normals[indices]
+    else:
+        tris = tris_full
+        face_normals = malla.face_normals
+
     (minx, miny, minz), (maxx, maxy, maxz) = malla.bounds
     dx, dy, dz = max(maxx - minx, 1), max(maxy - miny, 1), max(maxz - minz, 1)
 
     fig = plt.figure(figsize=(11, 6))
     vistas = [(20, -60, "3/4"), (10, 30, "Frente")]
 
-    # Cálculo de faces normals para shading (lighting)
-    face_normals = malla.face_normals
-
     for i, (elev, azim, sub) in enumerate(vistas):
         ax = fig.add_subplot(1, 2, i + 1, projection="3d")
 
-        # Pseudo-shading: variar el color por normal para dar profundidad
+        # Pseudo-shading: variar el color por normal
         shade_vals = np.dot(face_normals, np.array([0.5, -0.5, 1]))
         shade_vals = (shade_vals + 1) / 2
         shade_vals = np.clip(shade_vals, 0.3, 1.0)
 
-        # Aplicar shading a color base
         colors = np.zeros((len(tris), 3))
-        base_rgb = np.array([0.788, 0.659, 0.463])  # #c9a876 RGB
+        base_rgb = np.array([0.788, 0.659, 0.463])
         colors[:] = base_rgb * shade_vals[:, np.newaxis]
 
-        poly = Poly3DCollection(tris, facecolor=colors, edgecolor="#00000011", linewidths=0.02)
+        poly = Poly3DCollection(tris, facecolor=colors, edgecolor="#00000011", linewidths=0.01)
         ax.add_collection3d(poly)
 
         ax.set_xlim(minx, maxx)
@@ -150,12 +155,13 @@ def _guardar_preview(destino, malla, titulo):
             pane.set_alpha(0.0)
 
     fig.suptitle(titulo, color="#ccc", fontsize=12)
-    fig.savefig(destino, dpi=110, facecolor="#1a1a1a", bbox_inches="tight")
+    fig.savefig(destino, dpi=90, facecolor="#1a1a1a", bbox_inches="tight")
     plt.close(fig)
 
 
-def generar(ruta_imagen, ruta_stl, ruta_png, ancho_mm=80.0, pasos=32, guidance=3.0, quitar_fondo=True, aplicar_suavizado=True, aplicar_decimation=True):
+def generar(ruta_imagen, ruta_stl, ruta_png, ancho_mm=80.0, pasos=24, guidance=3.0, quitar_fondo=True, aplicar_suavizado=True, aplicar_decimation=True):
     import torch
+    import gc
     from diffusers import ShapEImg2ImgPipeline
 
     imagen = _cargar_imagen_preparada(ruta_imagen, quitar_fondo)
@@ -163,6 +169,8 @@ def generar(ruta_imagen, ruta_stl, ruta_png, ancho_mm=80.0, pasos=32, guidance=3
     pipe = ShapEImg2ImgPipeline.from_pretrained("openai/shap-e-img2img", torch_dtype=torch.float32)
     pipe = pipe.to("cpu")
 
+    # Inference con enable_attention_slicing para reducir memoria en CPU
+    pipe.enable_attention_slicing()
     salida = pipe(
         imagen,
         guidance_scale=guidance,
@@ -171,6 +179,10 @@ def generar(ruta_imagen, ruta_stl, ruta_png, ancho_mm=80.0, pasos=32, guidance=3
         output_type="mesh",
     )
     mesh_out = salida.images[0]
+
+    # Liberar memoria GPU/pipeline después de usar
+    del pipe, imagen, salida
+    gc.collect()
 
     malla = _malla_desde_mesh_shape(mesh_out, ancho_mm, aplicar_suavizado=aplicar_suavizado, aplicar_decimation=aplicar_decimation)
     malla.export(ruta_stl)
