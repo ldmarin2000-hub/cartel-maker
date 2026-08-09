@@ -24,8 +24,8 @@ echo Instalando torch y torchvision (CPU)...
 C:\ia3d_venv\Scripts\python.exe -m pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision --no-cache-dir
 if errorlevel 1 goto :error
 
-echo Instalando diffusers, transformers, rembg[cpu], matplotlib...
-C:\ia3d_venv\Scripts\python.exe -m pip install diffusers transformers accelerate "rembg[cpu]" pillow numpy trimesh matplotlib --no-cache-dir
+echo Instalando diffusers, transformers, rembg[cpu], matplotlib, scikit-image...
+C:\ia3d_venv\Scripts\python.exe -m pip install diffusers transformers accelerate "rembg[cpu]" pillow numpy trimesh matplotlib scikit-image --no-cache-dir
 if errorlevel 1 goto :error
 
 echo.

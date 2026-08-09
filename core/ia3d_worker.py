@@ -62,7 +62,7 @@ def _cargar_imagen_preparada(ruta_imagen, quitar_fondo):
     return cuadro.resize((256, 256), Image.LANCZOS)
 
 
-def _malla_desde_mesh_shape(mesh_out, ancho_mm):
+def _malla_desde_mesh_shape(mesh_out, ancho_mm, aplicar_suavizado=True, aplicar_decimation=True):
     import trimesh
 
     verts = mesh_out.verts.detach().cpu().numpy().astype(np.float64)
@@ -80,6 +80,24 @@ def _malla_desde_mesh_shape(mesh_out, ancho_mm):
         trimesh.repair.fill_holes(malla)
         malla.fix_normals()
 
+    # Laplacian smoothing: reduce ruido/artefactos de la IA sin perder silueta
+    if aplicar_suavizado:
+        try:
+            malla = trimesh.smoothing.laplacian_filter(malla, iterations=1, lambda_=0.1)
+        except Exception:
+            pass  # si falla, sigue con la malla sin suavizar
+
+    # Quadric mesh decimation: reduce vértices para archivo más liviano
+    if aplicar_decimation:
+        try:
+            verts_orig = len(malla.vertices)
+            ratio_target = 0.7  # mantener 70% de vértices
+            malla = trimesh.simplification.simplify_mesh(malla, target_count=max(500, int(verts_orig * ratio_target)))
+            malla.remove_unreferenced_vertices()
+        except Exception:
+            pass  # si falla, usa la malla sin decimation
+
+    malla.fix_normals()
     escala = ancho_mm / max(malla.extents[:2].max(), 1e-6)
     malla.apply_scale(escala)
     malla.apply_translation(-malla.bounds[0])  # apoyada en Z=0, esquina en (0,0)
@@ -91,6 +109,7 @@ def _guardar_preview(destino, malla, titulo):
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.colors import LightSource
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
     tris = malla.vertices[malla.faces]
@@ -98,26 +117,44 @@ def _guardar_preview(destino, malla, titulo):
     dx, dy, dz = max(maxx - minx, 1), max(maxy - miny, 1), max(maxz - minz, 1)
 
     fig = plt.figure(figsize=(11, 6))
-    vistas = [(15, -60, "3/4"), (5, 30, "Frente")]
+    vistas = [(20, -60, "3/4"), (10, 30, "Frente")]
+
+    # Cálculo de faces normals para shading (lighting)
+    face_normals = malla.face_normals
+
     for i, (elev, azim, sub) in enumerate(vistas):
         ax = fig.add_subplot(1, 2, i + 1, projection="3d")
-        ax.add_collection3d(Poly3DCollection(tris, facecolor="#c9a876", edgecolor="#00000022", linewidths=0.05))
+
+        # Pseudo-shading: variar el color por normal para dar profundidad
+        shade_vals = np.dot(face_normals, np.array([0.5, -0.5, 1]))
+        shade_vals = (shade_vals + 1) / 2
+        shade_vals = np.clip(shade_vals, 0.3, 1.0)
+
+        # Aplicar shading a color base
+        colors = np.zeros((len(tris), 3))
+        base_rgb = np.array([0.788, 0.659, 0.463])  # #c9a876 RGB
+        colors[:] = base_rgb * shade_vals[:, np.newaxis]
+
+        poly = Poly3DCollection(tris, facecolor=colors, edgecolor="#00000011", linewidths=0.02)
+        ax.add_collection3d(poly)
+
         ax.set_xlim(minx, maxx)
         ax.set_ylim(miny, maxy)
         ax.set_zlim(minz, maxz)
         ax.view_init(elev=elev, azim=azim)
-        ax.set_title(sub, color="#ccc")
+        ax.set_title(sub, color="#ccc", fontsize=10)
         ax.set_box_aspect((dx, dy, dz))
         ax.set_axis_off()
         ax.set_facecolor("#1a1a1a")
         for pane in (ax.xaxis.pane, ax.yaxis.pane, ax.zaxis.pane):
             pane.set_alpha(0.0)
-    fig.suptitle(titulo, color="#ccc")
-    fig.savefig(destino, dpi=110, facecolor="#1a1a1a")
+
+    fig.suptitle(titulo, color="#ccc", fontsize=12)
+    fig.savefig(destino, dpi=110, facecolor="#1a1a1a", bbox_inches="tight")
     plt.close(fig)
 
 
-def generar(ruta_imagen, ruta_stl, ruta_png, ancho_mm=80.0, pasos=32, guidance=3.0, quitar_fondo=True):
+def generar(ruta_imagen, ruta_stl, ruta_png, ancho_mm=80.0, pasos=32, guidance=3.0, quitar_fondo=True, aplicar_suavizado=True, aplicar_decimation=True):
     import torch
     from diffusers import ShapEImg2ImgPipeline
 
@@ -135,7 +172,7 @@ def generar(ruta_imagen, ruta_stl, ruta_png, ancho_mm=80.0, pasos=32, guidance=3
     )
     mesh_out = salida.images[0]
 
-    malla = _malla_desde_mesh_shape(mesh_out, ancho_mm)
+    malla = _malla_desde_mesh_shape(mesh_out, ancho_mm, aplicar_suavizado=aplicar_suavizado, aplicar_decimation=aplicar_decimation)
     malla.export(ruta_stl)
     _guardar_preview(ruta_png, malla, "Estatua (IA local)")
 
@@ -152,13 +189,16 @@ def main():
     ap.add_argument("--pasos", type=int, default=32)
     ap.add_argument("--guidance", type=float, default=3.0)
     ap.add_argument("--quitar_fondo", type=int, default=1)
+    ap.add_argument("--suavizado", type=int, default=1)
+    ap.add_argument("--decimation", type=int, default=1)
     args = ap.parse_args()
 
     try:
         generar(
             args.ruta_imagen, args.ruta_stl, args.ruta_png,
             ancho_mm=args.ancho_mm, pasos=args.pasos, guidance=args.guidance,
-            quitar_fondo=bool(args.quitar_fondo),
+            quitar_fondo=bool(args.quitar_fondo), aplicar_suavizado=bool(args.suavizado),
+            aplicar_decimation=bool(args.decimation),
         )
     except Exception as e:  # noqa: BLE001 — se reporta al proceso padre por stderr, no hay UI acá
         print(f"ERROR {type(e).__name__}: {e}", file=sys.stderr)

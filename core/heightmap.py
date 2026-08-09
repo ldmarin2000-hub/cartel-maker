@@ -19,30 +19,45 @@ dependencia del proyecto.
 import numpy as np
 import trimesh
 from PIL import Image, ImageFilter
+from skimage import exposure, filters
 
 RESOLUCION_MAX_PX = 180  # lado más largo de la grilla de trabajo — más = más detalle, más lento y más pesado
 
 
-def _grilla_de_alturas(ruta_imagen, resolucion_px=RESOLUCION_MAX_PX, suavizado_px=1.0):
+def _grilla_de_alturas(ruta_imagen, resolucion_px=RESOLUCION_MAX_PX, suavizado_px=1.0, usar_clahe=True, usar_bilateral=True):
     """Lee `ruta_imagen`, la pasa a escala de grises y la re-muestrea a una
     grilla de como mucho `resolucion_px` de lado (mantiene la proporción
-    real de la imagen). Devuelve un array 2D de floats en [0, 1] — 0 =
-    negro, 1 = blanco, fila 0 = arriba de la imagen (`oscuro_alto` en
-    `_malla_desde_grilla` decide qué lado queda más alto, así que acá no
-    hace falta invertir nada). `suavizado_px` (blur gaussiano antes de
-    re-muestrear) saca ruido/artefactos de JPG que quedarían como picos
-    feos en el relieve."""
+    real de la imagen). Mejoras:
+    - CLAHE (contrast-limited adaptive histogram equalization) si usar_clahe=True
+    - Bilateral filtering si usar_bilateral=True (edge-aware smoothing)
+    Devuelve un array 2D de floats en [0, 1] — 0 = negro, 1 = blanco."""
     img = Image.open(ruta_imagen).convert("L")
-    if suavizado_px > 0:
-        img = img.filter(ImageFilter.GaussianBlur(suavizado_px))
+    img_arr = np.asarray(img, dtype=np.float64) / 255.0
 
+    # CLAHE: mejora contraste adaptativo sin perder detalles
+    if usar_clahe:
+        img_arr = exposure.equalize_adapthist(img_arr, clip_limit=0.03, nbins=256)
+
+    # Bilateral filter: suaviza sin perder edges (mejor que Gaussian blur puro)
+    if usar_bilateral:
+        img_arr = filters.bilateral(img_arr, sigma_color=0.1, sigma_spatial=3)
+
+    # Gaussian blur adicional para artefactos JPG
+    if suavizado_px > 0:
+        img_pil = Image.fromarray((img_arr * 255).astype(np.uint8))
+        img_pil = img_pil.filter(ImageFilter.GaussianBlur(suavizado_px))
+        img_arr = np.asarray(img_pil, dtype=np.float64) / 255.0
+
+    # Re-muestrear a resolución target
     ancho_px, alto_px = img.size
     lado_mayor = max(ancho_px, alto_px)
     escala = resolucion_px / lado_mayor
     nw, nh = max(2, round(ancho_px * escala)), max(2, round(alto_px * escala))
-    img = img.resize((nw, nh), Image.LANCZOS)
 
-    return np.asarray(img, dtype=np.float64) / 255.0
+    img_pil = Image.fromarray((img_arr * 255).astype(np.uint8))
+    img_pil = img_pil.resize((nw, nh), Image.LANCZOS)
+
+    return np.asarray(img_pil, dtype=np.float64) / 255.0
 
 
 def _malla_desde_grilla(alturas_norm, ancho_mm, alto_mm, espesor_base_mm, relieve_mm, oscuro_alto=True):
@@ -109,17 +124,12 @@ def _malla_desde_grilla(alturas_norm, ancho_mm, alto_mm, espesor_base_mm, reliev
 def escultura_desde_imagen(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
                             espesor_base_mm=3.0, relieve_mm=8.0,
                             resolucion_px=RESOLUCION_MAX_PX, suavizado_px=1.0,
-                            oscuro_alto=True):
+                            oscuro_alto=True, usar_clahe=True, usar_bilateral=True):
     """Imagen -> malla 3D de relieve/escultura, lista para exportar.
-    `ancho_mm`/`alto_mm`: tamaño del relieve (respeta la proporción real
-    de la imagen recalculando uno de los dos si hace falta — ver
-    `ajustar_caja_a_proporcion`). `espesor_base_mm`: grosor mínimo (el
-    piso, para que sea imprimible y no se rompa). `relieve_mm`: cuánto
-    sobresale la parte más alta por encima de la base. `oscuro_alto`:
-    ver `_malla_desde_grilla`. Devuelve la malla trimesh (siempre
-    watertight, se verifica con `fix_normals` + reparación de agujeros
-    si hiciera falta)."""
-    alturas = _grilla_de_alturas(ruta_imagen, resolucion_px, suavizado_px)
+    Mejoras de calidad: CLAHE (contrast equalization) + bilateral filtering.
+    `usar_clahe`: aplica adaptive histogram equalization (True por default).
+    `usar_bilateral`: aplica edge-aware smoothing (True por default)."""
+    alturas = _grilla_de_alturas(ruta_imagen, resolucion_px, suavizado_px, usar_clahe, usar_bilateral)
     malla = _malla_desde_grilla(alturas, ancho_mm, alto_mm, espesor_base_mm, relieve_mm, oscuro_alto)
 
     if not malla.is_watertight:

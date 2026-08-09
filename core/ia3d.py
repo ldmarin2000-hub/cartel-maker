@@ -87,6 +87,8 @@ def generar_local(ruta_imagen, carpeta_salida="output", ancho_mm=80.0,
         "--ancho_mm", str(ancho_mm),
         "--pasos", str(pasos),
         "--quitar_fondo", "1" if quitar_fondo else "0",
+        "--suavizado", "1",
+        "--decimation", "1",
     ]
     inicio = time.time()
     resultado = subprocess.run(
