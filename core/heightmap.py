@@ -46,9 +46,9 @@ def _grilla_de_alturas(ruta_imagen, resolucion_px=RESOLUCION_MAX_PX, suavizado_p
     if usar_clahe:
         img_arr = exposure.equalize_adapthist(img_arr, clip_limit=0.03, nbins=128)
 
-    # Bilateral filter: muy lento, reemplazado por median filter (alternativa rápida)
+    # Bilateral filter: muy lento, reemplazado por median filter (alternativa rápida, preserva edges)
     if usar_bilateral:
-        img_arr = filters.median(filters.sobel(img_arr))
+        img_arr = filters.median(img_arr)
 
     # Gaussian blur para artefactos JPG
     if suavizado_px > 0:

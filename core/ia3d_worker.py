@@ -92,13 +92,15 @@ def _malla_desde_mesh_shape(mesh_out, ancho_mm, aplicar_suavizado=True, aplicar_
         try:
             verts_orig = len(malla.vertices)
             ratio_target = 0.7  # mantener 70% de vértices
-            malla = trimesh.simplification.simplify_mesh(malla, target_count=max(500, int(verts_orig * ratio_target)))
+            target_count = max(500, int(verts_orig * ratio_target))
+            malla = trimesh.simplification.simplify(malla, target_count=target_count)
             malla.remove_unreferenced_vertices()
         except Exception:
             pass  # si falla, usa la malla sin decimation
 
     malla.fix_normals()
-    escala = ancho_mm / max(malla.extents[:2].max(), 1e-6)
+    max_extent = np.max(malla.extents[:2]) if len(malla.extents) >= 2 else 1.0
+    escala = ancho_mm / max(max_extent, 1e-6)
     malla.apply_scale(escala)
     malla.apply_translation(-malla.bounds[0])  # apoyada en Z=0, esquina en (0,0)
     return malla
