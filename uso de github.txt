@@ -1,0 +1,7 @@
+git add -A
+git commit -m "no salio nada"
+git push
+
+
+git pull
+
