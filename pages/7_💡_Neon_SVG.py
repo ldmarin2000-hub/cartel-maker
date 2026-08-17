@@ -33,7 +33,7 @@ st.info(
 PRESET_KEYS = [
     "nsvg_color_tubo", "nsvg_alto_mm", "nsvg_modo_led",
     "nsvg_led_ancho_mm", "nsvg_led_prof_mm", "nsvg_redondeo_mm", "nsvg_fondo",
-    "nsvg_raster_px", "nsvg_min_objeto_px",
+    "nsvg_raster_px", "nsvg_min_objeto_px", "nsvg_poda_frac",
     "nsvg_agregar_canal_salida", "nsvg_cable_ancho_mm", "nsvg_agregar_agujeros", "nsvg_agujero_cable_diam_mm",
     "nsvg_tipo_montaje", "nsvg_n_orejas_montaje", "nsvg_ancho_pata_mm", "nsvg_alto_pata_mm",
 ]
@@ -41,12 +41,12 @@ PRESET_KEYS = [
 
 @st.cache_data(ttl=120, show_spinner=False)
 def _preview_rapido(ruta_svg, alto_mm, modo_led, led_ancho_mm, fondo, redondeo_mm,
-                     raster_px, min_objeto_px,
+                     raster_px, min_objeto_px, poda_frac,
                      agregar_canal_salida, cable_ancho_mm, agregar_agujeros, agujero_cable_diam_mm,
                      tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm):
     return neon_svg.preview_rapido(
         ruta_svg, alto_mm, modo_led, led_ancho_mm=led_ancho_mm, fondo=fondo, redondeo_mm=redondeo_mm,
-        raster_px=raster_px, min_objeto_px=min_objeto_px,
+        raster_px=raster_px, min_objeto_px=min_objeto_px, poda_frac=poda_frac,
         agregar_canal_salida=agregar_canal_salida, cable_ancho_mm=cable_ancho_mm,
         agregar_agujeros=agregar_agujeros, agujero_cable_diam_mm=agujero_cable_diam_mm,
         tipo_montaje=tipo_montaje, n_orejas_montaje=n_orejas_montaje,
@@ -114,6 +114,14 @@ with col_form:
                  "(ruido del trazado). Se descarta cualquier mancha con menos píxeles que esto. "
                  "Si al dibujo le faltan detalles chicos que sí querés, bajalo.",
         )
+        poda_frac = st.slider(
+            "Sensibilidad a detalles chicos (%)", 0.5, 8.0, 2.0, step=0.5, key="nsvg_poda_frac",
+            help="Un trazo más corto que este % del ALTO TOTAL del dibujo se descarta por "
+                 "'pelito' del esqueletizado. Si el dibujo mezcla partes grandes y chicas (un "
+                 "logo con un emblema grande y texto chico, por ejemplo), las partes chicas "
+                 "pueden quedar por debajo del umbral y faltar en el resultado — bajá este "
+                 "valor en ese caso. Subilo si aparecen pelitos/ruido de más.",
+        ) / 100
         st.divider()
         agregar_canal_salida = st.checkbox(
             "Agregar canalcito de salida", value=True, key="nsvg_agregar_canal_salida",
@@ -160,7 +168,7 @@ with col_preview:
     if ruta_svg:
         png_rapido, ancho_rapido, alto_rapido = _preview_rapido(
             ruta_svg, float(alto_mm), modo_led, led_ancho_mm, fondo, redondeo_mm,
-            raster_px, min_objeto_px,
+            raster_px, min_objeto_px, poda_frac,
             agregar_canal_salida, cable_ancho_mm, agregar_agujeros, agujero_cable_diam_mm,
             tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm,
         )
@@ -183,7 +191,7 @@ with col_preview:
                 r = neon_svg.generar(
                     ruta_svg=ruta_svg, alto_mm=float(alto_mm), modo_led=modo_led,
                     led_ancho_mm=led_ancho_mm, led_prof_mm=led_prof_mm, fondo=fondo, redondeo_mm=redondeo_mm,
-                    raster_px=raster_px, min_objeto_px=min_objeto_px,
+                    raster_px=raster_px, min_objeto_px=min_objeto_px, poda_frac=poda_frac,
                     agregar_canal_salida=agregar_canal_salida, cable_ancho_mm=cable_ancho_mm,
                     agregar_agujeros=agregar_agujeros, agujero_cable_diam_mm=agujero_cable_diam_mm,
                     tipo_montaje=tipo_montaje, n_orejas_montaje=n_orejas_montaje,
