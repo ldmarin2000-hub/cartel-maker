@@ -223,12 +223,18 @@ def agregar_salida_cable(canal, placa, paredes, punto, borde, ancho_mm, pared_mm
 # ---------------------------------------------------------------------------
 #  Agujeros de montaje (bocallave)
 # ---------------------------------------------------------------------------
-def _bocallave(cx, cy_arriba, diam_grande, diam_chico, largo_slot):
-    """Ojo de cerradura: círculo grande arriba (para meter la cabeza del
-    tornillo) + ranura angosta hacia abajo (para deslizar y que enganche)."""
-    circulo_grande = Point(cx, cy_arriba).buffer(diam_grande / 2, resolution=32)
-    y_abajo = cy_arriba - largo_slot
-    ranura = LineString([(cx, cy_arriba), (cx, y_abajo)]).buffer(
+def _bocallave(cx, cy_abajo, diam_grande, diam_chico, largo_slot):
+    """Ojo de cerradura: círculo grande ABAJO (para meter la cabeza del
+    tornillo) + ranura angosta hacia ARRIBA (donde el tornillo queda
+    trabado sosteniendo el peso). Al colgar, la cabeza del tornillo entra
+    por el círculo grande y la pieza se desliza hacia abajo hasta que el
+    tornillo topa contra el tope de arriba de la ranura -- si fuera al
+    revés (grande arriba, ranura hacia abajo) no habría tope: el peso
+    empujaría la pieza hacia el círculo grande, que es más ancho que la
+    cabeza del tornillo, y se saldría."""
+    circulo_grande = Point(cx, cy_abajo).buffer(diam_grande / 2, resolution=32)
+    y_arriba = cy_abajo + largo_slot
+    ranura = LineString([(cx, cy_abajo), (cx, y_arriba)]).buffer(
         diam_chico / 2, cap_style=1, join_style=1
     )
     return unary_union([circulo_grande, ranura])
@@ -277,7 +283,7 @@ def agregar_orejas_de_montaje(placa, n_orejas=2, radio_oreja=11, solape_mm=5,
         x, y_top_local = _mejor_punto_vertical(placa, x_ideal, ventana, borde="arriba")
         y_centro = y_top_local + radio_oreja - solape_mm
         orejas.append(Point(x, y_centro).buffer(radio_oreja, resolution=32))
-        huecos.append(_bocallave(x, y_centro + radio_oreja * 0.35, diam_grande, diam_chico, largo_slot))
+        huecos.append(_bocallave(x, y_centro - radio_oreja * 0.35, diam_grande, diam_chico, largo_slot))
 
     placa_con_orejas = unary_union([placa] + orejas)
     return placa_con_orejas.difference(unary_union(huecos))
