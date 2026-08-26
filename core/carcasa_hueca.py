@@ -96,11 +96,16 @@ def armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm)
 
     carcasa = trimesh.boolean.difference([afuera, hueco], engine="manifold")
     avisos.append(
-        "Ojo al laminar: como la pieza queda abierta atrás a propósito, muchos laminadores "
-        "(Bambu Studio incluido) le agregan solas unas 'capas superiores' de relleno sólido "
-        "ahí, tapando el hueco (y el agujero del cable) sin avisar. En Bambu Studio: click "
-        "derecho en la pieza → \"Configuración por objeto\" → agregar \"Strength\" → poner "
-        "\"Top shell layers\" en 0 para esa pieza."
+        "Ojo al laminar: como la pieza queda abierta atrás a propósito, algunos laminadores "
+        "(Bambu Studio incluido, es un bug conocido y reportado en su foro) le agregan solas "
+        "capas de relleno sólido ahí, tapando el hueco (y el agujero del cable) sin avisar y "
+        "sin que el STL tenga nada raro (la geometría del hueco está bien). En Bambu Studio, "
+        "por \"Configuración por objeto\" de esa pieza probá, en este orden: 1) Strength → "
+        "\"Top shell layers\" en 0, 2) \"Solid infill threshold area\" en 0, 3) desactivar "
+        "\"Ensure vertical shell thickness\" — ninguno de los tres anda garantizado siempre "
+        "(hay reportes de gente a la que no le funcionó ninguno). Si no se soluciona con eso, "
+        "agujerear la pieza a mano después de imprimir es un camino tan válido como cualquier "
+        "otro, no un parche de emergencia."
     )
     return carcasa, True, avisos
 
