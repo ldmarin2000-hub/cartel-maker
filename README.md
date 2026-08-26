@@ -66,6 +66,8 @@ core/               lógica compartida entre generadores (raster de texto y de
                     SVG (raster_svg, para carteles de neón "dibujados"),
                     esqueleto, neon_pipeline (esqueleto->canal->placa->piezas
                     3D, compartido entre neon.py y neon_svg.py),
+                    carcasa_hueca (cáscara hueca + tapa + agujero de cable,
+                    compartido entre letras.py y caja_luz.py),
                     texto2d/decoraciones, geometría, malla 3D, preview 2D,
                     preview3d (visor interactivo), pieza (mecánica de
                     armado final: nombre de archivo, export multicolor/
@@ -78,7 +80,7 @@ core/               lógica compartida entre generadores (raster de texto y de
                     subprocess a C:\ia3d_venv, o scaffold de API externa),
                     chequeos, ui, wrapper OpenSCAD)
 generators/         un archivo por generador (neon.py, neon_svg.py, letras.py,
-                    llavero.py, ambigrama.py, esculturas.py): generar() es la lógica pura
+                    caja_luz.py, llavero.py, ambigrama.py, esculturas.py): generar() es la lógica pura
                     que usan tanto app.py como main.py; casi todos también
                     tienen preview_rapido() (vista rápida sin la malla 3D
                     final)

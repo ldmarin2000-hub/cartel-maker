@@ -32,10 +32,9 @@ import matplotlib.pyplot as plt
 import trimesh
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from shapely.affinity import translate
-from shapely.geometry import Point
 from shapely.ops import unary_union
 
-from core import bambu_a1, colores, decoraciones, geometry, mesh3d, pieza, preview3d, texto2d
+from core import bambu_a1, carcasa_hueca, colores, decoraciones, geometry, mesh3d, pieza, preview3d, texto2d
 
 NOMBRE = "Letra iluminada de pie"
 DESCRIPCION = "Letra/inicial grande, hueca por dentro para una luz LED — con soporte de escritorio si hace falta."
@@ -44,142 +43,11 @@ CARPETA_SALIDA = "output"
 
 DECORACIONES = [n for n in decoraciones.NOMBRES_VALIDOS if n != "ninguno"]
 
-
-LEDGE_ANCHO_MM = 2.0  # contorno interno (rebaje) donde apoya/encastra la tapa
-
-
-def _armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm):
-    """Arma la letra como cáscara hueca: cara de adelante sólida y fina
-    (`espesor_pared_mm`, para que pase la luz), paredes laterales del
-    mismo espesor, atrás ABIERTO (para meter el LED/pila y poder
-    cambiarla). Justo antes del borde de atrás, en los últimos
-    `tapa_espesor_mm` de profundidad, el hueco se ensancha hasta dejar
-    un REBAJE de `LEDGE_ANCHO_MM` (en vez de `espesor_pared_mm`) — un
-    escalón donde apoya/encastra la tapa (como una tapa de caja con
-    rebajo), no un simple tope a tope. Si algún trazo de la letra es más
-    angosto que 2x el espesor de pared, esa parte queda maciza (no hay
-    dónde hacer hueco) — no es un error."""
-    piezas_afuera = mesh3d.piezas_desde_geom(poly, profundidad_mm)
-    afuera = trimesh.util.concatenate(piezas_afuera) if len(piezas_afuera) > 1 else piezas_afuera[0]
-
-    # join_style=1 (redondeado): con mitre (2) los ángulos agudos de letras como
-    # la "M" generaban geometría degenerada al extruir ("Not all meshes are volumes!").
-    hueco_poly = poly.buffer(-espesor_pared_mm, join_style=1)
-    if hueco_poly.is_empty or hueco_poly.area < 1:
-        return afuera, False  # letra/trazo muy angosto para hacerle hueco -> queda maciza
-
-    z_ledge = max(profundidad_mm - tapa_espesor_mm, espesor_pared_mm)
-    sobresalto_mm = 5  # que el hueco sobrepase el fondo, para que quede ABIERTO atrás, no un piso ciego
-    piezas_hueco = mesh3d.piezas_desde_geom(hueco_poly, z_ledge - espesor_pared_mm, z=espesor_pared_mm)
-
-    if _ledge_activo(espesor_pared_mm):
-        ledge_poly = poly.buffer(-LEDGE_ANCHO_MM, join_style=1)
-        if not ledge_poly.is_empty and ledge_poly.area >= 1:
-            piezas_hueco += mesh3d.piezas_desde_geom(
-                ledge_poly, profundidad_mm - z_ledge + sobresalto_mm, z=z_ledge
-            )
-    else:
-        piezas_hueco += mesh3d.piezas_desde_geom(hueco_poly, profundidad_mm - z_ledge + sobresalto_mm, z=z_ledge)
-
-    hueco = trimesh.util.concatenate(piezas_hueco) if len(piezas_hueco) > 1 else piezas_hueco[0]
-
-    carcasa = trimesh.boolean.difference([afuera, hueco], engine="manifold")
-    return carcasa, True
-
-
-def _ledge_activo(espesor_pared_mm):
-    """El rebaje (LEDGE_ANCHO_MM) solo funciona como tope real si es más
-    angosto que la pared normal — si no, no hay escalón donde la tapa
-    pueda topar (y directamente no hay margen para separarla de la
-    pared principal). Devuelve si hay margen suficiente."""
-    return espesor_pared_mm > LEDGE_ANCHO_MM + 0.2
-
-
-def _shrink_tapa(espesor_pared_mm, holgura_mm):
-    """Cuánto achicar el contorno de la letra para la tapa. Tiene que
-    quedar MÁS CHICA que la abertura del rebaje (`LEDGE_ANCHO_MM`, para
-    poder entrar) pero MÁS GRANDE que la abertura del hueco principal
-    (`espesor_pared_mm`, para que el escalón la frene y no siga de largo
-    hacia adentro) — si no hay margen entre esos dos valores, la tapa
-    queda simple (pegada por afuera, sin encastrar)."""
-    if not _ledge_activo(espesor_pared_mm):
-        return holgura_mm
-    margen_disponible = espesor_pared_mm - LEDGE_ANCHO_MM
-    return LEDGE_ANCHO_MM + min(holgura_mm, margen_disponible * 0.6)
-
-
-def _punto_y_direccion_pared(poly, lado, margen_mm=8):
-    """Punto sobre el borde exterior de `poly` y la dirección (hacia
-    afuera) para perforar un agujero RADIAL a través de la pared lateral
-    — no a través de la tapa. `lado`: "arriba", "abajo", "izquierda" o
-    "derecha" (a través de la pared del extremo elegido, cerca de ese
-    borde). Devuelve (x, y, dx, dy) con (dx, dy) vector unitario hacia
-    afuera."""
-    minx, miny, maxx, maxy = poly.bounds
-    zona = (maxy - miny) * 0.25
-    if lado == "izquierda":
-        return minx, min(miny + margen_mm, miny + zona), -1.0, 0.0
-    elif lado == "derecha":
-        return maxx, min(miny + margen_mm, miny + zona), 1.0, 0.0
-    elif lado == "arriba":
-        return (minx + maxx) / 2, max(maxy - margen_mm, maxy - zona), 0.0, 1.0
-    else:  # abajo
-        return (minx + maxx) / 2, miny, 0.0, -1.0
-
-
-def _punto_agujero_atras(poly, margen_mm_x=(0, 6, -6, 12, -12, 18, -18, 24, -24, 30, -30)):
-    """Punto en el REBAJE (el anillo sólido entre el borde y
-    `LEDGE_ANCHO_MM` hacia adentro, donde apoya la tapa) cerca del centro
-    de abajo, para el agujero "atrás" (axial, por el canto de atrás, no
-    por una pared lateral). Devuelve (x, y) o None si no encuentra
-    ningún punto en el rebaje cerca del centro."""
-    rebaje = poly.difference(poly.buffer(-LEDGE_ANCHO_MM, join_style=1))
-    minx, miny, maxx, maxy = poly.bounds
-    cx = (minx + maxx) / 2
-    y = miny + LEDGE_ANCHO_MM / 2
-    for dx in margen_mm_x:
-        p = Point(cx + dx, y)
-        if rebaje.contains(p):
-            return (cx + dx, y)
-    return None
-
-
-def _armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, profundidad_mm, tapa_espesor_mm):
-    """Cilindro para perforar la carcasa con el agujero del cable — no en
-    la tapa. "arriba"/"abajo"/"izquierda"/"derecha": RADIAL, a través de
-    la pared lateral, a mitad de profundidad. "atras": AXIAL, por el
-    canto de atrás (el rebaje donde apoya la tapa), de afuera hacia
-    adentro en el eje Z. Devuelve el cilindro, o None si "atras" no
-    encontró un punto válido en el rebaje (letra muy angosta ahí)."""
-    radio = agujero_cable_diam_mm / 2
-    if lado == "atras":
-        if not _ledge_activo(espesor_pared_mm):
-            return None
-        punto = _punto_agujero_atras(poly)
-        if punto is None:
-            return None
-        x, y = punto
-        z_afuera = profundidad_mm + 4
-        z_adentro = profundidad_mm - tapa_espesor_mm - 4
-        return trimesh.creation.cylinder(radius=radio, segment=[(x, y, z_afuera), (x, y, z_adentro)], sections=32)
-
-    x, y, dx, dy = _punto_y_direccion_pared(poly, lado)
-    z = profundidad_mm * 0.5
-    margen_afuera, margen_adentro = 3.0, espesor_pared_mm + 4.0
-    p1 = (x + dx * margen_afuera, y + dy * margen_afuera, z)
-    p2 = (x - dx * margen_adentro, y - dy * margen_adentro, z)
-    return trimesh.creation.cylinder(radius=radio, segment=[p1, p2], sections=32)
-
-
-def _armar_tapa(poly, espesor_mm, espesor_pared_mm, holgura_mm=1.0):
-    """Tapa: contorno de la letra achicado (`_shrink_tapa` — para que
-    entre en el rebaje de `_armar_carcasa_hueca` y tope ahí, en vez de
-    seguir de largo hacia el hueco principal), sólida y fina, para cerrar
-    el hueco por atrás después de meter el LED. Sin agujero de cable —
-    ese va en la carcasa (`_armar_agujero_pared`), no acá."""
-    tapa_poly = poly.buffer(-_shrink_tapa(espesor_pared_mm, holgura_mm), join_style=1)
-    piezas = mesh3d.piezas_desde_geom(tapa_poly, espesor_mm)
-    return trimesh.util.concatenate(piezas) if len(piezas) > 1 else piezas[0]
+# La cáscara hueca (con rebaje para la tapa), la tapa y el agujero de cable son
+# mecánica compartida con generators/caja_luz.py -- viven en core/carcasa_hueca.py.
+_armar_carcasa_hueca = carcasa_hueca.armar_carcasa_hueca
+_armar_agujero_pared = carcasa_hueca.armar_agujero_pared
+_armar_tapa = carcasa_hueca.armar_tapa
 
 
 def _armar_nombre_cursiva(poly_letra, texto_nombre, ruta_ttf_nombre, alto_nombre_mm, raster_px, solape_mm=3.0):
