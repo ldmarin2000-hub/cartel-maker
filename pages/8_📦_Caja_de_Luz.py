@@ -32,14 +32,20 @@ PRESET_KEYS = [
     "cl_texto", "cajaluz_selectbox", "cajaluz_ruta", "cl_color", "cl_color_tapa", "cl_alto_mm",
     "cl_profundidad_mm", "cl_espesor_pared_mm", "cl_agregar_tapa",
     "cl_tapa_espesor_mm", "cl_agujero_cable_diam_mm", "cl_agujero_cable_lado",
+    "cl_agujero_manual", "cl_agujero_x_pct", "cl_agujero_y_pct",
 ]
 
 LADOS_AGUJERO = ["atras", "arriba", "abajo", "izquierda", "derecha"]
 
 
 @st.cache_data(ttl=120, show_spinner=False)
-def _preview_rapido(texto, ruta_ttf, alto_mm):
-    return caja_luz.preview_rapido(texto, ruta_ttf, alto_mm)
+def _preview_rapido(texto, ruta_ttf, alto_mm, mostrar_agujero, espesor_pared_mm, agujero_cable_diam_mm,
+                     agujero_atras_x_pct, agujero_atras_y_pct):
+    return caja_luz.preview_rapido(
+        texto, ruta_ttf, alto_mm, mostrar_agujero=mostrar_agujero, espesor_pared_mm=espesor_pared_mm,
+        agujero_cable_diam_mm=agujero_cable_diam_mm,
+        agujero_atras_x_pct=agujero_atras_x_pct, agujero_atras_y_pct=agujero_atras_y_pct,
+    )
 
 
 col_form, col_preview = st.columns([1, 1.3])
@@ -93,12 +99,33 @@ with col_form:
             help="\"atras\": por el canto de atrás (el rebaje donde apoya la tapa). Los otros 4: "
                  "por la pared lateral de ese lado. Va siempre en la carcasa, no en la tapa.",
         )
+        agujero_deshabilitado = not agregar_tapa or agujero_cable_diam_mm <= 0 or agujero_cable_lado != "atras"
+        agujero_manual = st.checkbox(
+            "Elegir a mano dónde va el agujero \"atras\"", value=False,
+            disabled=agujero_deshabilitado, key="cl_agujero_manual",
+            help="Si no, se busca un lugar automático cerca del borde de abajo. La marca celeste "
+                 "en la vista rápida (a la derecha) muestra dónde va a caer.",
+        )
+        c1, c2 = st.columns(2)
+        agujero_x_pct = c1.slider(
+            "Posición X (%)", 0, 100, 50, disabled=agujero_deshabilitado or not agujero_manual,
+            key="cl_agujero_x_pct",
+        )
+        agujero_y_pct = c2.slider(
+            "Posición Y (%)", 0, 100, 5, disabled=agujero_deshabilitado or not agujero_manual,
+            key="cl_agujero_y_pct",
+        )
 
     generar_click = st.button("Generar caja de luz", type="primary", use_container_width=True)
 
 with col_preview:
     if texto.strip() and ruta_ttf:
-        png_rapido, ancho_rapido, alto_rapido = _preview_rapido(texto, ruta_ttf, float(alto_mm))
+        mostrar_agujero_preview = agregar_tapa and agujero_cable_diam_mm > 0 and agujero_cable_lado == "atras"
+        png_rapido, ancho_rapido, alto_rapido = _preview_rapido(
+            texto, ruta_ttf, float(alto_mm), mostrar_agujero_preview, float(espesor_pared_mm),
+            float(agujero_cable_diam_mm),
+            float(agujero_x_pct) if agujero_manual else None, float(agujero_y_pct) if agujero_manual else None,
+        )
         if png_rapido:
             st.image(
                 png_rapido,
@@ -120,6 +147,8 @@ with col_preview:
                     profundidad_mm=float(profundidad_mm), espesor_pared_mm=float(espesor_pared_mm),
                     agregar_tapa=agregar_tapa, tapa_espesor_mm=float(tapa_espesor_mm),
                     agujero_cable_diam_mm=float(agujero_cable_diam_mm), agujero_cable_lado=agujero_cable_lado,
+                    agujero_atras_x_pct=float(agujero_x_pct) if agujero_manual else None,
+                    agujero_atras_y_pct=float(agujero_y_pct) if agujero_manual else None,
                 )
             except (FileNotFoundError, ValueError) as e:
                 st.error(str(e))

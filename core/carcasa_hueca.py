@@ -154,18 +154,31 @@ def punto_agujero_atras(poly, radio_mm, filas_y_mm=(0.0, 6.0, 12.0, 20.0, 30.0))
     return None
 
 
-def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, profundidad_mm, tapa_espesor_mm):
+def punto_pct_a_xy(poly, x_pct, y_pct):
+    """Convierte una posición relativa (0-100%, X de izquierda a derecha,
+    Y de abajo a arriba) dentro de la caja de `poly` a coordenadas (mm)
+    absolutas — para el control manual de posición del agujero "atras"
+    (el slider no depende del tamaño real de la letra/palabra)."""
+    minx, miny, maxx, maxy = poly.bounds
+    return minx + (x_pct / 100.0) * (maxx - minx), miny + (y_pct / 100.0) * (maxy - miny)
+
+
+def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, profundidad_mm, tapa_espesor_mm,
+                         punto_manual=None):
     """Cilindro para perforar la carcasa con el agujero del cable — no en
     la tapa. "arriba"/"abajo"/"izquierda"/"derecha": RADIAL, a través de
     la pared lateral, a mitad de profundidad. "atras": AXIAL, por el
     canto de atrás (el rebaje donde apoya la tapa), de afuera hacia
-    adentro en el eje Z. Devuelve el cilindro, o None si "atras" no
-    encontró un punto válido en el rebaje (trazo muy angosto ahí)."""
+    adentro en el eje Z -- si se pasa `punto_manual` (x, y) se taladra
+    ahí directamente (el que elige a mano se hace cargo de que entre; no
+    se valida), si no se busca automático con `punto_agujero_atras`.
+    Devuelve el cilindro, o None si "atras" no encontró/no tiene un punto
+    válido (trazo muy angosto ahí)."""
     radio = agujero_cable_diam_mm / 2
     if lado == "atras":
         if not ledge_activo(espesor_pared_mm):
             return None
-        punto = punto_agujero_atras(poly, radio)
+        punto = punto_manual if punto_manual is not None else punto_agujero_atras(poly, radio)
         if punto is None:
             return None
         x, y = punto

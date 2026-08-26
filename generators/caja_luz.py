@@ -36,10 +36,15 @@ DESCRIPCION = "Una palabra -> caja hueca con paredes de tu grosor, con tapa y ag
 CARPETA_SALIDA = "output"
 
 
-def preview_rapido(texto, ruta_ttf, alto_mm=100, raster_px=250):
-    """Preview 2D instantáneo — solo el polígono relleno de la palabra,
-    SIN el hueco/cáscara/booleanas 3D (que tarda más). Devuelve
-    (png_bytes, ancho_mm, alto_mm) o (None, 0, 0)."""
+def preview_rapido(texto, ruta_ttf, alto_mm=100, raster_px=250,
+                    mostrar_agujero=False, espesor_pared_mm=2.5, agujero_cable_diam_mm=6.0,
+                    agujero_atras_x_pct=None, agujero_atras_y_pct=None):
+    """Preview 2D instantáneo — el polígono relleno de la palabra, SIN el
+    hueco/cáscara/booleanas 3D (que tarda más). Si `mostrar_agujero`,
+    marca dónde va a caer el agujero "atras" (automático, o el punto
+    manual si se pasan `agujero_atras_x_pct`/`agujero_atras_y_pct`) --
+    así se puede ajustar la posición ANTES de esperar el render 3D
+    completo. Devuelve (png_bytes, ancho_mm, alto_mm) o (None, 0, 0)."""
     if not os.path.exists(ruta_ttf) or not texto.strip():
         return None, 0, 0
     poly, ancho_mm = texto2d.texto_a_poligono(texto, ruta_ttf, alto_mm, raster_px)
@@ -57,6 +62,21 @@ def preview_rapido(texto, ruta_ttf, alto_mm=100, raster_px=250):
         for anillo in pg.interiors:
             xr, yr = anillo.xy
             ax.fill(xr, yr, color="#1a1a1a")
+
+    if mostrar_agujero and agujero_cable_diam_mm > 0 and carcasa_hueca.ledge_activo(espesor_pared_mm):
+        radio = agujero_cable_diam_mm / 2
+        if agujero_atras_x_pct is not None and agujero_atras_y_pct is not None:
+            punto = carcasa_hueca.punto_pct_a_xy(poly, agujero_atras_x_pct, agujero_atras_y_pct)
+        else:
+            punto = carcasa_hueca.punto_agujero_atras(poly, radio)
+        if punto is not None:
+            ax.add_patch(plt.Circle(punto, radio, facecolor="#38bdf8", edgecolor="white", linewidth=1.5, zorder=5))
+        else:
+            ax.text(
+                (minx + maxx) / 2, miny + 3, "sin lugar para el agujero ahí",
+                color="#38bdf8", ha="center", fontsize=8, zorder=5,
+            )
+
     ax.set_xlim(minx - 2, maxx + 2)
     ax.set_ylim(miny - 2, maxy + 2)
     ax.set_aspect("equal")
@@ -92,6 +112,7 @@ def _guardar_preview(ruta_png, malla, titulo):
 
 def generar(texto, ruta_ttf, alto_mm=100, profundidad_mm=30, espesor_pared_mm=2.5,
             agregar_tapa=True, tapa_espesor_mm=3.0, agujero_cable_diam_mm=6.0, agujero_cable_lado="atras",
+            agujero_atras_x_pct=None, agujero_atras_y_pct=None,
             ancho_puente_mm=4.0, raster_px=500, carpeta_salida=CARPETA_SALIDA):
     """Arma la caja de luz y exporta el/los STL. Devuelve un dict con las
     rutas, medidas y avisos. No pregunta nada ni imprime nada — así lo
@@ -110,7 +131,10 @@ def generar(texto, ruta_ttf, alto_mm=100, profundidad_mm=30, espesor_pared_mm=2.
     cable (`agujero_cable_diam_mm`, 0 = sin agujero) va en la CARCASA, no
     en la tapa — `agujero_cable_lado` elige por dónde: "atras" (por el
     canto de atrás, el rebaje donde apoya la tapa), "arriba", "abajo",
-    "izquierda" o "derecha" (por la pared lateral del lado elegido)."""
+    "izquierda" o "derecha" (por la pared lateral del lado elegido).
+    Para "atras", si se pasan `agujero_atras_x_pct`/`agujero_atras_y_pct`
+    (0-100%, posición dentro de la caja de la palabra) se taladra ahí
+    directo en vez de buscar solo un lugar automático."""
     if not os.path.exists(ruta_ttf):
         raise FileNotFoundError(f"no encuentro la fuente: {ruta_ttf}")
     if not texto.strip():
@@ -136,8 +160,12 @@ def generar(texto, ruta_ttf, alto_mm=100, profundidad_mm=30, espesor_pared_mm=2.
             "probá una fuente más gruesa, más grande, o bajar el espesor de pared."
         )
     elif agregar_tapa and agujero_cable_diam_mm > 0:
+        punto_manual = None
+        if agujero_cable_lado == "atras" and agujero_atras_x_pct is not None and agujero_atras_y_pct is not None:
+            punto_manual = carcasa_hueca.punto_pct_a_xy(poly, agujero_atras_x_pct, agujero_atras_y_pct)
         agujero = carcasa_hueca.armar_agujero_pared(
-            poly, espesor_pared_mm, agujero_cable_diam_mm, agujero_cable_lado, profundidad_mm, tapa_espesor_mm
+            poly, espesor_pared_mm, agujero_cable_diam_mm, agujero_cable_lado, profundidad_mm, tapa_espesor_mm,
+            punto_manual=punto_manual,
         )
         if agujero is None:
             info.append(

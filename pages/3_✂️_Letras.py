@@ -43,14 +43,16 @@ PRESET_KEYS = [
     *[f"deco_x_{i}" for i in range(4)], *[f"deco_y_{i}" for i in range(4)],
     "le_profundidad_decoracion_mm", "le_decoraciones_tiene_ams",
     "le_profundidad_mm", "le_espesor_pared_mm", "le_tapa_espesor_mm", "le_agujero_cable_diam_mm",
-    "le_agujero_cable_lado",
+    "le_agujero_cable_lado", "le_agujero_manual", "le_agujero_x_pct", "le_agujero_y_pct",
     "le_ancho_pata_mm", "le_alto_pata_mm",
 ]
 
 
 @st.cache_data(ttl=120, show_spinner=False)
 def _preview_rapido(texto, ruta_ttf, alto_mm, color_letra,
-                     agregar_nombre, texto_nombre, ruta_ttf_nombre, alto_nombre_mm, color_nombre, decos_tuple):
+                     agregar_nombre, texto_nombre, ruta_ttf_nombre, alto_nombre_mm, color_nombre, decos_tuple,
+                     mostrar_agujero, espesor_pared_mm, agujero_cable_diam_mm,
+                     agujero_atras_x_pct, agujero_atras_y_pct):
     decos = [
         {"nombre": n, "tam_mm": t, "x_pct": x, "y_pct": y, "emoji": e}
         for (n, t, x, y, e) in decos_tuple
@@ -60,6 +62,9 @@ def _preview_rapido(texto, ruta_ttf, alto_mm, color_letra,
         agregar_nombre=agregar_nombre, texto_nombre=texto_nombre,
         ruta_ttf_nombre=ruta_ttf_nombre, alto_nombre_mm=alto_nombre_mm, color_nombre=color_nombre,
         decoraciones_frente=decos,
+        mostrar_agujero=mostrar_agujero, espesor_pared_mm=espesor_pared_mm,
+        agujero_cable_diam_mm=agujero_cable_diam_mm,
+        agujero_atras_x_pct=agujero_atras_x_pct, agujero_atras_y_pct=agujero_atras_y_pct,
     )
 
 
@@ -192,6 +197,22 @@ with col_form:
             help="\"atras\": por el canto de atrás (el rebaje donde apoya la tapa). Los otros 4: "
                  "por la pared lateral de ese lado. Va siempre en la carcasa, no en la tapa.",
         )
+        agujero_deshabilitado = not agregar_tapa or agujero_cable_diam_mm <= 0 or agujero_cable_lado != "atras"
+        agujero_manual = st.checkbox(
+            "Elegir a mano dónde va el agujero \"atras\"", value=False,
+            disabled=agujero_deshabilitado, key="le_agujero_manual",
+            help="Si no, se busca un lugar automático cerca del borde de abajo. La marca celeste "
+                 "en la vista rápida (a la derecha) muestra dónde va a caer.",
+        )
+        c1, c2 = st.columns(2)
+        agujero_x_pct = c1.slider(
+            "Posición X (%)", 0, 100, 50, disabled=agujero_deshabilitado or not agujero_manual,
+            key="le_agujero_x_pct",
+        )
+        agujero_y_pct = c2.slider(
+            "Posición Y (%)", 0, 100, 5, disabled=agujero_deshabilitado or not agujero_manual,
+            key="le_agujero_y_pct",
+        )
         c1, c2 = st.columns(2)
         ancho_pata_mm = c1.slider(
             "Ancho de la pata (mm)", 15, 80, 40, step=5, disabled=not agregar_soporte, key="le_ancho_pata_mm",
@@ -207,9 +228,12 @@ with col_preview:
         decos_tuple = tuple(
             (d["nombre"], d["tam_mm"], d["x_pct"], d["y_pct"], d.get("emoji")) for d in decoraciones_frente
         )
+        mostrar_agujero_preview = agregar_tapa and agujero_cable_diam_mm > 0 and agujero_cable_lado == "atras"
         png_rapido, ancho_rapido, alto_rapido = _preview_rapido(
             texto, ruta_ttf, float(alto_mm), color_letra,
             agregar_nombre, texto_nombre, ruta_ttf_nombre, float(alto_nombre_mm), color_nombre, decos_tuple,
+            mostrar_agujero_preview, float(espesor_pared_mm), float(agujero_cable_diam_mm),
+            float(agujero_x_pct) if agujero_manual else None, float(agujero_y_pct) if agujero_manual else None,
         )
         if png_rapido:
             st.image(
@@ -234,6 +258,8 @@ with col_preview:
                     espesor_pared_mm=float(espesor_pared_mm),
                     agregar_tapa=agregar_tapa, tapa_espesor_mm=float(tapa_espesor_mm),
                     agujero_cable_diam_mm=float(agujero_cable_diam_mm), agujero_cable_lado=agujero_cable_lado,
+                    agujero_atras_x_pct=float(agujero_x_pct) if agujero_manual else None,
+                    agujero_atras_y_pct=float(agujero_y_pct) if agujero_manual else None,
                     agregar_soporte=agregar_soporte, ancho_pata_mm=ancho_pata_mm, alto_pata_mm=alto_pata_mm,
                     agregar_nombre=agregar_nombre, texto_nombre=texto_nombre,
                     ruta_ttf_nombre=ruta_ttf_nombre, alto_nombre_mm=float(alto_nombre_mm),
