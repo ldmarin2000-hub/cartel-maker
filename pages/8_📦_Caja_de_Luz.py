@@ -29,7 +29,7 @@ st.info(
 )
 
 PRESET_KEYS = [
-    "cl_texto", "cajaluz_selectbox", "cajaluz_ruta", "cl_color", "cl_alto_mm",
+    "cl_texto", "cajaluz_selectbox", "cajaluz_ruta", "cl_color", "cl_color_tapa", "cl_alto_mm",
     "cl_profundidad_mm", "cl_espesor_pared_mm", "cl_agregar_tapa",
     "cl_tapa_espesor_mm", "cl_agujero_cable_diam_mm", "cl_agujero_cable_lado",
 ]
@@ -50,10 +50,16 @@ with col_form:
     texto = st.text_input("Palabra", value="HOLA", key="cl_texto")
     ruta_ttf = selector_fuente("Fuente", key="cajaluz", default_nombre="Bungee", texto_muestra=texto)
 
-    color_pieza = st.selectbox(
-        "Color (visor, no cambia el STL)", colores.NOMBRES,
+    c1, c2 = st.columns(2)
+    color_pieza = c1.selectbox(
+        "Color base (visor)", colores.NOMBRES,
         index=colores.NOMBRES.index("Blanco"), key="cl_color",
         help="Solo para ver cómo queda en el visor 3D — el color real lo da el filamento que uses.",
+    )
+    color_tapa = c2.selectbox(
+        "Color tapa (visor)", colores.NOMBRES,
+        index=colores.NOMBRES.index("Gris Frío"), key="cl_color_tapa",
+        help="Un color distinto al de la base ayuda a distinguirlas en el visor 3D.",
     )
 
     alto_mm = st.slider("Alto de la palabra (mm)", 30, 300, 100, step=5, key="cl_alto_mm")
@@ -128,7 +134,7 @@ with col_preview:
             piezas_visor = [{"ruta_stl": r["ruta_stl"], "color": color_hex, "nombre": "cajaluz"}]
             if r["pieza_tapa"]:
                 piezas_visor.append({
-                    "ruta_stl": r["pieza_tapa"]["ruta_stl"], "color": "#9a9a9a", "nombre": "tapa",
+                    "ruta_stl": r["pieza_tapa"]["ruta_stl"], "color": colores.hex_de(color_tapa), "nombre": "tapa",
                     "offset": (0, 0, float(profundidad_mm)),
                 })
 

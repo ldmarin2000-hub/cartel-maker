@@ -126,7 +126,10 @@ def generar(texto, ruta_ttf, alto_mm=100, profundidad_mm=30, espesor_pared_mm=2.
         if n_puentes:
             info.append(f"Se agregaron {n_puentes} puente(s) para unir las letras sueltas en una sola pieza imprimible.")
 
-    carcasa, quedo_hueca = carcasa_hueca.armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm)
+    carcasa, quedo_hueca, avisos_carcasa = carcasa_hueca.armar_carcasa_hueca(
+        poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm
+    )
+    info += avisos_carcasa
     if not quedo_hueca:
         info.append(
             "La palabra quedó maciza (ningún trazo es más ancho que 2x el espesor de pared) — "

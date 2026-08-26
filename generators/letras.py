@@ -252,8 +252,7 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
     if poly is None:
         raise ValueError("no se pudo extraer la letra (probá otra fuente)")
 
-    info = []
-    carcasa, quedo_hueca = _armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm)
+    carcasa, quedo_hueca, info = _armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm)
     if not quedo_hueca:
         info.append(
             "La letra quedó maciza (ningún trazo es más ancho que 2x el espesor de pared) — "

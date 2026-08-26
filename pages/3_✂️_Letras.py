@@ -32,7 +32,7 @@ st.info(
 )
 
 PRESET_KEYS = [
-    "le_texto", "letras_letra_selectbox", "letras_letra_ruta", "le_color_letra", "le_alto_mm",
+    "le_texto", "letras_letra_selectbox", "letras_letra_ruta", "le_color_letra", "le_color_tapa", "le_alto_mm",
     "le_agregar_soporte", "le_agregar_tapa",
     "le_agregar_nombre", "le_texto_nombre", "letras_nombre_selectbox", "letras_nombre_ruta", "le_alto_nombre_mm",
     "le_color_nombre", "le_profundidad_nombre_mm", "le_nombre_tiene_ams",
@@ -72,9 +72,15 @@ with col_form:
 
     ruta_ttf = selector_fuente("Fuente", key="letras_letra", default_nombre="Anton", texto_muestra=texto)
 
-    color_letra = st.selectbox(
-        "Color de filamento (visor, no cambia el STL)", colores.NOMBRES,
+    c1, c2 = st.columns(2)
+    color_letra = c1.selectbox(
+        "Color letra (visor)", colores.NOMBRES,
         index=colores.NOMBRES.index("Amarillo"), key="le_color_letra",
+    )
+    color_tapa = c2.selectbox(
+        "Color tapa (visor)", colores.NOMBRES,
+        index=colores.NOMBRES.index("Gris Frío"), key="le_color_tapa",
+        help="Un color distinto ayuda a distinguirla de la letra en el visor 3D.",
     )
 
     alto_mm = st.slider("Alto de la letra (mm)", 50, 250, 150, step=5, key="le_alto_mm")
@@ -250,7 +256,7 @@ with col_preview:
             piezas_visor = [{"ruta_stl": r["ruta_stl"], "color": colores.hex_de(color_letra), "nombre": "letra"}]
             if r["pieza_tapa"]:
                 piezas_visor.append({
-                    "ruta_stl": r["pieza_tapa"]["ruta_stl"], "color": "#9a9a9a", "nombre": "tapa",
+                    "ruta_stl": r["pieza_tapa"]["ruta_stl"], "color": colores.hex_de(color_tapa), "nombre": "tapa",
                     "offset": (0, 0, float(profundidad_mm)),
                 })
             if r["pieza_nombre"]:

@@ -51,7 +51,14 @@ def armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm)
     escalón donde apoya/encastra la tapa (como una tapa de caja con
     rebajo), no un simple tope a tope. Si algún trazo es más angosto que
     2x el espesor de pared, esa parte queda maciza (no hay dónde hacer
-    hueco) — no es un error. Devuelve (malla, quedo_hueca)."""
+    hueco) — no es un error, pero si es solo una parte (no toda la
+    palabra/letra) puede pasar desapercibido: una cola/rulito fino de una
+    fuente cursiva, por ejemplo, queda maciza mientras el resto se ve
+    perfecto hueco, y en el visor 3D esa parte sólida puede tapar
+    visualmente el hueco de atrás si se superpone en la proyección.
+    Devuelve (malla, quedo_hueca, avisos) — `avisos` es una lista (vacía
+    si no hay nada que avisar)."""
+    avisos = []
     piezas_afuera = mesh3d.piezas_desde_geom(poly, profundidad_mm)
     afuera = trimesh.util.concatenate(piezas_afuera) if len(piezas_afuera) > 1 else piezas_afuera[0]
 
@@ -59,7 +66,18 @@ def armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm)
     # la "M" generaban geometría degenerada al extruir ("Not all meshes are volumes!").
     hueco_poly = poly.buffer(-espesor_pared_mm, join_style=1)
     if hueco_poly.is_empty or hueco_poly.area < 1:
-        return afuera, False  # trazo muy angosto para hacerle hueco -> queda macizo
+        return afuera, False, avisos  # trazo muy angosto para hacerle hueco -> queda macizo
+
+    # zona de `poly` que quedó lejos de cualquier punto hueco -- ahí no hay luz
+    # adentro por más profundo que sea el hueco en otras partes.
+    zona_maciza = poly.difference(hueco_poly.buffer(espesor_pared_mm + 0.5, join_style=1))
+    if zona_maciza.area > max(30.0, poly.area * 0.03):
+        avisos.append(
+            "Una parte del trazo (probablemente un detalle fino, como la cola de una fuente "
+            "cursiva) quedó maciza porque es más angosta que 2x el espesor de pared — no le "
+            "va a llegar luz ahí, y en el visor puede parecer que 'tapa' el hueco del resto. "
+            "Bajá el espesor de pared o subí el tamaño si querés que se vea iluminada también."
+        )
 
     z_ledge = max(profundidad_mm - tapa_espesor_mm, espesor_pared_mm)
     sobresalto_mm = 5  # que el hueco sobrepase el fondo, para que quede ABIERTO atrás, no un piso ciego
@@ -77,7 +95,7 @@ def armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm)
     hueco = trimesh.util.concatenate(piezas_hueco) if len(piezas_hueco) > 1 else piezas_hueco[0]
 
     carcasa = trimesh.boolean.difference([afuera, hueco], engine="manifold")
-    return carcasa, True
+    return carcasa, True, avisos
 
 
 def punto_y_direccion_pared(poly, lado, margen_mm=8):
@@ -99,7 +117,7 @@ def punto_y_direccion_pared(poly, lado, margen_mm=8):
         return (minx + maxx) / 2, miny, 0.0, -1.0
 
 
-def punto_agujero_atras(poly, radio_mm):
+def punto_agujero_atras(poly, radio_mm, filas_y_mm=(0.0, 6.0, 12.0, 20.0, 30.0)):
     """Punto cerca del borde de abajo donde el agujero de radio `radio_mm`
     ENTRA COMPLETO sin salirse del contorno exterior -- ahí se taladra el
     agujero axial "atras" (por el canto de atrás, el rebaje donde apoya
@@ -110,21 +128,29 @@ def punto_agujero_atras(poly, radio_mm):
     de un agujero limpio. Acá se exige que el CÍRCULO ENTERO quede adentro
     de `poly` (no hace falta que quede todo dentro del rebaje angosto: la
     parte que cae en el hueco principal ya está vacía, no hay problema).
-    Devuelve (x, y) o None si no encontró ningún punto que entre."""
+
+    Prueba varias FILAS (cada una `filas_y_mm[i]` más arriba del borde de
+    abajo) y en cada una desliza en X buscando un lugar que entre -- una
+    palabra angosta justo en el centro-abajo (como el trazo fino de una
+    cursiva) puede no tener lugar en la fila más baja pero sí un poco más
+    arriba. Devuelve (x, y) o None si ninguna fila encontró un punto."""
     minx, miny, maxx, maxy = poly.bounds
     cx = (minx + maxx) / 2
     ancho = maxx - minx
-    y = miny + radio_mm + 1.0  # 1mm de margen extra hacia adentro desde el borde
     paso = max(radio_mm * 0.5, 2.0)
     n_pasos = int(ancho / (2 * paso)) + 1
     offsets = [0.0]
     for i in range(1, n_pasos + 1):
         offsets += [i * paso, -i * paso]
-    for dx in offsets:
-        p = Point(cx + dx, y)
-        circulo = p.buffer(radio_mm, resolution=24)
-        if poly.contains(circulo):
-            return (cx + dx, y)
+    for y_extra in filas_y_mm:
+        y = miny + radio_mm + 1.0 + y_extra
+        if y >= maxy - radio_mm:
+            break
+        for dx in offsets:
+            p = Point(cx + dx, y)
+            circulo = p.buffer(radio_mm, resolution=24)
+            if poly.contains(circulo):
+                return (cx + dx, y)
     return None
 
 
