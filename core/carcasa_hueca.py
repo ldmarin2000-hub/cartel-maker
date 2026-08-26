@@ -99,19 +99,31 @@ def punto_y_direccion_pared(poly, lado, margen_mm=8):
         return (minx + maxx) / 2, miny, 0.0, -1.0
 
 
-def punto_agujero_atras(poly, margen_mm_x=(0, 6, -6, 12, -12, 18, -18, 24, -24, 30, -30)):
-    """Punto en el REBAJE (el anillo sólido entre el borde y
-    `LEDGE_ANCHO_MM` hacia adentro, donde apoya la tapa) cerca del centro
-    de abajo, para el agujero "atras" (axial, por el canto de atrás, no
-    por una pared lateral). Devuelve (x, y) o None si no encuentra
-    ningún punto en el rebaje cerca del centro."""
-    rebaje = poly.difference(poly.buffer(-LEDGE_ANCHO_MM, join_style=1))
+def punto_agujero_atras(poly, radio_mm):
+    """Punto cerca del borde de abajo donde el agujero de radio `radio_mm`
+    ENTRA COMPLETO sin salirse del contorno exterior -- ahí se taladra el
+    agujero axial "atras" (por el canto de atrás, el rebaje donde apoya
+    la tapa). Ojo: el rebaje (`LEDGE_ANCHO_MM`, 2mm) casi siempre es más
+    angosto que el agujero pedido (6mm por default) -- si solo se
+    chequeara que el CENTRO cae en el rebaje (como antes), el agujero se
+    salía del contorno y abría una muesca fea en el borde visible en vez
+    de un agujero limpio. Acá se exige que el CÍRCULO ENTERO quede adentro
+    de `poly` (no hace falta que quede todo dentro del rebaje angosto: la
+    parte que cae en el hueco principal ya está vacía, no hay problema).
+    Devuelve (x, y) o None si no encontró ningún punto que entre."""
     minx, miny, maxx, maxy = poly.bounds
     cx = (minx + maxx) / 2
-    y = miny + LEDGE_ANCHO_MM / 2
-    for dx in margen_mm_x:
+    ancho = maxx - minx
+    y = miny + radio_mm + 1.0  # 1mm de margen extra hacia adentro desde el borde
+    paso = max(radio_mm * 0.5, 2.0)
+    n_pasos = int(ancho / (2 * paso)) + 1
+    offsets = [0.0]
+    for i in range(1, n_pasos + 1):
+        offsets += [i * paso, -i * paso]
+    for dx in offsets:
         p = Point(cx + dx, y)
-        if rebaje.contains(p):
+        circulo = p.buffer(radio_mm, resolution=24)
+        if poly.contains(circulo):
             return (cx + dx, y)
     return None
 
@@ -127,7 +139,7 @@ def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, pro
     if lado == "atras":
         if not ledge_activo(espesor_pared_mm):
             return None
-        punto = punto_agujero_atras(poly)
+        punto = punto_agujero_atras(poly, radio)
         if punto is None:
             return None
         x, y = punto
