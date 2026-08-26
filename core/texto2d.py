@@ -86,12 +86,29 @@ def texto_a_poligono_crudo(texto, ruta_ttf, raster_px=400, pad=24, espaciado_rel
     return _contornos_a_poligono(mask)
 
 
+SIMPLIFY_MM = 0.15  # tolerancia para sacar puntos redundantes del trazado de marching squares
+
+
 def texto_a_poligono(texto, ruta_ttf, alto_mm, raster_px=400, pad=24):
     """Rasteriza y vectoriza `texto`, y lo devuelve como polígono shapely
     ya escalado (uniforme) para medir `alto_mm` de alto — medido de
     verdad sobre la geometría, no estimado como hace OpenSCAD. Devuelve
-    (poligono, ancho_mm) o (None, 0) si no se pudo extraer nada."""
+    (poligono, ancho_mm) o (None, 0) si no se pudo extraer nada.
+
+    El contorno de marching squares (`_contornos_a_poligono`) deja MUCHOS
+    puntos casi-colineales sobre curvas suaves (miles para una sola
+    letra) -- simplificar con una tolerancia chica (`SIMPLIFY_MM`) los
+    saca sin cambiar la forma (el área prácticamente no se mueve), pero
+    baja la cantidad de triángulos finísimos que deja después una
+    extrusión/booleana sobre ese contorno (se nota sobre todo en cáscaras
+    huecas de poca profundidad, como letras.py/caja_luz.py: sin esto, la
+    malla queda con un montón de triángulos "flacos" apilados en los
+    bordes redondeados, que algunos visores muestran como un remolino
+    de facetas raro aunque la pieza sea watertight y imprima bien)."""
     poligono = texto_a_poligono_crudo(texto, ruta_ttf, raster_px, pad)
     if poligono is None or poligono.is_empty:
         return None, 0
-    return escalar_a_alto(poligono, alto_mm)
+    poligono_mm, ancho_mm = escalar_a_alto(poligono, alto_mm)
+    if poligono_mm is None:
+        return None, 0
+    return poligono_mm.simplify(SIMPLIFY_MM, preserve_topology=True), ancho_mm
