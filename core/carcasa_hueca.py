@@ -95,6 +95,13 @@ def armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm)
     hueco = trimesh.util.concatenate(piezas_hueco) if len(piezas_hueco) > 1 else piezas_hueco[0]
 
     carcasa = trimesh.boolean.difference([afuera, hueco], engine="manifold")
+    avisos.append(
+        "Ojo al laminar: como la pieza queda abierta atrás a propósito, muchos laminadores "
+        "(Bambu Studio incluido) le agregan solas unas 'capas superiores' de relleno sólido "
+        "ahí, tapando el hueco (y el agujero del cable) sin avisar. En Bambu Studio: click "
+        "derecho en la pieza → \"Configuración por objeto\" → agregar \"Strength\" → poner "
+        "\"Top shell layers\" en 0 para esa pieza."
+    )
     return carcasa, True, avisos
 
 
