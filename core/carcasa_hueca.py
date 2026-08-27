@@ -34,7 +34,7 @@ angosto que 2x ese valor, esa parte queda maciza (se avisa, ver
 """
 
 import trimesh
-from shapely.geometry import Point
+from shapely.geometry import LineString, Point
 
 from core import mesh3d
 
@@ -122,23 +122,70 @@ def armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm,
     return carcasa, True, avisos
 
 
-def punto_y_direccion_pared(poly, lado, margen_mm=8):
-    """Punto sobre el borde de `poly` (C0) y la dirección (hacia afuera)
-    para perforar un agujero RADIAL a través de la pared lateral — no a
-    través de la tapa. `lado`: "arriba", "abajo", "izquierda" o
-    "derecha" (a través de la pared del extremo elegido, cerca de ese
-    borde). Devuelve (x, y, dx, dy) con (dx, dy) vector unitario hacia
-    afuera."""
+def punto_y_direccion_pared(poly, lado, radio_mm, min_cobertura_pared=0.35):
+    """Busca un punto sobre el borde EXTERIOR real de `poly` (C0), cerca
+    del lado pedido, donde el agujero de radio `radio_mm` realmente
+    atraviese pared sólida -- no el punto medio ciego del recuadro
+    completo (que en una palabra con espacios entre letras, o el hueco
+    de una "O"/"D", puede caer en el aire y no cortar nada).
+
+    Para "izquierda"/"derecha" desliza en Y, para "arriba"/"abajo"
+    desliza en X, arrancando del centro del rango y probando hacia los
+    dos lados -- en cada posición traza una línea perpendicular al lado
+    elegido, la cruza con `poly` para encontrar dónde está el borde REAL
+    ahí (no asume que coincide con el máximo/mínimo global), y valida
+    que un círculo centrado ahí caiga mayormente adentro de `poly` (si
+    no, esa posición cae en un hueco/espacio entre letras).
+
+    Devuelve (x, y, dx, dy) con (dx, dy) vector unitario hacia afuera, o
+    None si no encontró ningún lugar."""
     minx, miny, maxx, maxy = poly.bounds
-    zona = (maxy - miny) * 0.25
     if lado == "izquierda":
-        return minx, min(miny + margen_mm, miny + zona), -1.0, 0.0
+        eje_fijo, extremo, dx, dy = "x", minx, -1.0, 0.0
     elif lado == "derecha":
-        return maxx, min(miny + margen_mm, miny + zona), 1.0, 0.0
+        eje_fijo, extremo, dx, dy = "x", maxx, 1.0, 0.0
     elif lado == "arriba":
-        return (minx + maxx) / 2, max(maxy - margen_mm, maxy - zona), 0.0, 1.0
+        eje_fijo, extremo, dx, dy = "y", maxy, 0.0, 1.0
     else:  # abajo
-        return (minx + maxx) / 2, miny, 0.0, -1.0
+        eje_fijo, extremo, dx, dy = "y", miny, 0.0, -1.0
+
+    rango_min, rango_max = (miny, maxy) if eje_fijo == "x" else (minx, maxx)
+    centro = (rango_min + rango_max) / 2
+    paso = max(radio_mm * 0.6, 3.0)
+    n_pasos = int((rango_max - rango_min) / (2 * paso)) + 1
+    offsets = [0.0]
+    for i in range(1, n_pasos + 1):
+        offsets += [i * paso, -i * paso]
+
+    fuera_del_rango = max(maxx - minx, maxy - miny) + 10
+    area_minima = radio_mm * radio_mm * 3.14159265 * min_cobertura_pared
+
+    for off in offsets:
+        pos = centro + off
+        if pos <= rango_min + radio_mm or pos >= rango_max - radio_mm:
+            continue
+        if eje_fijo == "x":
+            linea = LineString([(extremo - fuera_del_rango, pos), (extremo + fuera_del_rango, pos)])
+        else:
+            linea = LineString([(pos, extremo - fuera_del_rango), (pos, extremo + fuera_del_rango)])
+        inter = poly.intersection(linea)
+        if inter.is_empty:
+            continue
+        coords = []
+        if inter.geom_type == "LineString":
+            coords = list(inter.coords)
+        elif inter.geom_type == "MultiLineString":
+            for seg in inter.geoms:
+                coords += list(seg.coords)
+        if not coords:
+            continue
+        eje_dir = dx if eje_fijo == "x" else dy
+        x, y = max(coords, key=lambda c: (c[0] if eje_fijo == "x" else c[1]) * eje_dir)
+        circulo = Point(x, y).buffer(radio_mm, resolution=24)
+        if circulo.intersection(poly).area < area_minima:
+            continue
+        return (x, y, dx, dy)
+    return None
 
 
 def punto_agujero_atras(poly, radio_mm, soporte_tapa_mm=SOPORTE_TAPA_MM_DEFAULT,
@@ -246,7 +293,10 @@ def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, pro
         z_adentro = z_ledge - soporte_tapa_mm - 2
         return trimesh.creation.cylinder(radius=radio, segment=[(x, y, z_afuera), (x, y, z_adentro)], sections=32)
 
-    x, y, dx, dy = punto_y_direccion_pared(poly, lado)
+    resultado = punto_y_direccion_pared(poly, lado, radio)
+    if resultado is None:
+        return None
+    x, y, dx, dy = resultado
     z = profundidad_mm * 0.5
     margen_afuera, margen_adentro = espesor_pared_mm + 3.0, soporte_tapa_mm + 4.0
     p1 = (x + dx * margen_afuera, y + dy * margen_afuera, z)
