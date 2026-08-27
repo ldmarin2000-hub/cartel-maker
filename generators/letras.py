@@ -118,7 +118,8 @@ def preview_rapido(texto, ruta_ttf, alto_mm=150, color_letra="Amarillo",
                     agregar_nombre=False, texto_nombre="", ruta_ttf_nombre=None, alto_nombre_mm=30,
                     color_nombre="Blanco", decoraciones_frente=None,
                     mostrar_agujero=False, espesor_pared_mm=2.5, agujero_cable_diam_mm=4.5,
-                    agujero_atras_x_pct=None, agujero_atras_y_pct=None):
+                    agujero_atras_x_pct=None, agujero_atras_y_pct=None,
+                    pared_fondo_mm=carcasa_hueca.LEDGE_ANCHO_MM):
     """Preview 2D instantáneo — solo polígonos shapely (letra + nombre si
     hay + decoraciones posicionadas), SIN el hueco/cáscara/booleanas 3D
     de `_armar_carcasa_hueca` — para ver el resultado (tamaño, posición
@@ -168,15 +169,15 @@ def preview_rapido(texto, ruta_ttf, alto_mm=150, color_letra="Amarillo",
     for i, dec in enumerate(decos):
         dibujar(ax, dec, preview3d.color_decoracion(i))
 
-    if mostrar_agujero and agujero_cable_diam_mm > 0 and carcasa_hueca.ledge_activo(espesor_pared_mm):
+    if mostrar_agujero and agujero_cable_diam_mm > 0 and carcasa_hueca.ledge_activo(espesor_pared_mm, pared_fondo_mm):
         radio = agujero_cable_diam_mm / 2
         es_manual = agujero_atras_x_pct is not None and agujero_atras_y_pct is not None
         if es_manual:
             punto = carcasa_hueca.punto_pct_a_xy(poly, agujero_atras_x_pct, agujero_atras_y_pct)
         else:
-            punto = carcasa_hueca.punto_agujero_atras(poly, radio)
+            punto = carcasa_hueca.punto_agujero_atras(poly, radio, pared_fondo_mm)
         if punto is not None:
-            corta_algo = not es_manual or carcasa_hueca.punto_atras_corta_algo(poly, punto, radio)
+            corta_algo = not es_manual or carcasa_hueca.punto_atras_corta_algo(poly, punto, radio, pared_fondo_mm)
             color = "#38bdf8" if corta_algo else "#f97316"
             ax.add_patch(plt.Circle(punto, radio, facecolor=color, edgecolor="white", linewidth=1.5, zorder=5))
             if not corta_algo:
@@ -225,7 +226,8 @@ def _guardar_preview(ruta_png, malla, titulo):
 
 def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.5,
             agregar_tapa=True, tapa_espesor_mm=3.0, agujero_cable_diam_mm=4.5, agujero_cable_lado="atras",
-            agujero_atras_x_pct=None, agujero_atras_y_pct=None,
+            agujero_atras_x_pct=None, agujero_atras_y_pct=None, pared_fondo_mm=carcasa_hueca.LEDGE_ANCHO_MM,
+            soporte_tapa_mm=2.0, holgura_tapa_mm=1.0, tapa_offset_mm=0.0,
             agregar_soporte=True, ancho_pata_mm=40, alto_pata_mm=15,
             agregar_nombre=False, texto_nombre="", ruta_ttf_nombre=None, alto_nombre_mm=30,
             profundidad_nombre_mm=10.0, nombre_tiene_ams=False,
@@ -278,26 +280,27 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
     if poly is None:
         raise ValueError("no se pudo extraer la letra (probá otra fuente)")
 
-    carcasa, quedo_hueca, info = _armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm)
+    carcasa, quedo_hueca, info = _armar_carcasa_hueca(
+        poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm, pared_fondo_mm, tapa_offset_mm
+    )
     if not quedo_hueca:
         info.append(
             "La letra quedó maciza (ningún trazo es más ancho que 2x el espesor de pared) — "
             "probá una letra más grande, una fuente más gruesa, o bajar el espesor de pared."
         )
-    elif agregar_tapa and agujero_cable_diam_mm > 0:
+    elif agregar_tapa and agujero_cable_diam_mm > 0 and agujero_cable_lado != "ninguno":
         punto_manual = None
         if agujero_cable_lado == "atras" and agujero_atras_x_pct is not None and agujero_atras_y_pct is not None:
             punto_manual = carcasa_hueca.punto_pct_a_xy(poly, agujero_atras_x_pct, agujero_atras_y_pct)
         agujero = _armar_agujero_pared(
             poly, espesor_pared_mm, agujero_cable_diam_mm, agujero_cable_lado, profundidad_mm, tapa_espesor_mm,
-            punto_manual=punto_manual,
+            pared_fondo_mm=pared_fondo_mm, punto_manual=punto_manual,
         )
         if agujero is None:
             if agujero_cable_lado == "atras":
                 info.append(
                     f"No pude ubicar el agujero \"atras\" de {agujero_cable_diam_mm:.0f}mm: el "
-                    f"rebaje donde apoya la tapa mide siempre {carcasa_hueca.LEDGE_ANCHO_MM:.0f}mm "
-                    f"de ancho (no crece aunque la pared sea más gruesa), y en ningún lugar de la "
+                    f"rebaje donde apoya la tapa mide {pared_fondo_mm:.1f}mm de ancho, y en ningún lugar de la "
                     f"letra el agujero entra ahí sin salirse del contorno o sin quedar "
                     f"prácticamente flotando en el hueco. Opciones: bajá el diámetro del agujero, "
                     f"probá un lado radial (arriba/abajo/izquierda/derecha — esos sí cortan todo "
@@ -424,7 +427,7 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
 
     pieza_tapa = None
     if agregar_tapa:
-        malla_tapa = _armar_tapa(poly, tapa_espesor_mm, espesor_pared_mm)
+        malla_tapa = _armar_tapa(poly, tapa_espesor_mm, espesor_pared_mm, pared_fondo_mm, soporte_tapa_mm, holgura_tapa_mm)
         ruta_tapa = os.path.join(carpeta_salida, f"letra_{base_nombre}_tapa.stl")
         malla_tapa.export(ruta_tapa)
         pieza_tapa = {
@@ -433,8 +436,8 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
             "watertight": malla_tapa.is_watertight,
         }
         info.append(
-            "Tapa agregada (STL aparte, 1mm de holgura) para cerrar el hueco después de meter "
-            "el LED — encastra en el rebaje de la carcasa."
+            "Tapa agregada (STL aparte) para cerrar el hueco después de meter el LED — encastra "
+            "en el rebaje de la carcasa."
         )
 
     minx, miny, minz = carcasa.bounds[0]

@@ -13,7 +13,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import colores, preview3d
+from core import carcasa_hueca, colores, preview3d
 from generators import caja_luz
 from ui_streamlit import bloque_presets, selector_fuente
 
@@ -31,20 +31,22 @@ st.info(
 PRESET_KEYS = [
     "cl_texto", "cajaluz_selectbox", "cajaluz_ruta", "cl_color", "cl_color_tapa", "cl_alto_mm",
     "cl_profundidad_mm", "cl_espesor_pared_mm", "cl_agregar_tapa",
-    "cl_tapa_espesor_mm", "cl_agujero_cable_diam_mm", "cl_agujero_cable_lado",
+    "cl_tapa_espesor_mm", "cl_agujero_cable_diam_mm", "cl_pared_fondo_mm", "cl_soporte_tapa_mm",
+    "cl_holgura_tapa_mm", "cl_tapa_offset_mm", "cl_agujero_cable_lado",
     "cl_agujero_manual", "cl_agujero_x_pct", "cl_agujero_y_pct",
 ]
 
-LADOS_AGUJERO = ["atras", "arriba", "abajo", "izquierda", "derecha"]
+LADOS_AGUJERO = ["atras", "arriba", "abajo", "izquierda", "derecha", "ninguno"]
 
 
 @st.cache_data(ttl=120, show_spinner=False)
 def _preview_rapido(texto, ruta_ttf, alto_mm, mostrar_agujero, espesor_pared_mm, agujero_cable_diam_mm,
-                     agujero_atras_x_pct, agujero_atras_y_pct):
+                     agujero_atras_x_pct, agujero_atras_y_pct, pared_fondo_mm):
     return caja_luz.preview_rapido(
         texto, ruta_ttf, alto_mm, mostrar_agujero=mostrar_agujero, espesor_pared_mm=espesor_pared_mm,
         agujero_cable_diam_mm=agujero_cable_diam_mm,
         agujero_atras_x_pct=agujero_atras_x_pct, agujero_atras_y_pct=agujero_atras_y_pct,
+        pared_fondo_mm=pared_fondo_mm,
     )
 
 
@@ -93,6 +95,33 @@ with col_form:
             "Diámetro del agujero del cable (mm)", 0.0, 12.0, 4.5, step=0.5, disabled=not agregar_tapa,
             key="cl_agujero_cable_diam_mm", help="0 = sin agujero.",
         )
+        pared_fondo_mm = st.number_input(
+            "Grosor de pared del fondo (mm)", value=2.0, step=0.25, min_value=0.5, disabled=not agregar_tapa,
+            key="cl_pared_fondo_mm",
+            help="Ancho del rebaje/aro donde apoya la tapa y por donde sale el agujero \"atras\" "
+                 "(no crece con el grosor de las paredes). Si el agujero del cable no entra ahí sin "
+                 "salirse del contorno, subir esto le da más margen.",
+        )
+        soporte_tapa_mm = st.number_input(
+            "Soporte de la tapa (mm)", value=2.0, step=0.25, min_value=0.25, disabled=not agregar_tapa,
+            key="cl_soporte_tapa_mm",
+            help="Cuánto pisa la tapa el escalón del rebaje (el apoyo real, no solo tocar el "
+                 "borde). Si no hay margen suficiente entre el grosor de pared y el grosor de "
+                 "pared del fondo, se usa todo el margen que haya.",
+        )
+        holgura_tapa_mm = st.number_input(
+            "Holgura de la tapa (mm)", value=1.0, step=0.25, min_value=0.0, disabled=not agregar_tapa,
+            key="cl_holgura_tapa_mm",
+            help="Juego extra para que la tapa entre sin trabarse (se suma siempre, aparte del "
+                 "soporte). Más holgura = más floja.",
+        )
+        tapa_offset_mm = st.number_input(
+            "Cuánto sobresale/entra la tapa (mm)", value=0.0, step=0.5, disabled=not agregar_tapa,
+            key="cl_tapa_offset_mm",
+            help="0 = tapa exacto al ras del borde de atrás. Positivo = sobresale esos mm por "
+                 "atrás. Negativo = entra esos mm, queda un poco adentro (con un marquito de la "
+                 "carcasa alrededor).",
+        )
         agujero_cable_lado = st.radio(
             "Lado del agujero del cable", LADOS_AGUJERO, horizontal=True,
             disabled=not agregar_tapa or agujero_cable_diam_mm <= 0, key="cl_agujero_cable_lado",
@@ -125,6 +154,7 @@ with col_preview:
             texto, ruta_ttf, float(alto_mm), mostrar_agujero_preview, float(espesor_pared_mm),
             float(agujero_cable_diam_mm),
             float(agujero_x_pct) if agujero_manual else None, float(agujero_y_pct) if agujero_manual else None,
+            float(pared_fondo_mm),
         )
         if png_rapido:
             st.image(
@@ -149,6 +179,8 @@ with col_preview:
                     agujero_cable_diam_mm=float(agujero_cable_diam_mm), agujero_cable_lado=agujero_cable_lado,
                     agujero_atras_x_pct=float(agujero_x_pct) if agujero_manual else None,
                     agujero_atras_y_pct=float(agujero_y_pct) if agujero_manual else None,
+                    pared_fondo_mm=float(pared_fondo_mm), soporte_tapa_mm=float(soporte_tapa_mm),
+                    holgura_tapa_mm=float(holgura_tapa_mm), tapa_offset_mm=float(tapa_offset_mm),
                 )
             except (FileNotFoundError, ValueError) as e:
                 st.error(str(e))
@@ -156,15 +188,19 @@ with col_preview:
 
         if r:
             # la carcasa ocupa Z=[0, profundidad_mm]; la tapa se exporta en su propio
-            # origen (Z=[0, tapa_espesor_mm]) para imprimirse suelta — la corremos a
-            # Z=profundidad_mm para el visor, que es donde va pegada de verdad (cierra
-            # el hueco abierto de atrás).
+            # origen (Z=[0, tapa_espesor_mm]) para imprimirse suelta -- la corremos al
+            # mismo Z donde arranca el escalón/rebaje (calcular_z_ledge), que es donde
+            # encastra de verdad (no siempre al ras del borde de atrás: tapa_offset_mm
+            # puede hacer que sobresalga o quede un poco adentro).
+            z_tapa = carcasa_hueca.calcular_z_ledge(
+                float(profundidad_mm), float(espesor_pared_mm), float(tapa_espesor_mm), float(tapa_offset_mm)
+            )
             color_hex = colores.hex_de(color_pieza)
             piezas_visor = [{"ruta_stl": r["ruta_stl"], "color": color_hex, "nombre": "cajaluz"}]
             if r["pieza_tapa"]:
                 piezas_visor.append({
                     "ruta_stl": r["pieza_tapa"]["ruta_stl"], "color": colores.hex_de(color_tapa), "nombre": "tapa",
-                    "offset": (0, 0, float(profundidad_mm)),
+                    "offset": (0, 0, z_tapa),
                 })
 
             html_visor = preview3d.armar_html_visor(piezas_visor)

@@ -17,39 +17,67 @@ from shapely.geometry import Point
 
 from core import mesh3d
 
-LEDGE_ANCHO_MM = 2.0  # contorno interno (rebaje) donde apoya/encastra la tapa
+LEDGE_ANCHO_MM = 2.0  # default de pared_fondo_mm: contorno interno (rebaje) donde apoya/encastra la tapa
 
 
-def ledge_activo(espesor_pared_mm):
-    """El rebaje (LEDGE_ANCHO_MM) solo funciona como tope real si es más
+def ledge_activo(espesor_pared_mm, pared_fondo_mm=LEDGE_ANCHO_MM):
+    """El rebaje (`pared_fondo_mm`) solo funciona como tope real si es más
     angosto que la pared normal — si no, no hay escalón donde la tapa
     pueda topar (y directamente no hay margen para separarla de la
     pared principal). Devuelve si hay margen suficiente."""
-    return espesor_pared_mm > LEDGE_ANCHO_MM + 0.2
+    return espesor_pared_mm > pared_fondo_mm + 0.2
 
 
-def shrink_tapa(espesor_pared_mm, holgura_mm):
+def shrink_tapa(espesor_pared_mm, pared_fondo_mm=LEDGE_ANCHO_MM, soporte_tapa_mm=2.0, holgura_mm=1.0):
     """Cuánto achicar el contorno para la tapa. Tiene que quedar MÁS
-    CHICA que la abertura del rebaje (`LEDGE_ANCHO_MM`, para poder
+    CHICA que la abertura del rebaje (`pared_fondo_mm`, para poder
     entrar) pero MÁS GRANDE que la abertura del hueco principal
     (`espesor_pared_mm`, para que el escalón la frene y no siga de largo
-    hacia adentro) — si no hay margen entre esos dos valores, la tapa
-    queda simple (pegada por afuera, sin encastrar)."""
-    if not ledge_activo(espesor_pared_mm):
+    hacia adentro) — `soporte_tapa_mm` es cuánto pisa la tapa ese escalón
+    (el "apoyo" real, no solo tocar el borde del rebaje). Si no hay
+    margen entre esos dos valores, la tapa queda simple (pegada por
+    afuera, sin encastrar). Si el margen disponible
+    (`espesor_pared_mm - pared_fondo_mm`) es menor que `soporte_tapa_mm`,
+    se usa todo el margen que haya (no se puede pisar más escalón del que
+    existe). `holgura_mm` se suma SIEMPRE encima (sea que la tapa
+    encastre en el rebaje o quede simple/pegada) — es el juego real para
+    que entre sin trabarse, aparte de cuánto pisa el escalón."""
+    if not ledge_activo(espesor_pared_mm, pared_fondo_mm):
         return holgura_mm
-    margen_disponible = espesor_pared_mm - LEDGE_ANCHO_MM
-    return LEDGE_ANCHO_MM + min(holgura_mm, margen_disponible * 0.6)
+    margen_disponible = espesor_pared_mm - pared_fondo_mm
+    return pared_fondo_mm + min(soporte_tapa_mm, margen_disponible) + holgura_mm
 
 
-def armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm):
+def calcular_z_ledge(profundidad_mm, espesor_pared_mm, tapa_espesor_mm, tapa_offset_mm=0.0):
+    """Dónde (en Z) arranca el escalón/rebaje donde apoya la tapa -- ver
+    `armar_carcasa_hueca` para el significado de `tapa_offset_mm`. La
+    usa también el visor 3D para poner la pieza de la tapa en su
+    posición real (encastrada, no pegada después del borde de atrás)."""
+    z_ledge = max(profundidad_mm - tapa_espesor_mm + tapa_offset_mm, espesor_pared_mm)
+    return min(z_ledge, profundidad_mm - 0.5)
+
+
+def armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm, pared_fondo_mm=LEDGE_ANCHO_MM,
+                         tapa_offset_mm=0.0):
     """Arma la cáscara hueca: cara de adelante sólida y fina
     (`espesor_pared_mm`, para que pase la luz), paredes laterales del
     mismo espesor, atrás ABIERTO (para meter el LED/pila y poder
     cambiarla). Justo antes del borde de atrás, en los últimos
-    `tapa_espesor_mm` de profundidad, el hueco se ensancha hasta dejar
-    un REBAJE de `LEDGE_ANCHO_MM` (en vez de `espesor_pared_mm`) — un
-    escalón donde apoya/encastra la tapa (como una tapa de caja con
-    rebajo), no un simple tope a tope. Si algún trazo es más angosto que
+    `tapa_espesor_mm` de profundidad (corridos por `tapa_offset_mm`, ver
+    abajo), el hueco se ensancha hasta dejar un REBAJE de `pared_fondo_mm`
+    (en vez de `espesor_pared_mm`) — un escalón donde apoya/encastra la
+    tapa (como una tapa de caja con rebajo), no un simple tope a tope.
+
+    `tapa_offset_mm` corre el escalón (no la tapa en sí, que siempre mide
+    `tapa_espesor_mm`): en 0 (default) la tapa queda EXACTO al ras del
+    borde de atrás de la carcasa. Positivo = el escalón queda más cerca
+    del borde de atrás (rebaje más CORTO que `tapa_espesor_mm`) → la
+    tapa, al no entrar entera, SOBRESALE esos mm por atrás. Negativo = el
+    escalón queda más lejos del borde de atrás (rebaje más LARGO) → la
+    tapa entra más y queda UN POCO ADENTRO, a ras de un pequeño marco de
+    la propia carcasa.
+
+    Si algún trazo es más angosto que
     2x el espesor de pared, esa parte queda maciza (no hay dónde hacer
     hueco) — no es un error, pero si es solo una parte (no toda la
     palabra/letra) puede pasar desapercibido: una cola/rulito fino de una
@@ -79,12 +107,12 @@ def armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm)
             "Bajá el espesor de pared o subí el tamaño si querés que se vea iluminada también."
         )
 
-    z_ledge = max(profundidad_mm - tapa_espesor_mm, espesor_pared_mm)
+    z_ledge = calcular_z_ledge(profundidad_mm, espesor_pared_mm, tapa_espesor_mm, tapa_offset_mm)
     sobresalto_mm = 5  # que el hueco sobrepase el fondo, para que quede ABIERTO atrás, no un piso ciego
     piezas_hueco = mesh3d.piezas_desde_geom(hueco_poly, z_ledge - espesor_pared_mm, z=espesor_pared_mm)
 
-    if ledge_activo(espesor_pared_mm):
-        ledge_poly = poly.buffer(-LEDGE_ANCHO_MM, join_style=1)
+    if ledge_activo(espesor_pared_mm, pared_fondo_mm):
+        ledge_poly = poly.buffer(-pared_fondo_mm, join_style=1)
         if not ledge_poly.is_empty and ledge_poly.area >= 1:
             piezas_hueco += mesh3d.piezas_desde_geom(
                 ledge_poly, profundidad_mm - z_ledge + sobresalto_mm, z=z_ledge
@@ -129,19 +157,20 @@ def punto_y_direccion_pared(poly, lado, margen_mm=8):
         return (minx + maxx) / 2, miny, 0.0, -1.0
 
 
-def punto_agujero_atras(poly, radio_mm, filas_y_mm=(0.0, 6.0, 12.0, 20.0, 30.0), min_cobertura_rebaje=0.35):
+def punto_agujero_atras(poly, radio_mm, pared_fondo_mm=LEDGE_ANCHO_MM, filas_y_mm=(0.0, 6.0, 12.0, 20.0, 30.0),
+                         min_cobertura_rebaje=0.35):
     """Punto cerca del borde de abajo donde el agujero de radio `radio_mm`
     ENTRA COMPLETO sin salirse del contorno exterior Y corta de verdad el
     rebaje sólido (no solo "no se sale", que es un chequeo insuficiente:
     en un trazo ANCHO, un círculo puede caber entero adentro de `poly`
     cayendo casi todo en la zona YA hueca del rebaje -- apenas rozando el
-    anillo sólido de `LEDGE_ANCHO_MM` -- y terminar siendo un agujero de
+    anillo sólido de `pared_fondo_mm` -- y terminar siendo un agujero de
     mentira que no atraviesa nada. Por eso acá se exige ADEMÁS que una
     fracción mínima (`min_cobertura_rebaje`) del área del círculo
     realmente se superponga con el rebaje sólido (`poly` menos el hueco
     del rebaje) -- si no, no cuenta como un punto válido aunque el
     círculo entero quede "adentro" del contorno. Se valida contra el
-    rebaje angosto (`LEDGE_ANCHO_MM`, no la pared de `espesor_pared_mm`)
+    rebaje angosto (`pared_fondo_mm`, no la pared de `espesor_pared_mm`)
     porque el agujero "atras" solo taladra el fondo (ver
     `armar_agujero_pared`), ese anillo angosto de los últimos milímetros
     -- no toda la profundidad.
@@ -160,7 +189,7 @@ def punto_agujero_atras(poly, radio_mm, filas_y_mm=(0.0, 6.0, 12.0, 20.0, 30.0),
     for i in range(1, n_pasos + 1):
         offsets += [i * paso, -i * paso]
 
-    ledge_poly = poly.buffer(-LEDGE_ANCHO_MM, join_style=1)
+    ledge_poly = poly.buffer(-pared_fondo_mm, join_style=1)
     rebaje_solido = poly.difference(ledge_poly)
     area_minima = radio_mm * radio_mm * 3.14159265 * min_cobertura_rebaje
 
@@ -188,7 +217,7 @@ def punto_pct_a_xy(poly, x_pct, y_pct):
     return minx + (x_pct / 100.0) * (maxx - minx), miny + (y_pct / 100.0) * (maxy - miny)
 
 
-def punto_atras_corta_algo(poly, punto, radio_mm, min_cobertura_rebaje=0.35):
+def punto_atras_corta_algo(poly, punto, radio_mm, pared_fondo_mm=LEDGE_ANCHO_MM, min_cobertura_rebaje=0.35):
     """Para el punto manual (que no se valida al generar — "el que elige a
     mano se hace cargo"): dice si ESE punto puntual realmente va a cortar
     el rebaje sólido del fondo o si el agujero va a caer vacío
@@ -197,21 +226,21 @@ def punto_atras_corta_algo(poly, punto, radio_mm, min_cobertura_rebaje=0.35):
     circulo = Point(punto).buffer(radio_mm, resolution=24)
     if not poly.contains(circulo):
         return False
-    ledge_poly = poly.buffer(-LEDGE_ANCHO_MM, join_style=1)
+    ledge_poly = poly.buffer(-pared_fondo_mm, join_style=1)
     rebaje_solido = poly.difference(ledge_poly)
     area_minima = radio_mm * radio_mm * 3.14159265 * min_cobertura_rebaje
     return circulo.intersection(rebaje_solido).area >= area_minima
 
 
 def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, profundidad_mm, tapa_espesor_mm,
-                         punto_manual=None):
+                         pared_fondo_mm=LEDGE_ANCHO_MM, punto_manual=None):
     """Cilindro para perforar la carcasa con el agujero del cable — no en
     la tapa. "arriba"/"abajo"/"izquierda"/"derecha": RADIAL, a través de
     la pared lateral, a mitad de profundidad. "atras": AXIAL, por el
     canto de atrás, de afuera hacia adentro en el eje Z -- solo taladra
-    el fondo, los últimos `LEDGE_ANCHO_MM` (el rebaje angosto donde apoya
+    el fondo, los últimos `pared_fondo_mm` (el rebaje angosto donde apoya
     la tapa), no toda la profundidad: el cilindro arranca en
-    `profundidad_mm - LEDGE_ANCHO_MM` y sigue un poco más allá del borde
+    `profundidad_mm - pared_fondo_mm` y sigue un poco más allá del borde
     de atrás, para asegurar que atraviese limpio. Si se pasa
     `punto_manual` (x, y) se taladra ahí directamente (el que elige a
     mano se hace cargo de que entre; no se valida), si no se busca
@@ -220,14 +249,14 @@ def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, pro
     ahí)."""
     radio = agujero_cable_diam_mm / 2
     if lado == "atras":
-        if not ledge_activo(espesor_pared_mm):
+        if not ledge_activo(espesor_pared_mm, pared_fondo_mm):
             return None
-        punto = punto_manual if punto_manual is not None else punto_agujero_atras(poly, radio)
+        punto = punto_manual if punto_manual is not None else punto_agujero_atras(poly, radio, pared_fondo_mm)
         if punto is None:
             return None
         x, y = punto
         z_afuera = profundidad_mm + 4
-        z_adentro = profundidad_mm - LEDGE_ANCHO_MM
+        z_adentro = profundidad_mm - pared_fondo_mm
         return trimesh.creation.cylinder(radius=radio, segment=[(x, y, z_afuera), (x, y, z_adentro)], sections=32)
 
     x, y, dx, dy = punto_y_direccion_pared(poly, lado)
@@ -238,12 +267,14 @@ def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, pro
     return trimesh.creation.cylinder(radius=radio, segment=[p1, p2], sections=32)
 
 
-def armar_tapa(poly, espesor_mm, espesor_pared_mm, holgura_mm=1.0):
+def armar_tapa(poly, espesor_mm, espesor_pared_mm, pared_fondo_mm=LEDGE_ANCHO_MM, soporte_tapa_mm=2.0,
+                holgura_mm=1.0):
     """Tapa: contorno achicado (`shrink_tapa` — para que entre en el
     rebaje de `armar_carcasa_hueca` y tope ahí, en vez de seguir de largo
     hacia el hueco principal), sólida y fina, para cerrar el hueco por
     atrás después de meter el LED. Sin agujero de cable — ese va en la
     carcasa (`armar_agujero_pared`), no acá."""
-    tapa_poly = poly.buffer(-shrink_tapa(espesor_pared_mm, holgura_mm), join_style=1)
+    tapa_poly = poly.buffer(-shrink_tapa(espesor_pared_mm, pared_fondo_mm, soporte_tapa_mm, holgura_mm),
+                             join_style=1)
     piezas = mesh3d.piezas_desde_geom(tapa_poly, espesor_mm)
     return trimesh.util.concatenate(piezas) if len(piezas) > 1 else piezas[0]

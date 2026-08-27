@@ -13,7 +13,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import colores, decoraciones, preview3d
+from core import carcasa_hueca, colores, decoraciones, preview3d
 from generators import letras
 from ui_streamlit import bloque_presets, selector_fuente
 
@@ -43,7 +43,8 @@ PRESET_KEYS = [
     *[f"deco_x_{i}" for i in range(4)], *[f"deco_y_{i}" for i in range(4)],
     "le_profundidad_decoracion_mm", "le_decoraciones_tiene_ams",
     "le_profundidad_mm", "le_espesor_pared_mm", "le_tapa_espesor_mm", "le_agujero_cable_diam_mm",
-    "le_agujero_cable_lado", "le_agujero_manual", "le_agujero_x_pct", "le_agujero_y_pct",
+    "le_pared_fondo_mm", "le_soporte_tapa_mm", "le_holgura_tapa_mm", "le_tapa_offset_mm", "le_agujero_cable_lado",
+    "le_agujero_manual", "le_agujero_x_pct", "le_agujero_y_pct",
     "le_ancho_pata_mm", "le_alto_pata_mm",
 ]
 
@@ -52,7 +53,7 @@ PRESET_KEYS = [
 def _preview_rapido(texto, ruta_ttf, alto_mm, color_letra,
                      agregar_nombre, texto_nombre, ruta_ttf_nombre, alto_nombre_mm, color_nombre, decos_tuple,
                      mostrar_agujero, espesor_pared_mm, agujero_cable_diam_mm,
-                     agujero_atras_x_pct, agujero_atras_y_pct):
+                     agujero_atras_x_pct, agujero_atras_y_pct, pared_fondo_mm):
     decos = [
         {"nombre": n, "tam_mm": t, "x_pct": x, "y_pct": y, "emoji": e}
         for (n, t, x, y, e) in decos_tuple
@@ -65,6 +66,7 @@ def _preview_rapido(texto, ruta_ttf, alto_mm, color_letra,
         mostrar_agujero=mostrar_agujero, espesor_pared_mm=espesor_pared_mm,
         agujero_cable_diam_mm=agujero_cable_diam_mm,
         agujero_atras_x_pct=agujero_atras_x_pct, agujero_atras_y_pct=agujero_atras_y_pct,
+        pared_fondo_mm=pared_fondo_mm,
     )
 
 
@@ -190,7 +192,34 @@ with col_form:
             "Diámetro del agujero del cable (mm)", 0.0, 12.0, 4.5, step=0.5, disabled=not agregar_tapa,
             key="le_agujero_cable_diam_mm", help="0 = sin agujero.",
         )
-        LADOS_AGUJERO = ["atras", "arriba", "abajo", "izquierda", "derecha"]
+        pared_fondo_mm = st.number_input(
+            "Grosor de pared del fondo (mm)", value=2.0, step=0.25, min_value=0.5, disabled=not agregar_tapa,
+            key="le_pared_fondo_mm",
+            help="Ancho del rebaje/aro donde apoya la tapa y por donde sale el agujero \"atras\" "
+                 "(no crece con el espesor de pared). Si el agujero del cable no entra ahí sin "
+                 "salirse del contorno, subir esto le da más margen.",
+        )
+        soporte_tapa_mm = st.number_input(
+            "Soporte de la tapa (mm)", value=2.0, step=0.25, min_value=0.25, disabled=not agregar_tapa,
+            key="le_soporte_tapa_mm",
+            help="Cuánto pisa la tapa el escalón del rebaje (el apoyo real, no solo tocar el "
+                 "borde). Si no hay margen suficiente entre el espesor de pared y el grosor de "
+                 "pared del fondo, se usa todo el margen que haya.",
+        )
+        holgura_tapa_mm = st.number_input(
+            "Holgura de la tapa (mm)", value=1.0, step=0.25, min_value=0.0, disabled=not agregar_tapa,
+            key="le_holgura_tapa_mm",
+            help="Juego extra para que la tapa entre sin trabarse (se suma siempre, aparte del "
+                 "soporte). Más holgura = más floja.",
+        )
+        tapa_offset_mm = st.number_input(
+            "Cuánto sobresale/entra la tapa (mm)", value=0.0, step=0.5, disabled=not agregar_tapa,
+            key="le_tapa_offset_mm",
+            help="0 = tapa exacto al ras del borde de atrás. Positivo = sobresale esos mm por "
+                 "atrás. Negativo = entra esos mm, queda un poco adentro (con un marquito de la "
+                 "carcasa alrededor).",
+        )
+        LADOS_AGUJERO = ["atras", "arriba", "abajo", "izquierda", "derecha", "ninguno"]
         agujero_cable_lado = st.radio(
             "Lado del agujero del cable", LADOS_AGUJERO, horizontal=True,
             disabled=not agregar_tapa or agujero_cable_diam_mm <= 0, key="le_agujero_cable_lado",
@@ -234,6 +263,7 @@ with col_preview:
             agregar_nombre, texto_nombre, ruta_ttf_nombre, float(alto_nombre_mm), color_nombre, decos_tuple,
             mostrar_agujero_preview, float(espesor_pared_mm), float(agujero_cable_diam_mm),
             float(agujero_x_pct) if agujero_manual else None, float(agujero_y_pct) if agujero_manual else None,
+            float(pared_fondo_mm),
         )
         if png_rapido:
             st.image(
@@ -260,6 +290,8 @@ with col_preview:
                     agujero_cable_diam_mm=float(agujero_cable_diam_mm), agujero_cable_lado=agujero_cable_lado,
                     agujero_atras_x_pct=float(agujero_x_pct) if agujero_manual else None,
                     agujero_atras_y_pct=float(agujero_y_pct) if agujero_manual else None,
+                    pared_fondo_mm=float(pared_fondo_mm), soporte_tapa_mm=float(soporte_tapa_mm),
+                    holgura_tapa_mm=float(holgura_tapa_mm), tapa_offset_mm=float(tapa_offset_mm),
                     agregar_soporte=agregar_soporte, ancho_pata_mm=ancho_pata_mm, alto_pata_mm=alto_pata_mm,
                     agregar_nombre=agregar_nombre, texto_nombre=texto_nombre,
                     ruta_ttf_nombre=ruta_ttf_nombre, alto_nombre_mm=float(alto_nombre_mm),
@@ -274,16 +306,21 @@ with col_preview:
 
         if r:
             # la letra (carcasa) ocupa Z=[0, profundidad_mm]; la tapa se exporta en su
-            # propio origen (Z=[0, tapa_espesor_mm]) para imprimirse suelta — la corremos
-            # a Z=profundidad_mm para el visor, que es donde va pegada de verdad (cierra
-            # el hueco abierto de atrás). El soporte de escritorio va rotado 90° respecto
-            # de la letra (encastra desde abajo) — mostrarlo "pegado" sin esa rotación
-            # daría una posición falsa, así que va en su propio visor aparte.
+            # propio origen (Z=[0, tapa_espesor_mm]) para imprimirse suelta -- la corremos
+            # al mismo Z donde arranca el escalón/rebaje (calcular_z_ledge), que es donde
+            # encastra de verdad (no siempre al ras del borde de atrás: tapa_offset_mm
+            # puede hacer que sobresalga o quede un poco adentro). El soporte de
+            # escritorio va rotado 90° respecto de la letra (encastra desde abajo) —
+            # mostrarlo "pegado" sin esa rotación daría una posición falsa, así que va en
+            # su propio visor aparte.
+            z_tapa = carcasa_hueca.calcular_z_ledge(
+                float(profundidad_mm), float(espesor_pared_mm), float(tapa_espesor_mm), float(tapa_offset_mm)
+            )
             piezas_visor = [{"ruta_stl": r["ruta_stl"], "color": colores.hex_de(color_letra), "nombre": "letra"}]
             if r["pieza_tapa"]:
                 piezas_visor.append({
                     "ruta_stl": r["pieza_tapa"]["ruta_stl"], "color": colores.hex_de(color_tapa), "nombre": "tapa",
-                    "offset": (0, 0, float(profundidad_mm)),
+                    "offset": (0, 0, z_tapa),
                 })
             if r["pieza_nombre"]:
                 piezas_visor.append({
