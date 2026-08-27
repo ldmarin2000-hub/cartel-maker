@@ -129,18 +129,25 @@ def punto_y_direccion_pared(poly, lado, margen_mm=8):
         return (minx + maxx) / 2, miny, 0.0, -1.0
 
 
-def punto_agujero_atras(poly, radio_mm, filas_y_mm=(0.0, 6.0, 12.0, 20.0, 30.0), min_cobertura_rebaje=0.35):
+def punto_agujero_atras(poly, radio_mm, espesor_pared_mm, filas_y_mm=(0.0, 6.0, 12.0, 20.0, 30.0),
+                         min_cobertura_pared=0.35):
     """Punto cerca del borde de abajo donde el agujero de radio `radio_mm`
-    ENTRA COMPLETO sin salirse del contorno exterior Y corta de verdad el
-    rebaje sólido (no solo "no se sale", que es un chequeo insuficiente:
+    ENTRA COMPLETO sin salirse del contorno exterior Y corta de verdad
+    pared sólida (no solo "no se sale", que es un chequeo insuficiente:
     en un trazo ANCHO, un círculo puede caber entero adentro de `poly`
-    cayendo casi todo en la zona YA hueca del rebaje -- apenas rozando el
-    anillo sólido de `LEDGE_ANCHO_MM` -- y terminar siendo un agujero de
-    mentira que no atraviesa nada. Por eso acá se exige ADEMÁS que una
-    fracción mínima (`min_cobertura_rebaje`) del área del círculo
-    realmente se superponga con el rebaje sólido (`poly` menos el hueco
-    del rebaje) -- si no, no cuenta como un punto válido aunque el
-    círculo entero quede "adentro" del contorno.
+    cayendo casi todo en la zona YA hueca del medio -- apenas rozando el
+    anillo sólido de la pared -- y terminar siendo un agujero de mentira
+    que no atraviesa nada. Por eso acá se exige ADEMÁS que una fracción
+    mínima (`min_cobertura_pared`) del área del círculo realmente se
+    superponga con la pared sólida (`poly` menos el hueco principal,
+    inset `espesor_pared_mm`) -- si no, no cuenta como un punto válido
+    aunque el círculo entero quede "adentro" del contorno. Se valida
+    contra la pared de `espesor_pared_mm` (no el rebaje angosto de la
+    tapa, `LEDGE_ANCHO_MM`) porque el agujero "atras" ahora atraviesa
+    TODA la profundidad desde justo detrás de la cara de adelante (ver
+    `armar_agujero_pared`) -- esa banda ancha es la que existe en casi
+    toda la profundidad; el rebaje angosto de la tapa es apenas los
+    últimos milímetros.
 
     Prueba varias FILAS (cada una `filas_y_mm[i]` más arriba del borde de
     abajo) y en cada una desliza en X buscando un lugar que entre -- una
@@ -156,9 +163,9 @@ def punto_agujero_atras(poly, radio_mm, filas_y_mm=(0.0, 6.0, 12.0, 20.0, 30.0),
     for i in range(1, n_pasos + 1):
         offsets += [i * paso, -i * paso]
 
-    ledge_poly = poly.buffer(-LEDGE_ANCHO_MM, join_style=1)
-    rebaje_solido = poly.difference(ledge_poly)
-    area_minima = radio_mm * radio_mm * 3.14159265 * min_cobertura_rebaje
+    hueco_poly = poly.buffer(-espesor_pared_mm, join_style=1)
+    pared_solida = poly.difference(hueco_poly)
+    area_minima = radio_mm * radio_mm * 3.14159265 * min_cobertura_pared
 
     for y_extra in filas_y_mm:
         y = miny + radio_mm + 1.0 + y_extra
@@ -169,7 +176,7 @@ def punto_agujero_atras(poly, radio_mm, filas_y_mm=(0.0, 6.0, 12.0, 20.0, 30.0),
             circulo = p.buffer(radio_mm, resolution=24)
             if not poly.contains(circulo):
                 continue
-            if circulo.intersection(rebaje_solido).area < area_minima:
+            if circulo.intersection(pared_solida).area < area_minima:
                 continue
             return (cx + dx, y)
     return None
@@ -184,27 +191,51 @@ def punto_pct_a_xy(poly, x_pct, y_pct):
     return minx + (x_pct / 100.0) * (maxx - minx), miny + (y_pct / 100.0) * (maxy - miny)
 
 
+def punto_atras_corta_algo(poly, punto, radio_mm, espesor_pared_mm, min_cobertura_pared=0.35):
+    """Para el punto manual (que no se valida al generar — "el que elige a
+    mano se hace cargo"): dice si ESE punto puntual realmente va a cortar
+    pared sólida o si el agujero va a caer vacío (circulo.contains falla,
+    o cae casi todo adentro del hueco principal). Solo para avisar en la
+    vista rápida antes de generar, no bloquea nada."""
+    circulo = Point(punto).buffer(radio_mm, resolution=24)
+    if not poly.contains(circulo):
+        return False
+    hueco_poly = poly.buffer(-espesor_pared_mm, join_style=1)
+    pared_solida = poly.difference(hueco_poly)
+    area_minima = radio_mm * radio_mm * 3.14159265 * min_cobertura_pared
+    return circulo.intersection(pared_solida).area >= area_minima
+
+
 def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, profundidad_mm, tapa_espesor_mm,
                          punto_manual=None):
     """Cilindro para perforar la carcasa con el agujero del cable — no en
     la tapa. "arriba"/"abajo"/"izquierda"/"derecha": RADIAL, a través de
     la pared lateral, a mitad de profundidad. "atras": AXIAL, por el
-    canto de atrás (el rebaje donde apoya la tapa), de afuera hacia
-    adentro en el eje Z -- si se pasa `punto_manual` (x, y) se taladra
-    ahí directamente (el que elige a mano se hace cargo de que entre; no
-    se valida), si no se busca automático con `punto_agujero_atras`.
-    Devuelve el cilindro, o None si "atras" no encontró/no tiene un punto
-    válido (trazo muy angosto ahí)."""
+    canto de atrás, de afuera hacia adentro en el eje Z, atravesando TODA
+    la pared exterior desde justo detrás de la cara de adelante
+    (`espesor_pared_mm`) hasta pasar el borde de atrás -- no solo el
+    rebaje angosto de la tapa (`LEDGE_ANCHO_MM`), que son apenas los
+    últimos milímetros de la profundidad. Si el cilindro arrancara ahí
+    (como antes), con `profundidad_mm` chico terminaba antes de z=0 y de
+    rebote agujereaba por accidente la cara de adelante entera (por eso
+    "andaba" con poca profundidad); con `profundidad_mm` grande el
+    cilindro ya no llegaba a la banda ancha de pared sólida que existe en
+    el resto de la profundidad y el agujero no cortaba nada real ahí. Si
+    se pasa `punto_manual` (x, y) se taladra ahí directamente (el que
+    elige a mano se hace cargo de que entre; no se valida), si no se
+    busca automático con `punto_agujero_atras`. Devuelve el cilindro, o
+    None si "atras" no encontró/no tiene un punto válido (trazo muy
+    angosto ahí)."""
     radio = agujero_cable_diam_mm / 2
     if lado == "atras":
         if not ledge_activo(espesor_pared_mm):
             return None
-        punto = punto_manual if punto_manual is not None else punto_agujero_atras(poly, radio)
+        punto = punto_manual if punto_manual is not None else punto_agujero_atras(poly, radio, espesor_pared_mm)
         if punto is None:
             return None
         x, y = punto
         z_afuera = profundidad_mm + 4
-        z_adentro = profundidad_mm - tapa_espesor_mm - 4
+        z_adentro = espesor_pared_mm
         return trimesh.creation.cylinder(radius=radio, segment=[(x, y, z_afuera), (x, y, z_adentro)], sections=32)
 
     x, y, dx, dy = punto_y_direccion_pared(poly, lado)

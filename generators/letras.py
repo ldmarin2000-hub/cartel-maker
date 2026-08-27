@@ -170,12 +170,20 @@ def preview_rapido(texto, ruta_ttf, alto_mm=150, color_letra="Amarillo",
 
     if mostrar_agujero and agujero_cable_diam_mm > 0 and carcasa_hueca.ledge_activo(espesor_pared_mm):
         radio = agujero_cable_diam_mm / 2
-        if agujero_atras_x_pct is not None and agujero_atras_y_pct is not None:
+        es_manual = agujero_atras_x_pct is not None and agujero_atras_y_pct is not None
+        if es_manual:
             punto = carcasa_hueca.punto_pct_a_xy(poly, agujero_atras_x_pct, agujero_atras_y_pct)
         else:
-            punto = carcasa_hueca.punto_agujero_atras(poly, radio)
+            punto = carcasa_hueca.punto_agujero_atras(poly, radio, espesor_pared_mm)
         if punto is not None:
-            ax.add_patch(plt.Circle(punto, radio, facecolor="#38bdf8", edgecolor="white", linewidth=1.5, zorder=5))
+            corta_algo = not es_manual or carcasa_hueca.punto_atras_corta_algo(poly, punto, radio, espesor_pared_mm)
+            color = "#38bdf8" if corta_algo else "#f97316"
+            ax.add_patch(plt.Circle(punto, radio, facecolor=color, edgecolor="white", linewidth=1.5, zorder=5))
+            if not corta_algo:
+                ax.text(
+                    punto[0], punto[1] - radio - 4, "ahí no corta pared, no va a hacer nada",
+                    color="#f97316", ha="center", fontsize=8, zorder=5,
+                )
         else:
             ax.text(
                 (minx + maxx) / 2, miny + 3, "sin lugar para el agujero ahí",
@@ -287,14 +295,12 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
         if agujero is None:
             if agujero_cable_lado == "atras":
                 info.append(
-                    f"No pude ubicar el agujero \"atras\" de {agujero_cable_diam_mm:.0f}mm: el "
-                    f"rebaje donde apoya la tapa mide siempre {carcasa_hueca.LEDGE_ANCHO_MM:.0f}mm de "
-                    f"ancho (no crece aunque la pared sea más gruesa), y en ningún lugar de la "
-                    f"letra el agujero entra ahí sin salirse del contorno o sin quedar "
-                    f"prácticamente flotando en el hueco. Opciones: bajá el diámetro del agujero, "
-                    f"probá un lado radial (arriba/abajo/izquierda/derecha — esos sí cortan todo "
-                    f"el espesor de la pared, no solo el rebaje, y aguantan agujeros más grandes "
-                    f"con paredes gruesas), o hacelo a mano con una mecha."
+                    f"No pude ubicar el agujero \"atras\" de {agujero_cable_diam_mm:.0f}mm: con "
+                    f"{espesor_pared_mm:.1f}mm de pared, en ningún lugar de la letra el agujero "
+                    f"entra ahí sin salirse del contorno o sin quedar prácticamente flotando en "
+                    f"el hueco. Opciones: bajá el diámetro del agujero, subí el espesor de pared, "
+                    f"probá un lado radial (arriba/abajo/izquierda/derecha), o hacelo a mano con "
+                    f"una mecha."
                 )
             else:
                 info.append(
