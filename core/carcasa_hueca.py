@@ -129,17 +129,18 @@ def punto_y_direccion_pared(poly, lado, margen_mm=8):
         return (minx + maxx) / 2, miny, 0.0, -1.0
 
 
-def punto_agujero_atras(poly, radio_mm, filas_y_mm=(0.0, 6.0, 12.0, 20.0, 30.0)):
+def punto_agujero_atras(poly, radio_mm, filas_y_mm=(0.0, 6.0, 12.0, 20.0, 30.0), min_cobertura_rebaje=0.35):
     """Punto cerca del borde de abajo donde el agujero de radio `radio_mm`
-    ENTRA COMPLETO sin salirse del contorno exterior -- ahí se taladra el
-    agujero axial "atras" (por el canto de atrás, el rebaje donde apoya
-    la tapa). Ojo: el rebaje (`LEDGE_ANCHO_MM`, 2mm) casi siempre es más
-    angosto que el agujero pedido (6mm por default) -- si solo se
-    chequeara que el CENTRO cae en el rebaje (como antes), el agujero se
-    salía del contorno y abría una muesca fea en el borde visible en vez
-    de un agujero limpio. Acá se exige que el CÍRCULO ENTERO quede adentro
-    de `poly` (no hace falta que quede todo dentro del rebaje angosto: la
-    parte que cae en el hueco principal ya está vacía, no hay problema).
+    ENTRA COMPLETO sin salirse del contorno exterior Y corta de verdad el
+    rebaje sólido (no solo "no se sale", que es un chequeo insuficiente:
+    en un trazo ANCHO, un círculo puede caber entero adentro de `poly`
+    cayendo casi todo en la zona YA hueca del rebaje -- apenas rozando el
+    anillo sólido de `LEDGE_ANCHO_MM` -- y terminar siendo un agujero de
+    mentira que no atraviesa nada. Por eso acá se exige ADEMÁS que una
+    fracción mínima (`min_cobertura_rebaje`) del área del círculo
+    realmente se superponga con el rebaje sólido (`poly` menos el hueco
+    del rebaje) -- si no, no cuenta como un punto válido aunque el
+    círculo entero quede "adentro" del contorno.
 
     Prueba varias FILAS (cada una `filas_y_mm[i]` más arriba del borde de
     abajo) y en cada una desliza en X buscando un lugar que entre -- una
@@ -154,6 +155,11 @@ def punto_agujero_atras(poly, radio_mm, filas_y_mm=(0.0, 6.0, 12.0, 20.0, 30.0))
     offsets = [0.0]
     for i in range(1, n_pasos + 1):
         offsets += [i * paso, -i * paso]
+
+    ledge_poly = poly.buffer(-LEDGE_ANCHO_MM, join_style=1)
+    rebaje_solido = poly.difference(ledge_poly)
+    area_minima = radio_mm * radio_mm * 3.14159265 * min_cobertura_rebaje
+
     for y_extra in filas_y_mm:
         y = miny + radio_mm + 1.0 + y_extra
         if y >= maxy - radio_mm:
@@ -161,8 +167,11 @@ def punto_agujero_atras(poly, radio_mm, filas_y_mm=(0.0, 6.0, 12.0, 20.0, 30.0))
         for dx in offsets:
             p = Point(cx + dx, y)
             circulo = p.buffer(radio_mm, resolution=24)
-            if poly.contains(circulo):
-                return (cx + dx, y)
+            if not poly.contains(circulo):
+                continue
+            if circulo.intersection(rebaje_solido).area < area_minima:
+                continue
+            return (cx + dx, y)
     return None
 
 

@@ -117,7 +117,7 @@ def _armar_decoraciones_frente(poly_letra, decoraciones_lista, profundidad_decor
 def preview_rapido(texto, ruta_ttf, alto_mm=150, color_letra="Amarillo",
                     agregar_nombre=False, texto_nombre="", ruta_ttf_nombre=None, alto_nombre_mm=30,
                     color_nombre="Blanco", decoraciones_frente=None,
-                    mostrar_agujero=False, espesor_pared_mm=2.5, agujero_cable_diam_mm=6.0,
+                    mostrar_agujero=False, espesor_pared_mm=2.5, agujero_cable_diam_mm=4.5,
                     agujero_atras_x_pct=None, agujero_atras_y_pct=None):
     """Preview 2D instantáneo — solo polígonos shapely (letra + nombre si
     hay + decoraciones posicionadas), SIN el hueco/cáscara/booleanas 3D
@@ -216,7 +216,7 @@ def _guardar_preview(ruta_png, malla, titulo):
 
 
 def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.5,
-            agregar_tapa=True, tapa_espesor_mm=3.0, agujero_cable_diam_mm=6.0, agujero_cable_lado="atras",
+            agregar_tapa=True, tapa_espesor_mm=3.0, agujero_cable_diam_mm=4.5, agujero_cable_lado="atras",
             agujero_atras_x_pct=None, agujero_atras_y_pct=None,
             agregar_soporte=True, ancho_pata_mm=40, alto_pata_mm=15,
             agregar_nombre=False, texto_nombre="", ruta_ttf_nombre=None, alto_nombre_mm=30,
@@ -285,11 +285,23 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
             punto_manual=punto_manual,
         )
         if agujero is None:
-            info.append(
-                f"No pude ubicar el agujero del cable \"{agujero_cable_lado}\" (letra muy angosta "
-                f"ahí, o la pared queda muy fina para el rebaje) — probá otro lado, o hacelo a "
-                f"mano con una mecha."
-            )
+            if agujero_cable_lado == "atras":
+                info.append(
+                    f"No pude ubicar el agujero \"atras\" de {agujero_cable_diam_mm:.0f}mm: el "
+                    f"rebaje donde apoya la tapa mide siempre {carcasa_hueca.LEDGE_ANCHO_MM:.0f}mm de "
+                    f"ancho (no crece aunque la pared sea más gruesa), y en ningún lugar de la "
+                    f"letra el agujero entra ahí sin salirse del contorno o sin quedar "
+                    f"prácticamente flotando en el hueco. Opciones: bajá el diámetro del agujero, "
+                    f"probá un lado radial (arriba/abajo/izquierda/derecha — esos sí cortan todo "
+                    f"el espesor de la pared, no solo el rebaje, y aguantan agujeros más grandes "
+                    f"con paredes gruesas), o hacelo a mano con una mecha."
+                )
+            else:
+                info.append(
+                    f"No pude ubicar el agujero del cable \"{agujero_cable_lado}\" (letra muy angosta "
+                    f"ahí, o la pared queda muy fina para el rebaje) — probá otro lado, o hacelo a "
+                    f"mano con una mecha."
+                )
         else:
             carcasa = trimesh.boolean.difference([carcasa, agujero], engine="manifold")
             info.append(

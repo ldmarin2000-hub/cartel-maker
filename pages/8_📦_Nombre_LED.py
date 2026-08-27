@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-pages/8_📦_Caja_de_Luz.py
------------------------------
-Página de Streamlit para el generador de caja de luz (palabra hueca). Es
+pages/8_📦_Nombre_LED.py
+----------------------------
+Página de Streamlit para el generador de Nombre LED (palabra hueca). Es
 solo la capa visual: toda la lógica real vive en generators/caja_luz.py
 (generar()), la misma que usa la versión de consola (main.py).
 """
@@ -17,9 +17,9 @@ from core import colores, preview3d
 from generators import caja_luz
 from ui_streamlit import bloque_presets, selector_fuente
 
-st.set_page_config(page_title="Caja de luz · Cartel Maker", page_icon="📦", layout="wide")
+st.set_page_config(page_title="Nombre LED · Cartel Maker", page_icon="📦", layout="wide")
 
-st.title("📦 Caja de luz (palabra hueca)")
+st.title("📦 Nombre LED (palabra hueca)")
 st.caption(caja_luz.DESCRIPCION)
 st.info(
     "Escribí una palabra: sale como UNA pieza hueca, con la cara de adelante fina para que la "
@@ -90,7 +90,7 @@ with col_form:
             "Espesor de la tapa (mm)", 1.5, 6.0, 3.0, step=0.5, disabled=not agregar_tapa, key="cl_tapa_espesor_mm",
         )
         agujero_cable_diam_mm = c2.slider(
-            "Diámetro del agujero del cable (mm)", 0.0, 12.0, 6.0, step=0.5, disabled=not agregar_tapa,
+            "Diámetro del agujero del cable (mm)", 0.0, 12.0, 4.5, step=0.5, disabled=not agregar_tapa,
             key="cl_agujero_cable_diam_mm", help="0 = sin agujero.",
         )
         agujero_cable_lado = st.radio(
@@ -116,7 +116,7 @@ with col_form:
             key="cl_agujero_y_pct",
         )
 
-    generar_click = st.button("Generar caja de luz", type="primary", use_container_width=True)
+    generar_click = st.button("Generar Nombre LED", type="primary", use_container_width=True)
 
 with col_preview:
     if texto.strip() and ruta_ttf:
@@ -136,7 +136,7 @@ with col_preview:
             st.divider()
 
     if not generar_click:
-        st.info("Completá el formulario y apretá **Generar caja de luz**.")
+        st.info("Completá el formulario y apretá **Generar Nombre LED**.")
     elif not texto.strip():
         st.error("Escribí alguna palabra primero.")
     else:

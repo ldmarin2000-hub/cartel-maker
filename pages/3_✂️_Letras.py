@@ -187,7 +187,7 @@ with col_form:
             "Espesor de la tapa (mm)", 1.5, 6.0, 3.0, step=0.5, disabled=not agregar_tapa, key="le_tapa_espesor_mm",
         )
         agujero_cable_diam_mm = c2.slider(
-            "Diámetro del agujero del cable (mm)", 0.0, 12.0, 6.0, step=0.5, disabled=not agregar_tapa,
+            "Diámetro del agujero del cable (mm)", 0.0, 12.0, 4.5, step=0.5, disabled=not agregar_tapa,
             key="le_agujero_cable_diam_mm", help="0 = sin agujero.",
         )
         LADOS_AGUJERO = ["atras", "arriba", "abajo", "izquierda", "derecha"]

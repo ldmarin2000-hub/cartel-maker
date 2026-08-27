@@ -3,7 +3,7 @@
 """
 generators/caja_luz.py
 --------------------------
-Generador de "caja de luz": una palabra (una o más letras, no una sola
+Generador de "Nombre LED": una palabra (una o más letras, no una sola
 inicial como generators/letras.py) convertida en UNA pieza hueca —
 paredes de tu grosor alrededor de cada trazo, cara de adelante fina para
 que la luz del LED se difunda pareja. Si la palabra tiene letras sueltas
@@ -30,14 +30,14 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 from core import bambu_a1, carcasa_hueca, geometry, pieza, texto2d
 
-NOMBRE = "Caja de luz (palabra hueca)"
+NOMBRE = "Nombre LED (palabra hueca)"
 DESCRIPCION = "Una palabra -> caja hueca con paredes de tu grosor, con tapa y agujero para el cable. STL + preview."
 
 CARPETA_SALIDA = "output"
 
 
 def preview_rapido(texto, ruta_ttf, alto_mm=100, raster_px=250,
-                    mostrar_agujero=False, espesor_pared_mm=2.5, agujero_cable_diam_mm=6.0,
+                    mostrar_agujero=False, espesor_pared_mm=2.5, agujero_cable_diam_mm=4.5,
                     agujero_atras_x_pct=None, agujero_atras_y_pct=None):
     """Preview 2D instantáneo — el polígono relleno de la palabra, SIN el
     hueco/cáscara/booleanas 3D (que tarda más). Si `mostrar_agujero`,
@@ -111,10 +111,10 @@ def _guardar_preview(ruta_png, malla, titulo):
 
 
 def generar(texto, ruta_ttf, alto_mm=100, profundidad_mm=30, espesor_pared_mm=2.5,
-            agregar_tapa=True, tapa_espesor_mm=3.0, agujero_cable_diam_mm=6.0, agujero_cable_lado="atras",
+            agregar_tapa=True, tapa_espesor_mm=3.0, agujero_cable_diam_mm=4.5, agujero_cable_lado="atras",
             agujero_atras_x_pct=None, agujero_atras_y_pct=None,
             ancho_puente_mm=4.0, raster_px=500, carpeta_salida=CARPETA_SALIDA):
-    """Arma la caja de luz y exporta el/los STL. Devuelve un dict con las
+    """Arma la pieza y exporta el/los STL. Devuelve un dict con las
     rutas, medidas y avisos. No pregunta nada ni imprime nada — así lo
     puede llamar tanto la CLI como la app visual.
 
@@ -168,11 +168,23 @@ def generar(texto, ruta_ttf, alto_mm=100, profundidad_mm=30, espesor_pared_mm=2.
             punto_manual=punto_manual,
         )
         if agujero is None:
-            info.append(
-                f"No pude ubicar el agujero del cable \"{agujero_cable_lado}\" (palabra muy angosta "
-                f"ahí, o la pared queda muy fina para el rebaje) — probá otro lado, o hacelo a "
-                f"mano con una mecha."
-            )
+            if agujero_cable_lado == "atras":
+                info.append(
+                    f"No pude ubicar el agujero \"atras\" de {agujero_cable_diam_mm:.0f}mm: el "
+                    f"rebaje donde apoya la tapa mide siempre {carcasa_hueca.LEDGE_ANCHO_MM:.0f}mm de "
+                    f"ancho (no crece aunque la pared sea más gruesa), y en ningún lugar de la "
+                    f"palabra el agujero entra ahí sin salirse del contorno o sin quedar "
+                    f"prácticamente flotando en el hueco. Opciones: bajá el diámetro del agujero, "
+                    f"probá un lado radial (arriba/abajo/izquierda/derecha — esos sí cortan todo "
+                    f"el espesor de la pared, no solo el rebaje, y aguantan agujeros más grandes "
+                    f"con paredes gruesas), o hacelo a mano con una mecha."
+                )
+            else:
+                info.append(
+                    f"No pude ubicar el agujero del cable \"{agujero_cable_lado}\" (palabra muy angosta "
+                    f"ahí, o la pared queda muy fina para el rebaje) — probá otro lado, o hacelo a "
+                    f"mano con una mecha."
+                )
         else:
             carcasa = trimesh.boolean.difference([carcasa, agujero], engine="manifold")
             info.append(
@@ -186,7 +198,7 @@ def generar(texto, ruta_ttf, alto_mm=100, profundidad_mm=30, espesor_pared_mm=2.
     ruta_png = os.path.join(carpeta_salida, f"cajaluz_{base_nombre}_preview.png")
 
     carcasa.export(ruta_stl)
-    _guardar_preview(ruta_png, carcasa, f"Caja de luz {texto!r}")
+    _guardar_preview(ruta_png, carcasa, f"Nombre LED {texto!r}")
 
     pieza_tapa = None
     if agregar_tapa:
@@ -206,7 +218,7 @@ def generar(texto, ruta_ttf, alto_mm=100, profundidad_mm=30, espesor_pared_mm=2.
     minx, miny, minz = carcasa.bounds[0]
     maxx, maxy, maxz = carcasa.bounds[1]
     ancho_mm, alto_total_mm, profundo_total_mm = maxx - minx, maxy - miny, maxz - minz
-    entra_a1, mensaje_a1 = bambu_a1.chequear_tamano(ancho_mm, alto_total_mm, profundo_total_mm, nombre="caja de luz")
+    entra_a1, mensaje_a1 = bambu_a1.chequear_tamano(ancho_mm, alto_total_mm, profundo_total_mm, nombre="nombre LED")
 
     return {
         "texto": texto,
