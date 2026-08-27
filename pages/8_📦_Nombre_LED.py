@@ -31,7 +31,7 @@ st.info(
 PRESET_KEYS = [
     "cl_texto", "cajaluz_selectbox", "cajaluz_ruta", "cl_color", "cl_color_tapa", "cl_alto_mm",
     "cl_profundidad_mm", "cl_espesor_pared_mm", "cl_agregar_tapa",
-    "cl_tapa_espesor_mm", "cl_agujero_cable_diam_mm", "cl_pared_fondo_mm", "cl_soporte_tapa_mm",
+    "cl_tapa_espesor_mm", "cl_agujero_cable_diam_mm", "cl_espesor_cara_mm", "cl_soporte_tapa_mm",
     "cl_holgura_tapa_mm", "cl_tapa_offset_mm", "cl_agujero_cable_lado",
     "cl_agujero_manual", "cl_agujero_x_pct", "cl_agujero_y_pct",
 ]
@@ -40,13 +40,13 @@ LADOS_AGUJERO = ["atras", "arriba", "abajo", "izquierda", "derecha", "ninguno"]
 
 
 @st.cache_data(ttl=120, show_spinner=False)
-def _preview_rapido(texto, ruta_ttf, alto_mm, mostrar_agujero, espesor_pared_mm, agujero_cable_diam_mm,
-                     agujero_atras_x_pct, agujero_atras_y_pct, pared_fondo_mm):
+def _preview_rapido(texto, ruta_ttf, alto_mm, mostrar_agujero, agujero_cable_diam_mm,
+                     agujero_atras_x_pct, agujero_atras_y_pct, soporte_tapa_mm):
     return caja_luz.preview_rapido(
-        texto, ruta_ttf, alto_mm, mostrar_agujero=mostrar_agujero, espesor_pared_mm=espesor_pared_mm,
+        texto, ruta_ttf, alto_mm, mostrar_agujero=mostrar_agujero,
         agujero_cable_diam_mm=agujero_cable_diam_mm,
         agujero_atras_x_pct=agujero_atras_x_pct, agujero_atras_y_pct=agujero_atras_y_pct,
-        pared_fondo_mm=pared_fondo_mm,
+        soporte_tapa_mm=soporte_tapa_mm,
     )
 
 
@@ -83,9 +83,9 @@ with col_form:
         )
         espesor_pared_mm = st.number_input(
             "Grosor de las paredes (mm)", value=2.5, step=0.25, key="cl_espesor_pared_mm",
-            help="Grosor de la cara de adelante y de los bordes de cada letra. Más fino deja "
-                 "pasar más luz pero es más frágil; trazos muy angostos para este grosor quedan "
-                 "macizos (sin hueco) en vez de romperse.",
+            help="Cuánto crece la silueta hacia AFUERA del trazo tal cual sale de la fuente — la "
+                 "palabra final queda más grande que lo que se ve en la vista rápida, no del mismo "
+                 "tamaño. No afecta el hueco ni la cara de adelante (eso es aparte, más abajo).",
         )
         c1, c2 = st.columns(2)
         tapa_espesor_mm = c1.slider(
@@ -95,25 +95,26 @@ with col_form:
             "Diámetro del agujero del cable (mm)", 0.0, 12.0, 4.5, step=0.5, disabled=not agregar_tapa,
             key="cl_agujero_cable_diam_mm", help="0 = sin agujero.",
         )
-        pared_fondo_mm = st.number_input(
-            "Grosor de pared del fondo (mm)", value=2.0, step=0.25, min_value=0.5, disabled=not agregar_tapa,
-            key="cl_pared_fondo_mm",
-            help="Ancho del rebaje/aro donde apoya la tapa y por donde sale el agujero \"atras\" "
-                 "(no crece con el grosor de las paredes). Si el agujero del cable no entra ahí sin "
-                 "salirse del contorno, subir esto le da más margen.",
+        espesor_cara_mm = st.number_input(
+            "Espesor de la cara de adelante (mm)", value=2.5, step=0.25, min_value=0.5, disabled=not agregar_tapa,
+            key="cl_espesor_cara_mm",
+            help="Grosor de la cara fina de ADELANTE, por donde se difunde la luz. Más fino deja "
+                 "pasar más luz pero es más frágil. No tiene que ver con el grosor de las paredes "
+                 "de arriba.",
         )
         soporte_tapa_mm = st.number_input(
             "Soporte de la tapa (mm)", value=2.0, step=0.25, min_value=0.25, disabled=not agregar_tapa,
             key="cl_soporte_tapa_mm",
-            help="Cuánto pisa la tapa el escalón del rebaje (el apoyo real, no solo tocar el "
-                 "borde). Si no hay margen suficiente entre el grosor de pared y el grosor de "
-                 "pared del fondo, se usa todo el margen que haya.",
+            help="Cuánto se achica el hueco principal para formar el escalón donde apoya la tapa "
+                 "(y por donde sale el agujero \"atras\"). Tiene que ser mayor que la holgura de la "
+                 "tapa, si no la tapa no tiene contra qué topar.",
         )
         holgura_tapa_mm = st.number_input(
             "Holgura de la tapa (mm)", value=1.0, step=0.25, min_value=0.0, disabled=not agregar_tapa,
             key="cl_holgura_tapa_mm",
-            help="Juego extra para que la tapa entre sin trabarse (se suma siempre, aparte del "
-                 "soporte). Más holgura = más floja.",
+            help="Define el tamaño real de la tapa (achicada esto respecto del contorno). Tiene "
+                 "que ser MENOR que el soporte de la tapa, si no la tapa entra derecho sin topar "
+                 "contra nada.",
         )
         tapa_offset_mm = st.number_input(
             "Cuánto sobresale/entra la tapa (mm)", value=0.0, step=0.5, disabled=not agregar_tapa,
@@ -151,10 +152,10 @@ with col_preview:
     if texto.strip() and ruta_ttf:
         mostrar_agujero_preview = agregar_tapa and agujero_cable_diam_mm > 0 and agujero_cable_lado == "atras"
         png_rapido, ancho_rapido, alto_rapido = _preview_rapido(
-            texto, ruta_ttf, float(alto_mm), mostrar_agujero_preview, float(espesor_pared_mm),
+            texto, ruta_ttf, float(alto_mm), mostrar_agujero_preview,
             float(agujero_cable_diam_mm),
             float(agujero_x_pct) if agujero_manual else None, float(agujero_y_pct) if agujero_manual else None,
-            float(pared_fondo_mm),
+            float(soporte_tapa_mm),
         )
         if png_rapido:
             st.image(
@@ -179,7 +180,7 @@ with col_preview:
                     agujero_cable_diam_mm=float(agujero_cable_diam_mm), agujero_cable_lado=agujero_cable_lado,
                     agujero_atras_x_pct=float(agujero_x_pct) if agujero_manual else None,
                     agujero_atras_y_pct=float(agujero_y_pct) if agujero_manual else None,
-                    pared_fondo_mm=float(pared_fondo_mm), soporte_tapa_mm=float(soporte_tapa_mm),
+                    espesor_cara_mm=float(espesor_cara_mm), soporte_tapa_mm=float(soporte_tapa_mm),
                     holgura_tapa_mm=float(holgura_tapa_mm), tapa_offset_mm=float(tapa_offset_mm),
                 )
             except (FileNotFoundError, ValueError) as e:
@@ -193,7 +194,7 @@ with col_preview:
             # encastra de verdad (no siempre al ras del borde de atrás: tapa_offset_mm
             # puede hacer que sobresalga o quede un poco adentro).
             z_tapa = carcasa_hueca.calcular_z_ledge(
-                float(profundidad_mm), float(espesor_pared_mm), float(tapa_espesor_mm), float(tapa_offset_mm)
+                float(profundidad_mm), float(espesor_cara_mm), float(tapa_espesor_mm), float(tapa_offset_mm)
             )
             color_hex = colores.hex_de(color_pieza)
             piezas_visor = [{"ruta_stl": r["ruta_stl"], "color": color_hex, "nombre": "cajaluz"}]
