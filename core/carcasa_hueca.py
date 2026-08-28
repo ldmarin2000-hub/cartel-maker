@@ -188,13 +188,12 @@ def punto_y_direccion_pared(poly, lado, radio_mm, min_cobertura_pared=0.35):
     return None
 
 
-def punto_agujero_atras(poly, radio_mm, soporte_tapa_mm=SOPORTE_TAPA_MM_DEFAULT,
-                         filas_y_mm=(0.0, 6.0, 12.0, 20.0, 30.0), min_cobertura_rebaje=0.35):
-    """Punto cerca del borde de abajo donde el agujero de radio `radio_mm`
-    ENTRA COMPLETO sin salirse de `poly` (C0 — no de la silueta exterior
-    real, que es más grande; este agujero no toca la pared exterior, se
-    queda adentro de ella) Y corta de verdad el escalón sólido (no solo
-    "no se sale", que es un chequeo insuficiente: en un trazo ANCHO, un
+def punto_agujero_atras(poly, radio_mm, soporte_tapa_mm=SOPORTE_TAPA_MM_DEFAULT, min_cobertura_rebaje=0.75):
+    """Punto donde el agujero de radio `radio_mm` ENTRA COMPLETO sin
+    salirse de `poly` (C0 — no de la silueta exterior real, que es más
+    grande; este agujero no toca la pared exterior, se queda adentro de
+    ella) Y corta de verdad el escalón sólido, con buena cobertura -- no
+    solo "no se sale", que es un chequeo insuficiente: en un trazo ANCHO, un
     círculo puede caber entero adentro de `poly` cayendo casi todo en la
     zona YA hueca del cuerpo principal -- apenas rozando el anillo
     sólido del escalón (`soporte_tapa_mm` de ancho) -- y terminar siendo
@@ -204,26 +203,34 @@ def punto_agujero_atras(poly, radio_mm, soporte_tapa_mm=SOPORTE_TAPA_MM_DEFAULT,
     el hueco principal) -- si no, no cuenta como un punto válido aunque
     el círculo entero quede "adentro" de `poly`.
 
-    Prueba varias FILAS (cada una `filas_y_mm[i]` más arriba del borde de
-    abajo) y en cada una desliza en X buscando un lugar que entre -- una
-    palabra angosta justo en el centro-abajo (como el trazo fino de una
-    cursiva) puede no tener lugar en la fila más baja pero sí un poco más
-    arriba. Devuelve (x, y) o None si ninguna fila encontró un punto."""
+    Prueba FILAS desde el borde de abajo hasta el de arriba (por si en
+    algún punto el escalón no da la cobertura pedida, como en un trazo
+    ANCHO donde un agujero grande respecto al soporte de la tapa no
+    entra bien en ningún lado cerca del fondo pero sí más arriba en una
+    zona con más curva) y en cada una desliza en X buscando un lugar que
+    entre -- prioriza las filas de abajo (ahí es donde normalmente
+    conviene el agujero del cable). Devuelve (x, y) o None si ninguna
+    fila en toda la altura encontró un punto con suficiente cobertura --
+    en ese caso el diámetro del agujero es demasiado grande para el
+    soporte de la tapa actual, no hay manera de acomodarlo mejor."""
     minx, miny, maxx, maxy = poly.bounds
     cx = (minx + maxx) / 2
-    ancho = maxx - minx
-    paso = max(radio_mm * 0.5, 2.0)
-    n_pasos = int(ancho / (2 * paso)) + 1
+    ancho, alto = maxx - minx, maxy - miny
+    paso_x = max(radio_mm * 0.5, 2.0)
+    n_pasos_x = int(ancho / (2 * paso_x)) + 1
     offsets = [0.0]
-    for i in range(1, n_pasos + 1):
-        offsets += [i * paso, -i * paso]
+    for i in range(1, n_pasos_x + 1):
+        offsets += [i * paso_x, -i * paso_x]
+
+    paso_y = max(radio_mm * 0.5, 3.0)
+    n_filas = max(int(alto / paso_y), 1)
 
     cavidad_poly = poly.buffer(-soporte_tapa_mm, join_style=1)
     rebaje_solido = poly.difference(cavidad_poly)
     area_minima = radio_mm * radio_mm * 3.14159265 * min_cobertura_rebaje
 
-    for y_extra in filas_y_mm:
-        y = miny + radio_mm + 1.0 + y_extra
+    for fila in range(n_filas + 1):
+        y = miny + radio_mm + 1.0 + fila * paso_y
         if y >= maxy - radio_mm:
             break
         for dx in offsets:
