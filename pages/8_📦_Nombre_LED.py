@@ -41,12 +41,12 @@ LADOS_AGUJERO = ["atras", "arriba", "abajo", "izquierda", "derecha", "ninguno"]
 
 @st.cache_data(ttl=120, show_spinner=False)
 def _preview_rapido(texto, ruta_ttf, alto_mm, mostrar_agujero, espesor_pared_mm, agujero_cable_diam_mm,
-                     agujero_atras_x_pct, agujero_atras_y_pct, soporte_tapa_mm):
+                     agujero_atras_x_pct, agujero_atras_y_pct, soporte_tapa_mm, holgura_tapa_mm):
     return caja_luz.preview_rapido(
         texto, ruta_ttf, alto_mm, mostrar_agujero=mostrar_agujero, espesor_pared_mm=espesor_pared_mm,
         agujero_cable_diam_mm=agujero_cable_diam_mm,
         agujero_atras_x_pct=agujero_atras_x_pct, agujero_atras_y_pct=agujero_atras_y_pct,
-        soporte_tapa_mm=soporte_tapa_mm,
+        soporte_tapa_mm=soporte_tapa_mm, holgura_tapa_mm=holgura_tapa_mm,
     )
 
 
@@ -155,7 +155,7 @@ with col_preview:
             texto, ruta_ttf, float(alto_mm), mostrar_agujero_preview, float(espesor_pared_mm),
             float(agujero_cable_diam_mm),
             float(agujero_x_pct) if agujero_manual else None, float(agujero_y_pct) if agujero_manual else None,
-            float(soporte_tapa_mm),
+            float(soporte_tapa_mm), float(holgura_tapa_mm),
         )
         if png_rapido:
             st.image(

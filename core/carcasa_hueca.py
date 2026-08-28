@@ -188,34 +188,38 @@ def punto_y_direccion_pared(poly, lado, radio_mm, min_cobertura_pared=0.35):
     return None
 
 
-def punto_agujero_atras(poly, radio_mm, espesor_pared_mm, soporte_tapa_mm=SOPORTE_TAPA_MM_DEFAULT, margen_mm=0.3):
+def punto_agujero_atras(poly, radio_mm, espesor_pared_mm, soporte_tapa_mm=SOPORTE_TAPA_MM_DEFAULT,
+                         holgura_tapa_mm=HOLGURA_TAPA_MM_DEFAULT, margen_mm=0.3):
     """Punto DENTRO de la banda de pared donde el agujero de radio
-    `radio_mm` entra con margen de sobra por los dos lados -- ni tan
-    afuera que toque la silueta exterior real (`poly` crecido hacia
-    afuera por `espesor_pared_mm`, no `poly` mismo), ni tan adentro que
-    toque el hueco principal (mismo criterio que ya usa
+    `radio_mm` entra con margen de sobra -- ni tan afuera que toque la
+    silueta exterior real (`poly` crecido hacia afuera por
+    `espesor_pared_mm`, no `poly` mismo), ni tan adentro que quede TAPADO
+    por la tapa una vez puesta (mismo criterio que ya usa
     `core/geometry.py::agregar_agujeros_cable` para el neón, que taladra
     la placa de lado a lado en cualquier lugar de la pared que le entre,
     no solo en una franja angosta fija).
 
-    A diferencia del escalón (que mide siempre `soporte_tapa_mm` de
-    ancho, angosto), la banda de pared completa mide
-    `espesor_pared_mm + soporte_tapa_mm` -- mucho más lugar para agujeros
-    grandes. Concretamente: `zona_segura` = la silueta exterior real
-    achicada por `radio_mm + margen_mm` (así el círculo entero, con
-    margen, queda adentro de la pared) MENOS el hueco principal
-    agrandado por lo mismo (así el círculo entero, con margen, queda
-    afuera del hueco). Si esa zona no está vacía, cualquier punto
+    Importante: NO alcanza con que el agujero corte pared sólida de la
+    CARCASA sola -- si cae adentro del contorno de la tapa (`poly`
+    achicado por `holgura_tapa_mm`, ver `armar_tapa`), la tapa lo tapa
+    al armar todo y el agujero queda "en el aire", sin salida real hacia
+    afuera aunque la carcasa por sí sola lo tenga bien cortado. Por eso
+    la zona segura se mide contra el contorno de la TAPA, no contra el
+    hueco principal (que es más angosto y daría falsos positivos como
+    éste). Concretamente: `zona_segura` = la silueta exterior real
+    achicada por `radio_mm + margen_mm` MENOS el contorno de la tapa
+    agrandado por lo mismo. Si esa zona no está vacía, cualquier punto
     adentro sirve -- se elige el de la parte más grande, más cerca del
     borde de abajo.
 
     Devuelve (x, y) o None si no hay NINGÚN lugar en toda la letra donde
-    el agujero entre con ese margen (diámetro demasiado grande para el
-    ancho de pared actual, `espesor_pared_mm + soporte_tapa_mm`)."""
+    el agujero entre con ese margen sin quedar bajo la tapa (diámetro
+    demasiado grande para el espesor de pared + holgura de tapa
+    actuales)."""
     afuera_poly = poly.buffer(espesor_pared_mm, join_style=1)
-    cavidad_poly = poly.buffer(-soporte_tapa_mm, join_style=1)
+    tapa_poly = poly.buffer(-holgura_tapa_mm, join_style=1)
     margen = radio_mm + margen_mm
-    zona_segura = afuera_poly.buffer(-margen, join_style=1).difference(cavidad_poly.buffer(margen, join_style=1))
+    zona_segura = afuera_poly.buffer(-margen, join_style=1).difference(tapa_poly.buffer(margen, join_style=1))
     if zona_segura.is_empty:
         return None
 
@@ -239,7 +243,7 @@ def punto_pct_a_xy(poly, x_pct, y_pct):
 
 def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, profundidad_mm, tapa_espesor_mm,
                          soporte_tapa_mm=SOPORTE_TAPA_MM_DEFAULT, espesor_cara_mm=ESPESOR_CARA_MM_DEFAULT,
-                         tapa_offset_mm=0.0, punto_manual=None):
+                         holgura_tapa_mm=HOLGURA_TAPA_MM_DEFAULT, tapa_offset_mm=0.0, punto_manual=None):
     """Cilindro para perforar la carcasa con el agujero del cable — no en
     la tapa. "arriba"/"abajo"/"izquierda"/"derecha": RADIAL, a través de
     la pared lateral, a mitad de profundidad. "atras": AXIAL, de afuera
@@ -258,7 +262,7 @@ def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, pro
     if lado == "atras":
         punto = (
             punto_manual if punto_manual is not None
-            else punto_agujero_atras(poly, radio, espesor_pared_mm, soporte_tapa_mm)
+            else punto_agujero_atras(poly, radio, espesor_pared_mm, soporte_tapa_mm, holgura_tapa_mm)
         )
         if punto is None:
             return None

@@ -119,7 +119,8 @@ def preview_rapido(texto, ruta_ttf, alto_mm=150, color_letra="Amarillo",
                     color_nombre="Blanco", decoraciones_frente=None,
                     mostrar_agujero=False, espesor_pared_mm=2.5, agujero_cable_diam_mm=4.5,
                     agujero_atras_x_pct=None, agujero_atras_y_pct=None,
-                    soporte_tapa_mm=carcasa_hueca.SOPORTE_TAPA_MM_DEFAULT):
+                    soporte_tapa_mm=carcasa_hueca.SOPORTE_TAPA_MM_DEFAULT,
+                    holgura_tapa_mm=carcasa_hueca.HOLGURA_TAPA_MM_DEFAULT):
     """Preview 2D instantáneo — solo polígonos shapely (letra + nombre si
     hay + decoraciones posicionadas), SIN el hueco/cáscara/booleanas 3D
     de `_armar_carcasa_hueca` — para ver el resultado (tamaño, posición
@@ -175,7 +176,7 @@ def preview_rapido(texto, ruta_ttf, alto_mm=150, color_letra="Amarillo",
         if es_manual:
             punto = carcasa_hueca.punto_pct_a_xy(poly, agujero_atras_x_pct, agujero_atras_y_pct)
         else:
-            punto = carcasa_hueca.punto_agujero_atras(poly, radio, espesor_pared_mm, soporte_tapa_mm)
+            punto = carcasa_hueca.punto_agujero_atras(poly, radio, espesor_pared_mm, soporte_tapa_mm, holgura_tapa_mm)
         if punto is not None:
             ax.add_patch(plt.Circle(punto, radio, facecolor="#38bdf8", edgecolor="white", linewidth=1.5, zorder=5))
         else:
@@ -291,17 +292,18 @@ def generar(texto, ruta_ttf, alto_mm=150, profundidad_mm=35, espesor_pared_mm=2.
             punto_manual = carcasa_hueca.punto_pct_a_xy(poly, agujero_atras_x_pct, agujero_atras_y_pct)
         agujero = _armar_agujero_pared(
             poly, espesor_pared_mm, agujero_cable_diam_mm, agujero_cable_lado, profundidad_mm, tapa_espesor_mm,
-            soporte_tapa_mm=soporte_tapa_mm, espesor_cara_mm=espesor_cara_mm, tapa_offset_mm=tapa_offset_mm,
-            punto_manual=punto_manual,
+            soporte_tapa_mm=soporte_tapa_mm, espesor_cara_mm=espesor_cara_mm, holgura_tapa_mm=holgura_tapa_mm,
+            tapa_offset_mm=tapa_offset_mm, punto_manual=punto_manual,
         )
         if agujero is None:
             if agujero_cable_lado == "atras":
                 info.append(
-                    f"No pude ubicar el agujero \"atras\" de {agujero_cable_diam_mm:.0f}mm: la banda de "
-                    f"pared (grosor de pared + soporte de la tapa, {espesor_pared_mm + soporte_tapa_mm:.1f}mm "
-                    f"en total) no le da margen en ningún lugar de la letra. Opciones: bajá el diámetro "
-                    f"del agujero, subí el grosor de pared o el soporte de la tapa, probá un lado radial "
-                    f"(arriba/abajo/izquierda/derecha), o hacelo a mano con una mecha."
+                    f"No pude ubicar el agujero \"atras\" de {agujero_cable_diam_mm:.0f}mm: la parte de la "
+                    f"pared que queda libre después de poner la tapa (grosor de pared + holgura de la tapa, "
+                    f"{espesor_pared_mm + holgura_tapa_mm:.1f}mm en total) no le da margen en ningún lugar "
+                    f"de la letra. Opciones: bajá el diámetro del agujero, subí el grosor de pared o la "
+                    f"holgura de la tapa, probá un lado radial (arriba/abajo/izquierda/derecha), o hacelo a "
+                    f"mano con una mecha."
                 )
             else:
                 info.append(
