@@ -188,60 +188,44 @@ def punto_y_direccion_pared(poly, lado, radio_mm, min_cobertura_pared=0.35):
     return None
 
 
-def punto_agujero_atras(poly, radio_mm, soporte_tapa_mm=SOPORTE_TAPA_MM_DEFAULT, min_cobertura_rebaje=0.75):
-    """Punto donde el agujero de radio `radio_mm` ENTRA COMPLETO sin
-    salirse de `poly` (C0 — no de la silueta exterior real, que es más
-    grande; este agujero no toca la pared exterior, se queda adentro de
-    ella) Y corta de verdad el escalón sólido, con buena cobertura -- no
-    solo "no se sale", que es un chequeo insuficiente: en un trazo ANCHO, un
-    círculo puede caber entero adentro de `poly` cayendo casi todo en la
-    zona YA hueca del cuerpo principal -- apenas rozando el anillo
-    sólido del escalón (`soporte_tapa_mm` de ancho) -- y terminar siendo
-    un agujero de mentira que no atraviesa nada. Por eso acá se exige
-    ADEMÁS que una fracción mínima (`min_cobertura_rebaje`) del área del
-    círculo realmente se superponga con ese anillo sólido (`poly` menos
-    el hueco principal) -- si no, no cuenta como un punto válido aunque
-    el círculo entero quede "adentro" de `poly`.
+def punto_agujero_atras(poly, radio_mm, espesor_pared_mm, soporte_tapa_mm=SOPORTE_TAPA_MM_DEFAULT, margen_mm=0.3):
+    """Punto DENTRO de la banda de pared donde el agujero de radio
+    `radio_mm` entra con margen de sobra por los dos lados -- ni tan
+    afuera que toque la silueta exterior real (`poly` crecido hacia
+    afuera por `espesor_pared_mm`, no `poly` mismo), ni tan adentro que
+    toque el hueco principal (mismo criterio que ya usa
+    `core/geometry.py::agregar_agujeros_cable` para el neón, que taladra
+    la placa de lado a lado en cualquier lugar de la pared que le entre,
+    no solo en una franja angosta fija).
 
-    Prueba FILAS desde el borde de abajo hasta el de arriba (por si en
-    algún punto el escalón no da la cobertura pedida, como en un trazo
-    ANCHO donde un agujero grande respecto al soporte de la tapa no
-    entra bien en ningún lado cerca del fondo pero sí más arriba en una
-    zona con más curva) y en cada una desliza en X buscando un lugar que
-    entre -- prioriza las filas de abajo (ahí es donde normalmente
-    conviene el agujero del cable). Devuelve (x, y) o None si ninguna
-    fila en toda la altura encontró un punto con suficiente cobertura --
-    en ese caso el diámetro del agujero es demasiado grande para el
-    soporte de la tapa actual, no hay manera de acomodarlo mejor."""
-    minx, miny, maxx, maxy = poly.bounds
-    cx = (minx + maxx) / 2
-    ancho, alto = maxx - minx, maxy - miny
-    paso_x = max(radio_mm * 0.5, 2.0)
-    n_pasos_x = int(ancho / (2 * paso_x)) + 1
-    offsets = [0.0]
-    for i in range(1, n_pasos_x + 1):
-        offsets += [i * paso_x, -i * paso_x]
+    A diferencia del escalón (que mide siempre `soporte_tapa_mm` de
+    ancho, angosto), la banda de pared completa mide
+    `espesor_pared_mm + soporte_tapa_mm` -- mucho más lugar para agujeros
+    grandes. Concretamente: `zona_segura` = la silueta exterior real
+    achicada por `radio_mm + margen_mm` (así el círculo entero, con
+    margen, queda adentro de la pared) MENOS el hueco principal
+    agrandado por lo mismo (así el círculo entero, con margen, queda
+    afuera del hueco). Si esa zona no está vacía, cualquier punto
+    adentro sirve -- se elige el de la parte más grande, más cerca del
+    borde de abajo.
 
-    paso_y = max(radio_mm * 0.5, 3.0)
-    n_filas = max(int(alto / paso_y), 1)
-
+    Devuelve (x, y) o None si no hay NINGÚN lugar en toda la letra donde
+    el agujero entre con ese margen (diámetro demasiado grande para el
+    ancho de pared actual, `espesor_pared_mm + soporte_tapa_mm`)."""
+    afuera_poly = poly.buffer(espesor_pared_mm, join_style=1)
     cavidad_poly = poly.buffer(-soporte_tapa_mm, join_style=1)
-    rebaje_solido = poly.difference(cavidad_poly)
-    area_minima = radio_mm * radio_mm * 3.14159265 * min_cobertura_rebaje
+    margen = radio_mm + margen_mm
+    zona_segura = afuera_poly.buffer(-margen, join_style=1).difference(cavidad_poly.buffer(margen, join_style=1))
+    if zona_segura.is_empty:
+        return None
 
-    for fila in range(n_filas + 1):
-        y = miny + radio_mm + 1.0 + fila * paso_y
-        if y >= maxy - radio_mm:
-            break
-        for dx in offsets:
-            p = Point(cx + dx, y)
-            circulo = p.buffer(radio_mm, resolution=24)
-            if not poly.contains(circulo):
-                continue
-            if circulo.intersection(rebaje_solido).area < area_minima:
-                continue
-            return (cx + dx, y)
-    return None
+    partes = list(zona_segura.geoms) if zona_segura.geom_type == "MultiPolygon" else [zona_segura]
+    partes = [p for p in partes if p.area > 0.5]
+    if not partes:
+        return None
+    partes.sort(key=lambda p: p.centroid.y)
+    punto = partes[0].representative_point()
+    return (punto.x, punto.y)
 
 
 def punto_pct_a_xy(poly, x_pct, y_pct):
@@ -253,20 +237,17 @@ def punto_pct_a_xy(poly, x_pct, y_pct):
     return minx + (x_pct / 100.0) * (maxx - minx), miny + (y_pct / 100.0) * (maxy - miny)
 
 
-def punto_atras_corta_algo(poly, punto, radio_mm, soporte_tapa_mm=SOPORTE_TAPA_MM_DEFAULT,
-                            min_cobertura_rebaje=0.35):
+def punto_atras_corta_algo(poly, punto, radio_mm, soporte_tapa_mm=SOPORTE_TAPA_MM_DEFAULT):
     """Para el punto manual (que no se valida al generar — "el que elige a
-    mano se hace cargo"): dice si ESE punto puntual realmente va a cortar
-    el escalón sólido o si el agujero va a caer vacío (circulo.contains
-    falla, o cae casi todo adentro del hueco principal). Solo para
+    mano se hace cargo"): dice si ESE punto puntual realmente cae en
+    pared sólida -- ni tocando el borde exterior de la letra ni el hueco
+    principal -- o si el agujero va a caer vacío o a medias. Solo para
     avisar en la vista rápida antes de generar, no bloquea nada."""
     circulo = Point(punto).buffer(radio_mm, resolution=24)
     if not poly.contains(circulo):
         return False
     cavidad_poly = poly.buffer(-soporte_tapa_mm, join_style=1)
-    rebaje_solido = poly.difference(cavidad_poly)
-    area_minima = radio_mm * radio_mm * 3.14159265 * min_cobertura_rebaje
-    return circulo.intersection(rebaje_solido).area >= area_minima
+    return not circulo.intersects(cavidad_poly)
 
 
 def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, profundidad_mm, tapa_espesor_mm,
@@ -274,30 +255,32 @@ def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, pro
                          tapa_offset_mm=0.0, punto_manual=None):
     """Cilindro para perforar la carcasa con el agujero del cable — no en
     la tapa. "arriba"/"abajo"/"izquierda"/"derecha": RADIAL, a través de
-    la pared lateral, a mitad de profundidad (atraviesa la pared
-    exterior + el anillo del escalón, `espesor_pared_mm + soporte_tapa_mm`
-    en total). "atras": AXIAL, por el canto de atrás, de afuera hacia
-    adentro en el eje Z -- solo taladra el escalón (el anillo sólido de
-    `soporte_tapa_mm` de ancho), un poco antes y un poco después de
-    donde arranca (`calcular_z_ledge`), para asegurar que atraviese
-    limpio hacia el hueco ya abierto de atrás -- no hace falta que
-    llegue hasta la pared exterior real: una vez puesta la tapa (que es
-    más chica que `poly`, ver `armar_tapa`), queda un huequito angosto
-    sin tapar justo alrededor de su borde, y por ahí sale el cable. Si
-    se pasa `punto_manual` (x, y) se taladra ahí directamente (el que
-    elige a mano se hace cargo de que entre; no se valida), si no se
-    busca automático con `punto_agujero_atras`. Devuelve el cilindro, o
-    None si "atras" no encontró/no tiene un punto válido (trazo muy
-    angosto ahí)."""
+    la pared lateral, a mitad de profundidad. "atras": AXIAL, de afuera
+    hacia adentro en el eje Z, por un punto DENTRO de la banda de pared
+    (ver `punto_agujero_atras`) -- taladra desde justo detrás de la cara
+    de adelante (`espesor_cara_mm`) hasta pasar el escalón
+    (`calcular_z_ledge`), atravesando toda la pared sólida en esa
+    posición de una sola vez: como el punto ya está lejos del hueco
+    principal y del borde exterior, ese (x, y) es sólido en TODA esa
+    franja de Z, así que no hace falta buscar un lugar más angosto cerca
+    del fondo -- una vez pasado el escalón ya está conectado al hueco
+    abierto de atrás. Si se pasa `punto_manual` (x, y) se taladra ahí
+    directamente (el que elige a mano se hace cargo de que entre; no se
+    valida), si no se busca automático con `punto_agujero_atras`.
+    Devuelve el cilindro, o None si "atras" no encontró/no tiene un
+    punto válido (el diámetro no entra en la pared con margen en ningún
+    lado)."""
     radio = agujero_cable_diam_mm / 2
     if lado == "atras":
-        punto = punto_manual if punto_manual is not None else punto_agujero_atras(poly, radio, soporte_tapa_mm)
+        punto = (
+            punto_manual if punto_manual is not None
+            else punto_agujero_atras(poly, radio, espesor_pared_mm, soporte_tapa_mm)
+        )
         if punto is None:
             return None
         x, y = punto
-        z_ledge = calcular_z_ledge(profundidad_mm, espesor_cara_mm, tapa_espesor_mm, tapa_offset_mm)
-        z_afuera = z_ledge + 4
-        z_adentro = z_ledge - soporte_tapa_mm - 2
+        z_adentro = espesor_cara_mm
+        z_afuera = profundidad_mm + 4
         return trimesh.creation.cylinder(radius=radio, segment=[(x, y, z_afuera), (x, y, z_adentro)], sections=32)
 
     resultado = punto_y_direccion_pared(poly, lado, radio)

@@ -52,7 +52,7 @@ PRESET_KEYS = [
 @st.cache_data(ttl=120, show_spinner=False)
 def _preview_rapido(texto, ruta_ttf, alto_mm, color_letra,
                      agregar_nombre, texto_nombre, ruta_ttf_nombre, alto_nombre_mm, color_nombre, decos_tuple,
-                     mostrar_agujero, agujero_cable_diam_mm,
+                     mostrar_agujero, espesor_pared_mm, agujero_cable_diam_mm,
                      agujero_atras_x_pct, agujero_atras_y_pct, soporte_tapa_mm):
     decos = [
         {"nombre": n, "tam_mm": t, "x_pct": x, "y_pct": y, "emoji": e}
@@ -63,7 +63,7 @@ def _preview_rapido(texto, ruta_ttf, alto_mm, color_letra,
         agregar_nombre=agregar_nombre, texto_nombre=texto_nombre,
         ruta_ttf_nombre=ruta_ttf_nombre, alto_nombre_mm=alto_nombre_mm, color_nombre=color_nombre,
         decoraciones_frente=decos,
-        mostrar_agujero=mostrar_agujero,
+        mostrar_agujero=mostrar_agujero, espesor_pared_mm=espesor_pared_mm,
         agujero_cable_diam_mm=agujero_cable_diam_mm,
         agujero_atras_x_pct=agujero_atras_x_pct, agujero_atras_y_pct=agujero_atras_y_pct,
         soporte_tapa_mm=soporte_tapa_mm,
@@ -264,7 +264,7 @@ with col_preview:
         png_rapido, ancho_rapido, alto_rapido = _preview_rapido(
             texto, ruta_ttf, float(alto_mm), color_letra,
             agregar_nombre, texto_nombre, ruta_ttf_nombre, float(alto_nombre_mm), color_nombre, decos_tuple,
-            mostrar_agujero_preview, float(agujero_cable_diam_mm),
+            mostrar_agujero_preview, float(espesor_pared_mm), float(agujero_cable_diam_mm),
             float(agujero_x_pct) if agujero_manual else None, float(agujero_y_pct) if agujero_manual else None,
             float(soporte_tapa_mm),
         )

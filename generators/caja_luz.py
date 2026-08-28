@@ -37,7 +37,7 @@ CARPETA_SALIDA = "output"
 
 
 def preview_rapido(texto, ruta_ttf, alto_mm=100, raster_px=250,
-                    mostrar_agujero=False, agujero_cable_diam_mm=4.5,
+                    mostrar_agujero=False, espesor_pared_mm=2.5, agujero_cable_diam_mm=4.5,
                     agujero_atras_x_pct=None, agujero_atras_y_pct=None,
                     soporte_tapa_mm=carcasa_hueca.SOPORTE_TAPA_MM_DEFAULT):
     """Preview 2D instantáneo — el polígono relleno de la palabra, SIN el
@@ -70,7 +70,7 @@ def preview_rapido(texto, ruta_ttf, alto_mm=100, raster_px=250,
         if es_manual:
             punto = carcasa_hueca.punto_pct_a_xy(poly, agujero_atras_x_pct, agujero_atras_y_pct)
         else:
-            punto = carcasa_hueca.punto_agujero_atras(poly, radio, soporte_tapa_mm)
+            punto = carcasa_hueca.punto_agujero_atras(poly, radio, espesor_pared_mm, soporte_tapa_mm)
         if punto is not None:
             corta_algo = not es_manual or carcasa_hueca.punto_atras_corta_algo(poly, punto, radio, soporte_tapa_mm)
             color = "#38bdf8" if corta_algo else "#f97316"
@@ -188,13 +188,11 @@ def generar(texto, ruta_ttf, alto_mm=100, profundidad_mm=30, espesor_pared_mm=2.
         if agujero is None:
             if agujero_cable_lado == "atras":
                 info.append(
-                    f"No pude ubicar el agujero \"atras\" de {agujero_cable_diam_mm:.0f}mm: el "
-                    f"escalón donde apoya la tapa mide {soporte_tapa_mm:.1f}mm de ancho, y en ningún lugar de la "
-                    f"palabra el agujero entra ahí sin salirse del contorno o sin quedar "
-                    f"prácticamente flotando en el hueco. Opciones: bajá el diámetro del agujero, subí "
-                    f"el soporte de la tapa, probá un lado radial (arriba/abajo/izquierda/derecha — esos sí "
-                    f"cortan toda la pared, no solo el escalón, y aguantan agujeros más grandes), o hacelo "
-                    f"a mano con una mecha."
+                    f"No pude ubicar el agujero \"atras\" de {agujero_cable_diam_mm:.0f}mm: la banda de "
+                    f"pared (grosor de pared + soporte de la tapa, {espesor_pared_mm + soporte_tapa_mm:.1f}mm "
+                    f"en total) no le da margen en ningún lugar de la palabra. Opciones: bajá el diámetro "
+                    f"del agujero, subí el grosor de pared o el soporte de la tapa, probá un lado radial "
+                    f"(arriba/abajo/izquierda/derecha), o hacelo a mano con una mecha."
                 )
             else:
                 info.append(
