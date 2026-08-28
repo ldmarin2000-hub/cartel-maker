@@ -177,16 +177,7 @@ def preview_rapido(texto, ruta_ttf, alto_mm=150, color_letra="Amarillo",
         else:
             punto = carcasa_hueca.punto_agujero_atras(poly, radio, espesor_pared_mm, soporte_tapa_mm)
         if punto is not None:
-            corta_algo = not es_manual or carcasa_hueca.punto_atras_corta_algo(
-                poly, punto, radio, espesor_pared_mm, soporte_tapa_mm
-            )
-            color = "#38bdf8" if corta_algo else "#f97316"
-            ax.add_patch(plt.Circle(punto, radio, facecolor=color, edgecolor="white", linewidth=1.5, zorder=5))
-            if not corta_algo:
-                ax.text(
-                    punto[0], punto[1] - radio - 4, "ahí no corta pared, no va a hacer nada",
-                    color="#f97316", ha="center", fontsize=8, zorder=5,
-                )
+            ax.add_patch(plt.Circle(punto, radio, facecolor="#38bdf8", edgecolor="white", linewidth=1.5, zorder=5))
         else:
             ax.text(
                 (minx + maxx) / 2, miny + 3, "sin lugar para el agujero ahí",
