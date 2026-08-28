@@ -245,18 +245,15 @@ def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, pro
     la pared lateral, a mitad de profundidad. "atras": AXIAL, de afuera
     hacia adentro en el eje Z, por un punto DENTRO de la banda de pared
     (ver `punto_agujero_atras`) -- taladra desde justo detrás de la cara
-    de adelante (`espesor_cara_mm`) hasta pasar el escalón
-    (`calcular_z_ledge`), atravesando toda la pared sólida en esa
-    posición de una sola vez: como el punto ya está lejos del hueco
-    principal y del borde exterior, ese (x, y) es sólido en TODA esa
-    franja de Z, así que no hace falta buscar un lugar más angosto cerca
-    del fondo -- una vez pasado el escalón ya está conectado al hueco
-    abierto de atrás. Si se pasa `punto_manual` (x, y) se taladra ahí
-    directamente (el que elige a mano se hace cargo de que entre; no se
-    valida), si no se busca automático con `punto_agujero_atras`.
-    Devuelve el cilindro, o None si "atras" no encontró/no tiene un
-    punto válido (el diámetro no entra en la pared con margen en ningún
-    lado)."""
+    de adelante (`espesor_cara_mm`) hacia atrás, bien largo a propósito
+    (al menos 100mm, o `profundidad_mm + 4` si la caja es más profunda
+    que eso) para no depender de ningún cálculo fino de dónde termina
+    exactamente la pared — que sobre recorrido, no que falte. Si se pasa
+    `punto_manual` (x, y) se taladra ahí directamente (el que elige a
+    mano se hace cargo de que entre; no se valida), si no se busca
+    automático con `punto_agujero_atras`. Devuelve el cilindro, o None
+    si "atras" no encontró/no tiene un punto válido (el diámetro no
+    entra en la pared con margen en ningún lado)."""
     radio = agujero_cable_diam_mm / 2
     if lado == "atras":
         punto = (
@@ -267,7 +264,7 @@ def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, pro
             return None
         x, y = punto
         z_adentro = espesor_cara_mm
-        z_afuera = profundidad_mm + 4
+        z_afuera = max(z_adentro + 100, profundidad_mm + 4)  # bien largo a propósito: que sobre, no que falte
         return trimesh.creation.cylinder(radius=radio, segment=[(x, y, z_afuera), (x, y, z_adentro)], sections=32)
 
     resultado = punto_y_direccion_pared(poly, lado, radio)
