@@ -237,17 +237,25 @@ def punto_pct_a_xy(poly, x_pct, y_pct):
     return minx + (x_pct / 100.0) * (maxx - minx), miny + (y_pct / 100.0) * (maxy - miny)
 
 
-def punto_atras_corta_algo(poly, punto, radio_mm, soporte_tapa_mm=SOPORTE_TAPA_MM_DEFAULT):
+def punto_atras_corta_algo(poly, punto, radio_mm, espesor_pared_mm, soporte_tapa_mm=SOPORTE_TAPA_MM_DEFAULT):
     """Para el punto manual (que no se valida al generar — "el que elige a
-    mano se hace cargo"): dice si ESE punto puntual realmente cae en
-    pared sólida -- ni tocando el borde exterior de la letra ni el hueco
-    principal -- o si el agujero va a caer vacío o a medias. Solo para
-    avisar en la vista rápida antes de generar, no bloquea nada."""
+    mano se hace cargo"): dice si ESE punto puntual realmente va a
+    cortar pared sólida. Dos chequeos: (1) el círculo entero no se sale
+    de la silueta exterior REAL (`poly` crecido por `espesor_pared_mm`,
+    no `poly` mismo -- si no, se ve como una mordida en el borde en vez
+    de un agujero prolijo), y (2) toca AL MENOS ALGO de la banda de
+    pared sólida (no hace falta que el círculo entero se quede afuera
+    del hueco principal -- puede rozarlo y aun así cortar bastante
+    material real, con tal de que no esté COMPLETAMENTE adentro del
+    hueco). Solo para avisar en la vista rápida antes de generar, no
+    bloquea nada."""
     circulo = Point(punto).buffer(radio_mm, resolution=24)
-    if not poly.contains(circulo):
+    afuera_poly = poly.buffer(espesor_pared_mm, join_style=1)
+    if not afuera_poly.contains(circulo):
         return False
     cavidad_poly = poly.buffer(-soporte_tapa_mm, join_style=1)
-    return not circulo.intersects(cavidad_poly)
+    banda_pared = afuera_poly.difference(cavidad_poly)
+    return circulo.intersects(banda_pared)
 
 
 def armar_agujero_pared(poly, espesor_pared_mm, agujero_cable_diam_mm, lado, profundidad_mm, tapa_espesor_mm,

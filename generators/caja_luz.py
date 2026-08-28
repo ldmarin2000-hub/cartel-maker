@@ -72,7 +72,9 @@ def preview_rapido(texto, ruta_ttf, alto_mm=100, raster_px=250,
         else:
             punto = carcasa_hueca.punto_agujero_atras(poly, radio, espesor_pared_mm, soporte_tapa_mm)
         if punto is not None:
-            corta_algo = not es_manual or carcasa_hueca.punto_atras_corta_algo(poly, punto, radio, soporte_tapa_mm)
+            corta_algo = not es_manual or carcasa_hueca.punto_atras_corta_algo(
+                poly, punto, radio, espesor_pared_mm, soporte_tapa_mm
+            )
             color = "#38bdf8" if corta_algo else "#f97316"
             ax.add_patch(plt.Circle(punto, radio, facecolor=color, edgecolor="white", linewidth=1.5, zorder=5))
             if not corta_algo:
