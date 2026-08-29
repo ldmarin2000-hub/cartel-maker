@@ -23,16 +23,30 @@ CARPETA_FUENTES_CURADAS = "fonts/curadas"
 CARPETA_FUENTES_SISTEMA_WINDOWS = r"C:\Windows\Fonts"
 
 # Nombre amigable (el que devuelve _nombre_amigable) -> (categoría, emoji).
-# Las 24 son Google Fonts (licencia OFL, ver fonts/curadas/LICENSES/)
-# elegidas para cubrir estilos bien distintos entre sí — no son 300
-# variantes de lo mismo, son 24 herramientas para 24 propósitos distintos.
+# Google Fonts (licencia OFL, ver fonts/curadas/LICENSES/)
+# 45+ fuentes elegidas para cubrir estilos bien distintos entre sí
 CATEGORIAS_CURADAS = {
+    # Script/Cursiva — 14 opciones
     "Pacifico": ("Script", "🖋️"),
     "Sacramento": ("Script", "🖋️"),
     "Lobster": ("Script", "🖋️"),
     "Great Vibes": ("Script", "🖋️"),
+    "Dancing Script": ("Script", "🖋️"),
+    "Caveat": ("Script", "🖋️"),
+    "Permanent Marker": ("Script", "🖋️"),
+    "Satisfy": ("Script", "🖋️"),
+    "Allura": ("Script", "🖋️"),
+    "Handlee": ("Script", "🖋️"),
+    "Courgette": ("Script", "🖋️"),
+    "Aloha": ("Script", "🖋️"),
+    "Dawning of a New Day": ("Script", "🖋️"),
+    "Over the Rainbow": ("Script", "🖋️"),
+    # Manuscrita — 4 opciones
     "Kalam Bold": ("Manuscrita", "✍️"),
     "Indie Flower": ("Manuscrita", "✍️"),
+    "Playpen Sans": ("Manuscrita", "✍️"),
+    "Fredoka": ("Manuscrita", "✍️"),
+    # Display — 8 opciones
     "Bangers": ("Display", "💥"),
     "Bungee": ("Display", "💥"),
     "Anton": ("Display", "💥"),
@@ -41,15 +55,24 @@ CATEGORIAS_CURADAS = {
     "Amatic SC Bold": ("Display", "💥"),
     "Shrikhand": ("Display", "💥"),
     "Fredericka the Great": ("Display", "💥"),
+    # Redondeada — 2 opciones
     "Poppins Bold": ("Redondeada", "⚪"),
+    "Quicksand Bold": ("Redondeada", "⚪"),
+    # Condensada — 2 opciones
     "Bebas Neue": ("Condensada", "📏"),
     "Oswald": ("Condensada", "📏"),
+    # Elegante — 3 opciones
     "Playfair Display": ("Elegante", "🎩"),
     "Abril Fatface": ("Elegante", "🎩"),
+    "Cinzel": ("Elegante", "🎩"),
+    # Geométrica — 2 opciones
     "Montserrat Bold": ("Geométrica", "🔷"),
+    "DM Sans Bold": ("Geométrica", "🔷"),
+    # Retro/Neón — 3 opciones
     "Monoton": ("Retro/Neón", "🕹️"),
     "Courier Prime": ("Retro/Neón", "🕹️"),
     "Boogaloo": ("Retro/Neón", "🕹️"),
+    # Futurista — 1 opción
     "Orbitron": ("Futurista", "🚀"),
 }
 
