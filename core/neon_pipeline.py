@@ -92,7 +92,11 @@ def armar_2d(mask, alto_mm, modo_led,
 
     placa_final = placa
     if tipo_montaje == "colgado":
-        placa_final = geometry.agregar_orejas_de_montaje(placa, n_orejas=n_orejas_montaje)
+        placa_final, huecos_orejas = geometry.agregar_orejas_de_montaje(placa, n_orejas=n_orejas_montaje)
+        # las orejas se hunden a propósito en la placa para quedar bien soldadas -- si esa
+        # zona coincide con la pared alta de una letra (calculada antes, sin saber de este
+        # agujero), le queda tapando un pedacito del bocallave por arriba si no se resta acá.
+        paredes = paredes.difference(huecos_orejas)
         info.append(f"{n_orejas_montaje} oreja(s) de montaje con agujero bocallave agregadas arriba.")
     elif tipo_montaje == "escritorio":
         placa_final, ancho_pata_mm = geometry.agregar_pata_escritorio(

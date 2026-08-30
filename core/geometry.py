@@ -269,7 +269,15 @@ def agregar_orejas_de_montaje(placa, n_orejas=2, radio_oreja=11, solape_mm=5,
     un agujero bocallave para colgar de un tornillo. Cada oreja se hunde
     `solape_mm` en el punto más alto de placa disponible cerca de su
     posición ideal, para que quede realmente soldada (no flotando con un
-    huequito de aire entre la oreja y la placa, que no sostiene nada)."""
+    huequito de aire entre la oreja y la placa, que no sostiene nada) --
+    pero por eso mismo el agujero bocallave puede terminar cayendo justo
+    donde ya había pared de una letra. Acá solo se resta de la placa
+    (capa baja); la pared alta del canal (`paredes`, capa aparte que se
+    calculó ANTES de esto) no se entera y le queda tapando un pedacito
+    del agujero por arriba si se solapan. Por eso devuelve también los
+    huecos (sin restar todavía) — quien llama tiene que restarlos
+    también de `paredes` para que el agujero quede libre de punta a
+    punta. Devuelve (placa_con_orejas_y_huecos, huecos_sin_restar)."""
     minx, _, maxx, maxy = placa.bounds
     ancho = maxx - minx
     if n_orejas <= 1:
@@ -285,8 +293,9 @@ def agregar_orejas_de_montaje(placa, n_orejas=2, radio_oreja=11, solape_mm=5,
         orejas.append(Point(x, y_centro).buffer(radio_oreja, resolution=32))
         huecos.append(_bocallave(x, y_centro - radio_oreja * 0.35, diam_grande, diam_chico, largo_slot))
 
+    huecos_poly = unary_union(huecos)
     placa_con_orejas = unary_union([placa] + orejas)
-    return placa_con_orejas.difference(unary_union(huecos))
+    return placa_con_orejas.difference(huecos_poly), huecos_poly
 
 
 # ---------------------------------------------------------------------------
