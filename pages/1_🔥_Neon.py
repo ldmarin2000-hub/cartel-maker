@@ -90,7 +90,7 @@ with col_form:
                  "letras en relieve — poco material y base bien conectada.",
         )
         espaciado_relativo = st.slider(
-            "Espaciado entre letras", -0.4, 0.4, 0.0, step=0.05, key="ne_espaciado_relativo",
+            "Espaciado entre letras", -0.4, 0.4, 0.0, step=0.01, key="ne_espaciado_relativo",
             help="Negativo acerca las letras hasta tocarse/superponerse — si quedan tocándose, "
                  "el trazado sale de una sola pieza y no hace falta ningún puente. "
                  "0 = espaciado normal de la fuente.",
