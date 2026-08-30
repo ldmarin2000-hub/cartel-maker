@@ -34,22 +34,32 @@ def _armar_2d(texto, ruta_ttf, alto_mm, modo_led,
               agregar_canal_salida, cable_ancho_mm,
               agregar_agujeros, agujero_cable_diam_mm,
               tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm,
-              ancho_max_modulo_mm):
+              ancho_max_modulo_mm, espaciado_relativo=0.0, puentes_altura_completa=True):
     """Pipeline 2D puro (raster -> esqueleto -> geometría), SIN mesh3d ni
     STL — compartido entre `generar()` y `preview_rapido()`. Es la parte
     cara en tiempo de fuente/trazado pero barata en cómputo (nada de
     booleanas 3D), así que sirve de vista rápida sin esperar el export.
     Devuelve un dict con todo lo que necesita cada uno para seguir. El
     resto del pipeline (esqueleto -> canal -> placa -> montaje -> cortes)
-    es compartido con generators/neon_svg.py y vive en core/neon_pipeline.py."""
+    es compartido con generators/neon_svg.py y vive en core/neon_pipeline.py.
+
+    `espaciado_relativo` acerca/aleja las letras entre sí antes de
+    trazarlas (negativo = más juntas, hasta tocarse/superponerse — ver
+    core/raster.py::rasterizar_con_espaciado) -- si las letras quedan
+    tocándose, el trazado sale de una sola pieza y no hace falta ningún
+    puente."""
     if not os.path.exists(ruta_ttf):
         raise FileNotFoundError(f"no encuentro la fuente: {ruta_ttf}")
 
-    mask = raster.rasterizar(texto, ruta_ttf, raster_px)
+    if espaciado_relativo:
+        mask = raster.rasterizar_con_espaciado(texto, ruta_ttf, raster_px, espaciado_relativo)
+    else:
+        mask = raster.rasterizar(texto, ruta_ttf, raster_px)
     return neon_pipeline.armar_2d(
         mask, alto_mm, modo_led, led_ancho_mm, holgura_mm, pared_mm, fondo, fondo_margen, redondeo_mm,
         poda_frac, simplify_mm, agregar_canal_salida, cable_ancho_mm, agregar_agujeros, agujero_cable_diam_mm,
         tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm, ancho_max_modulo_mm,
+        puentes_altura_completa=puentes_altura_completa,
     )
 
 
@@ -60,7 +70,8 @@ def preview_rapido(texto, ruta_ttf, alto_mm, modo_led,
                     agregar_canal_salida=True, cable_ancho_mm=4.0,
                     agregar_agujeros=True, agujero_cable_diam_mm=5.0,
                     tipo_montaje="colgado", n_orejas_montaje=2,
-                    ancho_pata_mm=40.0, alto_pata_mm=15.0, ancho_max_modulo_mm=None):
+                    ancho_pata_mm=40.0, alto_pata_mm=15.0, ancho_max_modulo_mm=None,
+                    espaciado_relativo=0.0, puentes_altura_completa=True):
     """Preview 2D instantáneo — el mismo trazado/placa que ve `generar()`
     (`_armar_2d`, ni un paso menos: orejas, agujeros, salida de cable,
     líneas de corte, todo), pero SIN mesh3d ni export a STL, que es la
@@ -77,7 +88,8 @@ def preview_rapido(texto, ruta_ttf, alto_mm, modo_led,
             texto, ruta_ttf, alto_mm, modo_led, led_ancho_mm, holgura_mm, pared_mm, fondo, fondo_margen,
             redondeo_mm, raster_px, poda_frac, simplify_mm, agregar_canal_salida, cable_ancho_mm,
             agregar_agujeros, agujero_cable_diam_mm, tipo_montaje, n_orejas_montaje, ancho_pata_mm,
-            alto_pata_mm, ancho_max_modulo_mm,
+            alto_pata_mm, ancho_max_modulo_mm, espaciado_relativo=espaciado_relativo,
+            puentes_altura_completa=puentes_altura_completa,
         )
     except (ValueError, FileNotFoundError):
         return None, 0, 0
@@ -99,6 +111,7 @@ def generar(texto, ruta_ttf, alto_mm, modo_led,
             tipo_montaje="colgado", n_orejas_montaje=2,
             ancho_pata_mm=40.0, alto_pata_mm=15.0,
             ancho_max_modulo_mm=None,
+            espaciado_relativo=0.0, puentes_altura_completa=True,
             carpeta_salida=CARPETA_SALIDA):
     """Corre el pipeline completo y devuelve un dict con las rutas, medidas
     y avisos. No pregunta nada ni imprime nada — así lo puede llamar tanto
@@ -116,7 +129,8 @@ def generar(texto, ruta_ttf, alto_mm, modo_led,
         texto, ruta_ttf, alto_mm, modo_led, led_ancho_mm, holgura_mm, pared_mm, fondo, fondo_margen,
         redondeo_mm, raster_px, poda_frac, simplify_mm, agregar_canal_salida, cable_ancho_mm,
         agregar_agujeros, agujero_cable_diam_mm, tipo_montaje, n_orejas_montaje, ancho_pata_mm,
-        alto_pata_mm, ancho_max_modulo_mm,
+        alto_pata_mm, ancho_max_modulo_mm, espaciado_relativo=espaciado_relativo,
+        puentes_altura_completa=puentes_altura_completa,
     )
     base = pieza.nombre_archivo(texto, default="salida")
     r = neon_pipeline.armar_3d_y_exportar(

@@ -25,6 +25,7 @@ st.caption(neon.DESCRIPCION)
 PRESET_KEYS = [
     "ne_texto", "neon_selectbox", "neon_ruta", "ne_color_tubo", "ne_alto_mm", "ne_modo_led",
     "ne_led_ancho_mm", "ne_led_prof_mm", "ne_redondeo_mm", "ne_fondo",
+    "ne_espaciado_relativo", "ne_puentes_bajitos",
     "ne_agregar_canal_salida", "ne_cable_ancho_mm", "ne_agregar_agujeros", "ne_agujero_cable_diam_mm",
     "ne_tipo_montaje", "ne_n_orejas_montaje", "ne_ancho_pata_mm", "ne_alto_pata_mm",
 ]
@@ -33,13 +34,15 @@ PRESET_KEYS = [
 @st.cache_data(ttl=120, show_spinner=False)
 def _preview_rapido(texto, ruta_ttf, alto_mm, modo_led, led_ancho_mm, fondo, redondeo_mm,
                      agregar_canal_salida, cable_ancho_mm, agregar_agujeros, agujero_cable_diam_mm,
-                     tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm):
+                     tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm,
+                     espaciado_relativo, puentes_altura_completa):
     return neon.preview_rapido(
         texto, ruta_ttf, alto_mm, modo_led, led_ancho_mm=led_ancho_mm, fondo=fondo, redondeo_mm=redondeo_mm,
         agregar_canal_salida=agregar_canal_salida, cable_ancho_mm=cable_ancho_mm,
         agregar_agujeros=agregar_agujeros, agujero_cable_diam_mm=agujero_cable_diam_mm,
         tipo_montaje=tipo_montaje, n_orejas_montaje=n_orejas_montaje,
         ancho_pata_mm=ancho_pata_mm, alto_pata_mm=alto_pata_mm,
+        espaciado_relativo=espaciado_relativo, puentes_altura_completa=puentes_altura_completa,
     )
 
 col_form, col_preview = st.columns([1, 1.3])
@@ -84,6 +87,20 @@ with col_form:
                  "quedan unidas solo por puentes finos. rect_hundido: rectángulo macizo, el canal "
                  "queda como zanja (más rígido, gasta más). rect_plano: rectángulo fino con las "
                  "letras en relieve — poco material y base bien conectada.",
+        )
+        espaciado_relativo = st.slider(
+            "Espaciado entre letras", -0.4, 0.4, 0.0, step=0.05, key="ne_espaciado_relativo",
+            help="Negativo acerca las letras hasta tocarse/superponerse — si quedan tocándose, "
+                 "el trazado sale de una sola pieza y no hace falta ningún puente. "
+                 "0 = espaciado normal de la fuente.",
+        )
+        puentes_bajitos = st.checkbox(
+            "Puentes bajitos (como las orejas de montaje)", value=False,
+            disabled=fondo != "contorno", key="ne_puentes_bajitos",
+            help="Los puentes que sueldan letras sueltas salen por defecto con la altura "
+                 "completa del cartel (se notan como una pared más). Tildando esto, quedan solo "
+                 "con la altura de la base — se notan mucho menos, igual que ya pasa con las "
+                 "orejas de montaje.",
         )
         st.divider()
         agregar_canal_salida = st.checkbox(
@@ -133,6 +150,7 @@ with col_preview:
             texto, ruta_ttf, float(alto_mm), modo_led, led_ancho_mm, fondo, redondeo_mm,
             agregar_canal_salida, cable_ancho_mm, agregar_agujeros, agujero_cable_diam_mm,
             tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm,
+            espaciado_relativo, not puentes_bajitos,
         )
         if png_rapido:
             st.image(
@@ -157,6 +175,7 @@ with col_preview:
                     agregar_agujeros=agregar_agujeros, agujero_cable_diam_mm=agujero_cable_diam_mm,
                     tipo_montaje=tipo_montaje, n_orejas_montaje=n_orejas_montaje,
                     ancho_pata_mm=ancho_pata_mm, alto_pata_mm=alto_pata_mm,
+                    espaciado_relativo=espaciado_relativo, puentes_altura_completa=not puentes_bajitos,
                 )
             except (FileNotFoundError, ValueError) as e:
                 st.error(str(e))

@@ -27,11 +27,21 @@ def armar_2d(mask, alto_mm, modo_led,
              agregar_canal_salida, cable_ancho_mm,
              agregar_agujeros, agujero_cable_diam_mm,
              tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm,
-             ancho_max_modulo_mm):
+             ancho_max_modulo_mm, puentes_altura_completa=True):
     """Pipeline 2D puro (esqueleto -> geometría), SIN mesh3d ni STL, a
     partir de una máscara booleana ya armada (da igual si salió de
     rasterizar texto o un SVG). Devuelve un dict con todo lo que necesita
-    cada uno para seguir (preview rápido o export final)."""
+    cada uno para seguir (preview rápido o export final).
+
+    `puentes_altura_completa`: los puentes que sueldan partes sueltas
+    (ver `geometry.conectar_componentes`) quedan incluidos en `paredes`
+    igual que el resto del trazado, así que por defecto salen con la
+    altura completa del cartel (`placa_mm + led_prof_mm`, se nota el
+    puente como una pared más). En `False`, se los saca de `paredes`
+    antes de calcularla -- quedan solo con la altura de la base
+    (`placa_mm`), igual que ya quedan las orejas de montaje (que se
+    agregan recién después de calcular `paredes`, por eso nunca tuvieron
+    este problema) -- se notan mucho menos."""
     polys, alto_px = skeleton.obtener_polilineas(mask, poda_frac)
     if not polys:
         raise ValueError("no se pudo extraer el recorrido (probá otra resolución/fuente, o revisá el dibujo)")
@@ -48,8 +58,13 @@ def armar_2d(mask, alto_mm, modo_led,
     info = []
 
     if fondo == "contorno":
+        placa_sin_puentes = placa
         placa, n_puentes = geometry.conectar_componentes(placa, cable_ancho_mm, pared_mm)
-        paredes = placa.difference(canal)
+        if puentes_altura_completa or not n_puentes:
+            paredes = placa.difference(canal)
+        else:
+            paredes = placa_sin_puentes.difference(canal)
+            info.append("Los puentes quedaron bajitos (altura de la base), no se notan tanto.")
         if n_puentes:
             info.append(f"Se agregaron {n_puentes} puente(s) para unir las partes sueltas en una sola pieza imprimible.")
 
