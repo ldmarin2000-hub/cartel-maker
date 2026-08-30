@@ -27,7 +27,7 @@ PRESET_KEYS = [
     "ne_led_ancho_mm", "ne_led_prof_mm", "ne_redondeo_mm", "ne_fondo",
     "ne_espaciado_relativo", "ne_puentes_bajitos",
     "ne_agregar_canal_salida", "ne_cable_ancho_mm", "ne_agregar_agujeros", "ne_agujero_cable_diam_mm",
-    "ne_tipo_montaje", "ne_n_orejas_montaje", "ne_ancho_pata_mm", "ne_alto_pata_mm",
+    "ne_tipo_montaje", "ne_n_orejas_montaje", "ne_ancho_pata_mm", "ne_alto_pata_mm", "ne_permitir_corte",
 ]
 
 
@@ -35,7 +35,7 @@ PRESET_KEYS = [
 def _preview_rapido(texto, ruta_ttf, alto_mm, modo_led, led_ancho_mm, fondo, redondeo_mm,
                      agregar_canal_salida, cable_ancho_mm, agregar_agujeros, agujero_cable_diam_mm,
                      tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm,
-                     espaciado_relativo, puentes_altura_completa):
+                     espaciado_relativo, puentes_altura_completa, ancho_max_modulo_mm):
     return neon.preview_rapido(
         texto, ruta_ttf, alto_mm, modo_led, led_ancho_mm=led_ancho_mm, fondo=fondo, redondeo_mm=redondeo_mm,
         agregar_canal_salida=agregar_canal_salida, cable_ancho_mm=cable_ancho_mm,
@@ -43,6 +43,7 @@ def _preview_rapido(texto, ruta_ttf, alto_mm, modo_led, led_ancho_mm, fondo, red
         tipo_montaje=tipo_montaje, n_orejas_montaje=n_orejas_montaje,
         ancho_pata_mm=ancho_pata_mm, alto_pata_mm=alto_pata_mm,
         espaciado_relativo=espaciado_relativo, puentes_altura_completa=puentes_altura_completa,
+        ancho_max_modulo_mm=ancho_max_modulo_mm,
     )
 
 col_form, col_preview = st.columns([1, 1.3])
@@ -140,6 +141,13 @@ with col_form:
             "Alto de la pata (mm)", value=15.0, step=1.0,
             disabled=tipo_montaje != "escritorio", key="ne_alto_pata_mm",
         )
+        permitir_corte = st.checkbox(
+            "Partir en módulos si no entra en la cama", value=True, key="ne_permitir_corte",
+            help="Si el cartel es más ancho que la Bambu A1, lo parte en módulos con cola de "
+                 "milano para que cada uno entre. Destildá esto para que salga siempre en una "
+                 "sola pieza (STL), aunque no entre en la cama — por ejemplo si lo vas a "
+                 "imprimir en otra impresora más grande.",
+        )
         st.caption("Si el cartel es más ancho que la Bambu A1, se parte en módulos con cola de milano automáticamente.")
 
     generar_click = st.button("Generar cartel", type="primary", use_container_width=True)
@@ -151,6 +159,7 @@ with col_preview:
             agregar_canal_salida, cable_ancho_mm, agregar_agujeros, agujero_cable_diam_mm,
             tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm,
             espaciado_relativo, not puentes_bajitos,
+            None if permitir_corte else float("inf"),
         )
         if png_rapido:
             st.image(
@@ -176,6 +185,7 @@ with col_preview:
                     tipo_montaje=tipo_montaje, n_orejas_montaje=n_orejas_montaje,
                     ancho_pata_mm=ancho_pata_mm, alto_pata_mm=alto_pata_mm,
                     espaciado_relativo=espaciado_relativo, puentes_altura_completa=not puentes_bajitos,
+                    ancho_max_modulo_mm=None if permitir_corte else float("inf"),
                 )
             except (FileNotFoundError, ValueError) as e:
                 st.error(str(e))
