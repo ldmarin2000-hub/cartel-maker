@@ -141,15 +141,17 @@ def agregar_agujeros_cable(placa, lineas, diametro_mm=5.0, pared_min_mm=2.4):
     Si dos puntas quedan más cerca que `diametro_mm + pared_min_mm` (el
     mismo grosor de pared que se usa para el canal), se agrupan en un solo
     agujero en vez de dejar dos agujeros pegados con una pared finita y
-    frágil entre ellos."""
+    frágil entre ellos. Devuelve (placa, cantidad_de_agujeros, agujeros_poly)
+    -- `agujeros_poly` es None si no había ninguna punta suelta; sirve
+    para que otra cosa (como las orejas de montaje) evite pisarlos."""
     puntos = extremos_libres(lineas)
     if not puntos:
-        return placa, 0
+        return placa, 0, None
 
     puntos = _agrupar_puntos_cercanos(puntos, diametro_mm + pared_min_mm)
 
     agujeros = unary_union([Point(p).buffer(diametro_mm / 2, resolution=24) for p in puntos])
-    return placa.difference(agujeros), len(puntos)
+    return placa.difference(agujeros), len(puntos), agujeros
 
 
 # ---------------------------------------------------------------------------
@@ -263,21 +265,33 @@ def _mejor_punto_vertical(placa, x_ideal, ventana_mm, borde="arriba", paso_mm=2.
     return mejor_x, mejor_borde
 
 
-def agregar_orejas_de_montaje(placa, n_orejas=2, radio_oreja=11, solape_mm=5,
-                               diam_grande=8.5, diam_chico=4.5, largo_slot=9):
+def agregar_orejas_de_montaje(placa, paredes, agujeros_a_evitar=None, n_orejas=2, radio_oreja=11, solape_mm=5,
+                               diam_grande=8.5, diam_chico=4.5, largo_slot=9,
+                               paso_ajuste_mm=1.0, minimo_soldado_mm=1.0):
     """Agrega `n_orejas` orejas circulares arriba de la placa, cada una con
     un agujero bocallave para colgar de un tornillo. Cada oreja se hunde
     `solape_mm` en el punto más alto de placa disponible cerca de su
     posición ideal, para que quede realmente soldada (no flotando con un
     huequito de aire entre la oreja y la placa, que no sostiene nada) --
     pero por eso mismo el agujero bocallave puede terminar cayendo justo
-    donde ya había pared de una letra. Acá solo se resta de la placa
-    (capa baja); la pared alta del canal (`paredes`, capa aparte que se
-    calculó ANTES de esto) no se entera y le queda tapando un pedacito
-    del agujero por arriba si se solapan. Por eso devuelve también los
-    huecos (sin restar todavía) — quien llama tiene que restarlos
-    también de `paredes` para que el agujero quede libre de punta a
-    punta. Devuelve (placa_con_orejas_y_huecos, huecos_sin_restar)."""
+    donde ya había pared de una letra (`paredes`, la capa alta del canal,
+    calculada aparte) o encima de un agujero de cable ya puesto
+    (`agujeros_a_evitar`) -- no solo por el solape en sí, sino porque una
+    oreja de 22mm de diámetro puede taparse con material que esté más
+    alto un poco al costado del punto exacto donde se buscó la altura
+    (una curva de la letra, por ejemplo).
+
+    En vez de cortar lo que ya estaba ahí (dejaría un tajo visible en la
+    pared, o agujeros pisándose), corre TODA la oreja (círculo + agujero
+    juntos) hacia arriba de a `paso_ajuste_mm`, sin despegarse del todo
+    de la placa (siempre deja al menos `minimo_soldado_mm` de solape real
+    -- si no, quedaría flotando sin sostén), buscando una altura donde el
+    bocallave quede libre de las dos cosas. Si ningún intento (dentro de
+    ese margen) da libre, se queda con la posición más alta que pudo
+    probar y avisa cuál para que quien llama la reste de `paredes` como
+    último recurso. Devuelve (placa_con_orejas_y_huecos, huecos_bocallave,
+    huecos_que_no_se_pudieron_correr_del_todo) -- el tercero es None si
+    todas las orejas encontraron lugar libre."""
     minx, _, maxx, maxy = placa.bounds
     ancho = maxx - minx
     if n_orejas <= 1:
@@ -286,16 +300,32 @@ def agregar_orejas_de_montaje(placa, n_orejas=2, radio_oreja=11, solape_mm=5,
         xs_ideales = [minx + ancho * 0.18 + i * (ancho * 0.64) / (n_orejas - 1) for i in range(n_orejas)]
 
     ventana = max(ancho * 0.12, radio_oreja)
-    orejas, huecos = [], []
+    a_evitar = paredes if agujeros_a_evitar is None else unary_union([paredes, agujeros_a_evitar])
+    ajuste_maximo = max(solape_mm - minimo_soldado_mm, 0.0)
+    n_intentos = int(ajuste_maximo / paso_ajuste_mm) if paso_ajuste_mm > 0 else 0
+
+    orejas, huecos, huecos_forzados = [], [], []
     for x_ideal in xs_ideales:
         x, y_top_local = _mejor_punto_vertical(placa, x_ideal, ventana, borde="arriba")
-        y_centro = y_top_local + radio_oreja - solape_mm
+        y_centro_base = y_top_local + radio_oreja - solape_mm
+        y_centro, hueco, libre = y_centro_base, None, False
+        for i in range(n_intentos + 1):
+            y_probar = y_centro_base + i * paso_ajuste_mm
+            hueco_probar = _bocallave(x, y_probar - radio_oreja * 0.35, diam_grande, diam_chico, largo_slot)
+            y_centro, hueco = y_probar, hueco_probar
+            if not hueco_probar.intersects(a_evitar):
+                libre = True
+                break
+        if not libre:
+            huecos_forzados.append(hueco)
         orejas.append(Point(x, y_centro).buffer(radio_oreja, resolution=32))
-        huecos.append(_bocallave(x, y_centro - radio_oreja * 0.35, diam_grande, diam_chico, largo_slot))
+        huecos.append(hueco)
 
     huecos_poly = unary_union(huecos)
     placa_con_orejas = unary_union([placa] + orejas)
-    return placa_con_orejas.difference(huecos_poly), huecos_poly
+    placa_final = placa_con_orejas.difference(huecos_poly)
+    huecos_forzados_poly = unary_union(huecos_forzados) if huecos_forzados else None
+    return placa_final, huecos_poly, huecos_forzados_poly
 
 
 # ---------------------------------------------------------------------------

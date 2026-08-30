@@ -77,11 +77,12 @@ def armar_2d(mask, alto_mm, modo_led,
             )
             info.append(f"Salida de cable agregada hacia el borde '{borde}'.")
 
+    agujeros_cable_poly = None
     if agregar_agujeros:
         # Agujero en TODAS las puntas sueltas del recorrido (incluida la de la salida de
         # cable si está activa: el canalcito lateral saca el cable afuera, pero no alcanza
         # para soldar/fijar la ficha — hace falta un agujero de verdad ahí también).
-        placa, n_agujeros = geometry.agregar_agujeros_cable(
+        placa, n_agujeros, agujeros_cable_poly = geometry.agregar_agujeros_cable(
             placa, lineas, diametro_mm=agujero_cable_diam_mm, pared_min_mm=pared_mm
         )
         if n_agujeros:
@@ -92,11 +93,20 @@ def armar_2d(mask, alto_mm, modo_led,
 
     placa_final = placa
     if tipo_montaje == "colgado":
-        placa_final, huecos_orejas = geometry.agregar_orejas_de_montaje(placa, n_orejas=n_orejas_montaje)
-        # las orejas se hunden a propósito en la placa para quedar bien soldadas -- si esa
-        # zona coincide con la pared alta de una letra (calculada antes, sin saber de este
-        # agujero), le queda tapando un pedacito del bocallave por arriba si no se resta acá.
-        paredes = paredes.difference(huecos_orejas)
+        placa_final, huecos_orejas, huecos_forzados = geometry.agregar_orejas_de_montaje(
+            placa, paredes, agujeros_a_evitar=agujeros_cable_poly, n_orejas=n_orejas_montaje
+        )
+        if huecos_forzados is not None:
+            # no se pudo correr del todo (letra muy compacta ahí) -- se resta de paredes
+            # como último recurso para que el bocallave quede libre igual, aunque eso deje
+            # un tajo visible en la pared en vez de una oreja bien despejada.
+            paredes = paredes.difference(huecos_forzados)
+            avisos.append(
+                "Una oreja de montaje quedó muy pegada a una letra o a un agujero de cable — no "
+                "encontré cómo correrla sin despegarla de la placa, así que le corté un pedacito "
+                "de la pared ahí para que el agujero del tornillo quede libre igual. Puede quedar "
+                "un tajo visible; si molesta, probá con menos orejas o en otra posición de texto."
+            )
         info.append(f"{n_orejas_montaje} oreja(s) de montaje con agujero bocallave agregadas arriba.")
     elif tipo_montaje == "escritorio":
         placa_final, ancho_pata_mm = geometry.agregar_pata_escritorio(
