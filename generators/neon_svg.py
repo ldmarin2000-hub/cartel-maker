@@ -38,7 +38,7 @@ def _armar_2d(ruta_svg, alto_mm, modo_led,
               agregar_canal_salida, cable_ancho_mm,
               agregar_agujeros, agujero_cable_diam_mm,
               tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm,
-              ancho_max_modulo_mm):
+              ancho_max_modulo_mm, puentes_altura_completa=True):
     """Pipeline 2D puro (SVG -> máscara -> esqueleto -> geometría), SIN
     mesh3d ni STL — compartido entre `generar()` y `preview_rapido()`.
     Devuelve un dict con todo lo que necesita cada uno para seguir."""
@@ -50,6 +50,7 @@ def _armar_2d(ruta_svg, alto_mm, modo_led,
         mask, alto_mm, modo_led, led_ancho_mm, holgura_mm, pared_mm, fondo, fondo_margen, redondeo_mm,
         poda_frac, simplify_mm, agregar_canal_salida, cable_ancho_mm, agregar_agujeros, agujero_cable_diam_mm,
         tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm, ancho_max_modulo_mm,
+        puentes_altura_completa=puentes_altura_completa,
     )
 
 
@@ -60,7 +61,8 @@ def preview_rapido(ruta_svg, alto_mm, modo_led,
                     agregar_canal_salida=True, cable_ancho_mm=4.0,
                     agregar_agujeros=True, agujero_cable_diam_mm=5.0,
                     tipo_montaje="colgado", n_orejas_montaje=2,
-                    ancho_pata_mm=40.0, alto_pata_mm=15.0, ancho_max_modulo_mm=None):
+                    ancho_pata_mm=40.0, alto_pata_mm=15.0, ancho_max_modulo_mm=None,
+                    puentes_altura_completa=True):
     """Preview 2D instantáneo — el mismo trazado/placa que ve `generar()`,
     pero SIN mesh3d ni export a STL. Devuelve (png_bytes, ancho_mm,
     alto_mm) o (None, 0, 0) si no se pudo generar."""
@@ -75,7 +77,7 @@ def preview_rapido(ruta_svg, alto_mm, modo_led,
             ruta_svg, alto_mm, modo_led, led_ancho_mm, holgura_mm, pared_mm, fondo, fondo_margen,
             redondeo_mm, raster_px, min_objeto_px, poda_frac, simplify_mm, agregar_canal_salida, cable_ancho_mm,
             agregar_agujeros, agujero_cable_diam_mm, tipo_montaje, n_orejas_montaje, ancho_pata_mm,
-            alto_pata_mm, ancho_max_modulo_mm,
+            alto_pata_mm, ancho_max_modulo_mm, puentes_altura_completa=puentes_altura_completa,
         )
     except (ValueError, FileNotFoundError):
         return None, 0, 0
@@ -97,7 +99,7 @@ def generar(ruta_svg, alto_mm, modo_led,
             agregar_agujeros=True, agujero_cable_diam_mm=5.0,
             tipo_montaje="colgado", n_orejas_montaje=2,
             ancho_pata_mm=40.0, alto_pata_mm=15.0,
-            ancho_max_modulo_mm=None,
+            ancho_max_modulo_mm=None, puentes_altura_completa=True,
             carpeta_salida=CARPETA_SALIDA):
     """Corre el pipeline completo y devuelve un dict con las rutas, medidas
     y avisos. No pregunta nada ni imprime nada — así lo puede llamar tanto
@@ -115,7 +117,7 @@ def generar(ruta_svg, alto_mm, modo_led,
         ruta_svg, alto_mm, modo_led, led_ancho_mm, holgura_mm, pared_mm, fondo, fondo_margen,
         redondeo_mm, raster_px, min_objeto_px, poda_frac, simplify_mm, agregar_canal_salida, cable_ancho_mm,
         agregar_agujeros, agujero_cable_diam_mm, tipo_montaje, n_orejas_montaje, ancho_pata_mm,
-        alto_pata_mm, ancho_max_modulo_mm,
+        alto_pata_mm, ancho_max_modulo_mm, puentes_altura_completa=puentes_altura_completa,
     )
     etiqueta = os.path.splitext(os.path.basename(ruta_svg))[0]
     base = pieza.nombre_archivo(etiqueta, default="dibujo")

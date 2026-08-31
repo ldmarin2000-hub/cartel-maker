@@ -36,6 +36,7 @@ PRESET_KEYS = [
     "nsvg_raster_px", "nsvg_min_objeto_px", "nsvg_poda_frac",
     "nsvg_agregar_canal_salida", "nsvg_cable_ancho_mm", "nsvg_agregar_agujeros", "nsvg_agujero_cable_diam_mm",
     "nsvg_tipo_montaje", "nsvg_n_orejas_montaje", "nsvg_ancho_pata_mm", "nsvg_alto_pata_mm",
+    "nsvg_puentes_bajitos", "nsvg_permitir_corte",
 ]
 
 
@@ -43,7 +44,8 @@ PRESET_KEYS = [
 def _preview_rapido(ruta_svg, alto_mm, modo_led, led_ancho_mm, fondo, redondeo_mm,
                      raster_px, min_objeto_px, poda_frac,
                      agregar_canal_salida, cable_ancho_mm, agregar_agujeros, agujero_cable_diam_mm,
-                     tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm):
+                     tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm,
+                     puentes_altura_completa, ancho_max_modulo_mm):
     return neon_svg.preview_rapido(
         ruta_svg, alto_mm, modo_led, led_ancho_mm=led_ancho_mm, fondo=fondo, redondeo_mm=redondeo_mm,
         raster_px=raster_px, min_objeto_px=min_objeto_px, poda_frac=poda_frac,
@@ -51,6 +53,7 @@ def _preview_rapido(ruta_svg, alto_mm, modo_led, led_ancho_mm, fondo, redondeo_m
         agregar_agujeros=agregar_agujeros, agujero_cable_diam_mm=agujero_cable_diam_mm,
         tipo_montaje=tipo_montaje, n_orejas_montaje=n_orejas_montaje,
         ancho_pata_mm=ancho_pata_mm, alto_pata_mm=alto_pata_mm,
+        puentes_altura_completa=puentes_altura_completa, ancho_max_modulo_mm=ancho_max_modulo_mm,
     )
 
 
@@ -100,6 +103,14 @@ with col_form:
                  "quedan unidas solo por puentes finos. rect_hundido: rectángulo macizo, el canal "
                  "queda como zanja (más rígido, gasta más). rect_plano: rectángulo fino con el "
                  "dibujo en relieve — poco material y base bien conectada.",
+        )
+        puentes_bajitos = st.checkbox(
+            "Puentes bajitos (como las orejas de montaje)", value=False,
+            disabled=fondo != "contorno", key="nsvg_puentes_bajitos",
+            help="Los puentes que sueldan partes sueltas salen por defecto con la altura "
+                 "completa del cartel (se notan como una pared más). Tildando esto, quedan solo "
+                 "con la altura de la base — se notan mucho menos, igual que ya pasa con las "
+                 "orejas de montaje.",
         )
         st.divider()
         raster_px = st.slider(
@@ -160,6 +171,12 @@ with col_form:
             "Alto de la pata (mm)", value=15.0, step=1.0,
             disabled=tipo_montaje != "escritorio", key="nsvg_alto_pata_mm",
         )
+        permitir_corte = st.checkbox(
+            "Partir en módulos si no entra en la cama", value=True, key="nsvg_permitir_corte",
+            help="Si el cartel es más ancho que la Bambu A1, se parte en módulos con cola de "
+                 "milano para que entren en la cama. Destildando esto, se imprime en una sola "
+                 "pieza sin importar el tamaño (vas a tener que cortarlo/imprimirlo vos por otro lado).",
+        )
         st.caption("Si el cartel es más ancho que la Bambu A1, se parte en módulos con cola de milano automáticamente.")
 
     generar_click = st.button("Generar cartel", type="primary", use_container_width=True)
@@ -171,6 +188,7 @@ with col_preview:
             raster_px, min_objeto_px, poda_frac,
             agregar_canal_salida, cable_ancho_mm, agregar_agujeros, agujero_cable_diam_mm,
             tipo_montaje, n_orejas_montaje, ancho_pata_mm, alto_pata_mm,
+            not puentes_bajitos, None if permitir_corte else float("inf"),
         )
         if png_rapido:
             st.image(
@@ -196,6 +214,8 @@ with col_preview:
                     agregar_agujeros=agregar_agujeros, agujero_cable_diam_mm=agujero_cable_diam_mm,
                     tipo_montaje=tipo_montaje, n_orejas_montaje=n_orejas_montaje,
                     ancho_pata_mm=ancho_pata_mm, alto_pata_mm=alto_pata_mm,
+                    puentes_altura_completa=not puentes_bajitos,
+                    ancho_max_modulo_mm=None if permitir_corte else float("inf"),
                 )
             except (FileNotFoundError, ValueError) as e:
                 st.error(str(e))
