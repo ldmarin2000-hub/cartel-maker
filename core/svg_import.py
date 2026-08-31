@@ -21,7 +21,7 @@ a puntos.
 """
 
 from shapely.affinity import affine_transform
-from shapely.geometry import Polygon
+from shapely.geometry import MultiPolygon, Polygon
 from shapely.ops import unary_union
 from svgelements import SVG, Path as SvgPath, Shape, Move, Line, Close
 
@@ -69,10 +69,13 @@ def svg_a_poligono(ruta_svg, puntos_por_curva=PUNTOS_POR_CURVA):
                 continue
             p = Polygon(pts)
             if not p.is_valid:
-                p = p.buffer(0)
-            if p.is_empty or p.area < 1e-9:
-                continue
-            polys_elemento.append(p)
+                p = p.buffer(0)  # un trazo auto-cruzado (p.ej. una "porción de pizza"
+                # con las puntas mal ordenadas) puede reventar en un MultiPolygon acá
+            partes = p.geoms if isinstance(p, MultiPolygon) else [p]
+            for parte in partes:
+                if parte.is_empty or parte.area < 1e-9:
+                    continue
+                polys_elemento.append(parte)
 
         # los huecos (fill-rule evenodd/nonzero) solo tienen sentido entre
         # subtrazados del MISMO <path> -- entre <path> distintos (p.ej.
