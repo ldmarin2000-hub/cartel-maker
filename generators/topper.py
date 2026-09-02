@@ -12,6 +12,10 @@ import os
 import base64
 import numpy as np
 import trimesh
+import shapely.geometry as sg
+import shapely.ops as so
+from matplotlib.textpath import TextPath
+from matplotlib.font_manager import FontProperties
 
 from core import pieza, fuentes
 
@@ -99,6 +103,82 @@ def _esfera(radio, centro_z, segmentos=12):
     return malla
 
 
+def _texto_a_poligono(texto, fuente_ttf=None, tam_fuente=100):
+    """Convierte `texto` en un shapely (Multi)Polygon con agujeros reales
+    (la "o" tiene hueco, etc.) usando los contornos vectoriales de la
+    fuente elegida — texto real, no una aproximación de bloques."""
+    try:
+        fp = FontProperties(fname=fuente_ttf) if fuente_ttf else FontProperties()
+        tp = TextPath((0, 0), texto, size=tam_fuente, prop=fp)
+    except Exception:
+        tp = TextPath((0, 0), texto, size=tam_fuente, prop=FontProperties())
+
+    contornos = [sg.Polygon(p) for p in tp.to_polygons() if len(p) >= 3]
+    contornos = [p for p in contornos if p.is_valid and p.area > 1e-6]
+    if not contornos:
+        return None
+
+    contornos.sort(key=lambda p: p.area, reverse=True)
+    usados = [False] * len(contornos)
+    resultado = []
+    for i, p in enumerate(contornos):
+        if usados[i]:
+            continue
+        huecos = []
+        for j in range(i + 1, len(contornos)):
+            if usados[j]:
+                continue
+            if p.contains(contornos[j]):
+                huecos.append(list(contornos[j].exterior.coords))
+                usados[j] = True
+        resultado.append(sg.Polygon(p.exterior.coords, huecos))
+
+    return so.unary_union(resultado)
+
+
+def _texto_a_malla3d(texto, altura, fuente_ttf=None, z0=0.0, grosor=None):
+    if grosor is None:
+        grosor = max(4.0, altura * 0.4)  # letras "robustas" — se leen bien desde varios ángulos, no una placa fina
+    """Malla 3D del texto (letras reales, con sus huecos) en MI convención
+    local: X=ancho, Y=grosor del material (parado, mirando hacia +Y), Z=altura
+    visual — apoyada de pie desde z0 hasta z0+altura, centrada en X e Y=0.
+    None si el texto queda vacío (ej. solo espacios)."""
+    texto_limpio = (texto or "").strip() or "Topper"
+    # tam_fuente fijo de referencia — el tamaño final se ajusta reescalando
+    # a `altura`, así todas las fuentes quedan a la misma altura visual.
+    multi = _texto_a_poligono(texto_limpio, fuente_ttf, tam_fuente=100)
+    if multi is None or multi.is_empty:
+        return None
+
+    piezas = multi.geoms if hasattr(multi, "geoms") else [multi]
+    mallas = [trimesh.creation.extrude_polygon(p, height=grosor)
+              for p in piezas if p.is_valid and p.area > 0]
+    if not mallas:
+        return None
+
+    # malla: X=ancho(glifo), Y=alto(glifo), Z=grosor(extrusión) tal como sale
+    # de extrude_polygon — reescalo X/Y para que el alto visual sea `altura`.
+    malla = trimesh.util.concatenate(mallas)
+    alto_actual = max(malla.extents[1], 1e-9)
+    factor = altura / alto_actual
+    malla.apply_scale([factor, factor, 1.0])
+
+    # Roto 90° en X: (x,y,z) -> (x, -z, y) — el alto del glifo (viejo Y) pasa
+    # a ser la altura vertical real (Z), y el grosor (viejo Z) pasa a Y
+    # (profundidad, mirando hacia la cámara "Frente").
+    R = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], dtype=float)
+    T4 = np.eye(4)
+    T4[:3, :3] = R
+    malla.apply_transform(T4)
+
+    bounds = malla.bounds
+    cx = (bounds[0][0] + bounds[1][0]) / 2
+    cy = (bounds[0][1] + bounds[1][1]) / 2
+    z_min = bounds[0][2]
+    malla.apply_translation([-cx, -cy, z0 - z_min])
+    return malla
+
+
 def _bloque(ancho, profundidad, altura, cx=0.0, cy=0.0, z0=0.0):
     caja = trimesh.creation.box(extents=[ancho, profundidad, altura])
     caja.apply_translation([cx, cy, z0 + altura / 2])
@@ -112,6 +192,20 @@ def _combinar(mallas):
     if not validas:
         raise ValueError("No hay geometría para combinar")
     return trimesh.util.concatenate(validas)
+
+
+# Rotación que convierte "mi arriba" (eje Z, como en un molde/cortante visto
+# desde arriba) al eje "arriba" que espera el visor glTF/model-viewer (eje Y)
+# — la misma matriz que usa core/mesh3d.py para el lado "de frente" — así la
+# base queda abajo y el topper arriba en la vista "Frente" del visor.
+_MATRIZ_ARRIBA_VISOR = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=float)
+
+
+def _orientar_para_visor(malla):
+    T4 = np.eye(4)
+    T4[:3, :3] = _MATRIZ_ARRIBA_VISOR
+    malla.apply_transform(T4)
+    return malla
 
 
 # ---------------------------------------------------------------------------
@@ -131,11 +225,12 @@ def generar_3d(texto, tamaño_mm=80, estilo="Elegante", color="Dorado",
 
     config = ESTILOS.get(estilo, ESTILOS["Elegante"])
     altura_mm = config["altura_mm"]
+    texto_valido = (texto or "").strip() or "Topper"
 
     piezas = []
 
     if base_tipo == "Palo (clavar en torta)":
-        # Palito delgado que se clava en la torta + placa donde va el diseño
+        # Palito delgado que se clava en la torta + placa + texto real parado encima
         palo_radio, palo_largo = 1.5, 55
         v, f = _cilindro(palo_radio, palo_largo, z0=-palo_largo)
         piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
@@ -144,56 +239,69 @@ def generar_3d(texto, tamaño_mm=80, estilo="Elegante", color="Dorado",
         v, f = _cilindro(placa_radio, placa_alt, z0=0)
         piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
 
-        v, f = _cilindro(placa_radio * 0.9, altura_mm, z0=placa_alt, radio_top_factor=0.75)
-        piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
+        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm, fuente_ttf=fuente, z0=placa_alt)
+        if texto3d is not None:
+            piezas.append(texto3d)
 
     elif base_tipo == "Redonda (letras paradas)":
-        # Base circular ancha y chata + "letras" (bloques) paradas sobre el borde
-        base_radio, base_alt = max(20, len(texto) * 4), 3
+        # Disco de base + el texto real parado sobre él (cada letra, con sus huecos reales)
+        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm, fuente_ttf=fuente, z0=3)
+        ancho_final = texto3d.extents[0] if texto3d is not None else 40
+        base_radio, base_alt = max(20, ancho_final * 0.65), 3
         v, f = _cilindro(base_radio, base_alt, z0=0)
         piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
-
-        letras = [c for c in texto.strip()][:14] or ["A"]
-        ancho_letra = max(3.0, (base_radio * 1.6) / max(len(letras), 1))
-        x0 = -(len(letras) * ancho_letra) / 2 + ancho_letra / 2
-        for i, _c in enumerate(letras):
-            h = altura_mm * (0.7 + 0.3 * ((i % 3) / 2))  # variación sutil de altura
-            piezas.append(_bloque(ancho_letra * 0.7, 3, h, cx=x0 + i * ancho_letra, cy=0, z0=base_alt))
+        if texto3d is not None:
+            piezas.append(texto3d)
 
     elif base_tipo == "Redonda con figura arriba":
-        base_radio, base_alt = 22, 3
+        base_radio, base_alt = 24, 3
         v, f = _cilindro(base_radio, base_alt, z0=0)
         piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
 
-        # Tallo corto + figura (esfera) representando objeto decorativo
-        v, f = _cilindro(2.5, 10, z0=base_alt)
+        # Texto grabado en bajo relieve sobre el disco (no elevado, para dejar
+        # lugar visual al objeto decorativo que va arriba en el tallo)
+        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm * 0.55, fuente_ttf=fuente, z0=base_alt, grosor=1.2)
+        if texto3d is not None:
+            piezas.append(texto3d)
+
+        # Tallo + figura decorativa (esfera simplificada) representando el objeto elegido
+        v, f = _cilindro(2.5, 12, z0=base_alt)
         piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
-        piezas.append(_esfera(altura_mm * 0.9, centro_z=base_alt + 10 + altura_mm * 0.9))
+        piezas.append(_esfera(altura_mm * 0.9, centro_z=base_alt + 12 + altura_mm * 0.9))
 
     elif base_tipo == "Sin base (figura libre)":
-        # Solo la figura, apoyada directo en Z=0 (sin placa base)
-        piezas.append(_esfera(altura_mm, centro_z=altura_mm))
-        v, f = _cilindro(altura_mm * 0.3, altura_mm * 0.6, z0=0)
-        piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
+        # Solo el texto, parado directo en el piso — sin ninguna base
+        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm, fuente_ttf=fuente, z0=0)
+        if texto3d is not None:
+            piezas.append(texto3d)
 
-    else:  # "Sólida (plana)" — comportamiento clásico: base + pico cónico
-        base_radio, base_alt = 15, 3
+    else:  # "Sólida (plana)" — base circular clásica + texto real parado encima
+        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm, fuente_ttf=fuente, z0=3)
+        ancho_final = texto3d.extents[0] if texto3d is not None else 40
+        base_radio, base_alt = max(15, ancho_final * 0.6), 3
         v, f = _cilindro(base_radio, base_alt, z0=0)
         piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
+        if texto3d is not None:
+            piezas.append(texto3d)
 
-        v, f = _cilindro(25, altura_mm, z0=base_alt, radio_top_factor=0.8)
-        piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
-
-    # Objeto decorativo adicional (independiente de la base, si se pidió)
-    if objeto_decorativo != "Ninguno" and base_tipo not in ("Redonda con figura arriba", "Sin base (figura libre)"):
-        z_top = altura_mm + (3 if "Sólida" in base_tipo or "Palo" in base_tipo else 0)
-        piezas.append(_esfera(altura_mm * 0.35, centro_z=z_top + altura_mm * 0.35))
+    # Objeto decorativo adicional (una esfera simplificada al costado del texto,
+    # representando flores/figura/etc. — independiente de la base elegida)
+    if objeto_decorativo != "Ninguno" and base_tipo != "Redonda con figura arriba":
+        ancho_texto = piezas[-1].extents[0] if piezas else 40
+        z0_obj = 0 if base_tipo == "Sin base (figura libre)" else 3
+        r_obj = altura_mm * 0.35
+        x_obj = ancho_texto / 2 + r_obj + 4
+        esfera_dec = _esfera(r_obj, centro_z=z0_obj + r_obj)
+        esfera_dec.apply_translation([x_obj, 0, 0])
+        piezas.append(esfera_dec)
 
     malla = _combinar(piezas)
     malla.fix_normals()
+    malla = _orientar_para_visor(malla)
+    malla.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [0, 1, 0]))
 
-    # Escalar para que encaje en tamaño deseado (ancho/profundidad)
-    extents_xy = max(malla.extents[0], malla.extents[1], 1e-6)
+    # Escalar para que encaje en tamaño deseado (ancho real del diseño)
+    extents_xy = max(malla.extents[0], malla.extents[2], 1e-6)
     escala = tamaño_mm / extents_xy
     malla.apply_scale(escala)
 
