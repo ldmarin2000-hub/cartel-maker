@@ -127,10 +127,27 @@ with col_preview:
                         resultado = topper.generar_neon(
                             texto=texto,
                             tamaño_mm=tamaño_mm,
-                            tipo_led=tipo_led
+                            tipo_led=tipo_led,
+                            grosor_tubo=grosor_tubo
                         )
-                        st.info(f"🔄 {resultado['estado']}")
-                        st.json(resultado)
+
+                        st.markdown(f"""
+                        ### ✓ Topper Neón generado
+                        - **Tipo LED:** {resultado['tipo_led']}
+                        - **Largo tubo:** {resultado['largo_tubo_mm']}mm
+                        - **Grosor:** {resultado['grosor_tubo']}mm
+                        - **Voltaje:** {resultado['voltaje']}
+                        - **Consumo:** {resultado['consumo_w']}W
+                        """)
+
+                        if "ruta_dxf" in resultado and os.path.exists(resultado["ruta_dxf"]):
+                            with open(resultado["ruta_dxf"], "rb") as f:
+                                st.download_button(
+                                    "📥 Descargar DXF",
+                                    f.read(),
+                                    file_name=os.path.basename(resultado["ruta_dxf"]),
+                                    mime="application/dxf"
+                                )
 
                     elif "LED" in tipo_topper:
                         resultado = topper.generar_led(

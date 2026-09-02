@@ -138,15 +138,87 @@ def generar_3d(texto, tamaño_mm=80, estilo="Elegante", color="Dorado", base="S�
     return resultado
 
 
-def generar_neon(texto, tamaño_mm=80, tipo_led="Flexible (frío)"):
-    """Generar topper Neón LED (próximamente)."""
+def generar_neon(texto, tamaño_mm=80, tipo_led="Flexible (frío)", grosor_tubo=10):
+    """Generar topper Neón LED flexible con DXF."""
+    os.makedirs(CARPETA_SALIDA, exist_ok=True)
+
+    # Estimar longitud de tubo según ancho del texto (aprox. 0.6mm por letra)
+    largo_texto_mm = len(texto) * 6 + 20  # +20 para conexiones
+    altura_tubo = grosor_tubo + 2  # Margen para tubo rígido de soporte
+
+    # Crear rectángulo en DXF para representar el recorrido del tubo
+    try:
+        import dxf  # pip install ezdxf
+    except ImportError:
+        # Fallback: crear DXF simple sin ezdxf
+        dxf_content = f"""SECTION
+  2
+ENTITIES
+  0
+LWPOLYLINE
+  5
+1F
+100
+AcDbEntity
+  8
+TUBO_LED
+100
+AcDbLwPolyline
+ 90
+4
+ 70
+1
+ 10
+0.0
+ 20
+0.0
+ 10
+{largo_texto_mm}
+ 20
+0.0
+ 10
+{largo_texto_mm}
+ 20
+{altura_tubo}
+ 10
+0.0
+ 20
+{altura_tubo}
+ENDSEC
+  0
+EOF"""
+    else:
+        # Usar ezdxf si disponible
+        from ezdxf import new
+        doc = new("R2010")
+        msp = doc.modelspace()
+        msp.add_lwpolyline([
+            (0, 0), (largo_texto_mm, 0),
+            (largo_texto_mm, altura_tubo), (0, altura_tubo)
+        ], dxfattribs={"layer": "TUBO_LED"})
+        dxf_content = doc.export()
+
+    base_nombre = pieza.nombre_archivo(texto, default="topper")
+    ruta_dxf = os.path.join(CARPETA_SALIDA, f"neon_{base_nombre}_{tipo_led.replace(' ', '_')}.dxf")
+
+    with open(ruta_dxf, "w", encoding="utf-8") as f:
+        f.write(dxf_content)
+
+    # Calcular consumo energético (LED flexible: ~1.5W/m)
+    consumo_w = (largo_texto_mm / 1000) * 1.5
+    voltaje = "24V" if tipo_led.startswith("Flexible") else "5V"
+
     resultado = {
         "tipo": "neon",
         "texto": texto,
         "tamaño_mm": tamaño_mm,
         "tipo_led": tipo_led,
-        "voltaje": "24V",
-        "estado": "Próximamente: esquema de corte DXF",
+        "grosor_tubo": grosor_tubo,
+        "largo_tubo_mm": largo_texto_mm,
+        "voltaje": voltaje,
+        "consumo_w": round(consumo_w, 1),
+        "ruta_dxf": ruta_dxf,
+        "estado": "✓ Generado",
     }
     return resultado
 
