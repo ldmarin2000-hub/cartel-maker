@@ -257,17 +257,88 @@ with col_preview:
                 except Exception as e:
                     st.error(f"Error: {str(e)}")
 
-# Info
 st.divider()
-with st.expander("ℹ️ Información sobre toppers"):
+
+# Comparativa
+with st.expander("📊 Comparativa de toppers"):
+    comp_data = {
+        "Tipo": ["3D", "Neón", "LED", "Acrílico"],
+        "Tiempo": ["2-5 min", "1-2h", "3-4h", "10-20 min"],
+        "Costo": ["Bajo", "Medio", "Alto", "Muy bajo"],
+        "Durabilidad": ["Excelente", "Buena", "Excelente", "Media"],
+        "Interactividad": ["—", "Luz", "Luz+Efecto", "—"],
+        "Reutilizable": ["Sí", "Sí", "Sí", "No"],
+    }
+    st.dataframe(comp_data, use_container_width=True)
+
+# Guía de selección
+with st.expander("🎯 Guía de selección"):
     st.markdown("""
-    **Toppers 3D:** Figuras pequeñas sólidas, imprimibles. Base firma.
+    **Elige 3D si:**
+    - Quieres un topper clásico impreso
+    - Presupuesto limitado
+    - Personajes/logos complejos
 
-    **Toppers Neón:** LED flexible en tubo, bajo voltaje, efectos de color.
+    **Elige Neón si:**
+    - Buscas efecto luminoso básico
+    - Evento nocturno
+    - Presupuesto medio
 
-    **Toppers LED:** Estructura + luces integradas, baterías, efectos secuenciales.
+    **Elige LED si:**
+    - Quieres efecto luminoso avanzado (parpadeo, secuencias)
+    - Evento especial premium
+    - Baterías integradas
 
-    **Toppers Acrílico:** Grabado láser, espejos, colores satinados.
+    **Elige Acrílico si:**
+    - Presupuesto muy ajustado
+    - Grabado simple
+    - No es reutilizable (ok)
+    """)
 
-    **Caso de uso:** Decoración de tortas, cupcakes, postres, eventos.
+# Info detallada
+with st.expander("ℹ️ Información técnica"):
+    st.markdown("""
+    ### Toppers 3D
+    - **Material:** PLA, PETG, ABS, Resina
+    - **Resolución:** 0.2mm capa
+    - **Tiempo impresión:** 2-5 min (80mm)
+    - **Bases:** Sólida (estable), Hueca (ahorro), Magnética (reutilizable)
+
+    ### Toppers Neón
+    - **Tipo LED:** Flexible (24V frío), Rígido (12V cálido), RGB (multicolor)
+    - **Consumo:** 0.05-0.2W
+    - **Vida útil:** 50,000h
+    - **Formato:** DXF para máquina dobladora
+
+    ### Toppers LED
+    - **Estructura:** PLA, Acrílico, Madera
+    - **Efectos:** Fijo, Parpadeo (2Hz), Secuencial, Arcoíris
+    - **Alimentación:** USB 5V (batería integrada)
+    - **Consumo:** 4.5-6W según efecto
+
+    ### Toppers Acrílico
+    - **Material:** Acrílico 2-8mm
+    - **Acabados:** Espejo, Transparente, Mate, Color
+    - **Método:** Grabado láser (CO₂)
+    - **Potencia:** 20-96W según espesor
+    - **Nota:** No reutilizable, costo muy bajo
+    """)
+
+# Compatibilidad
+with st.expander("🔗 Integración con otras herramientas"):
+    st.markdown("""
+    | Herramienta | 3D | Neón | LED | Acrílico |
+    |---|:---:|:---:|:---:|:---:|
+    | Silhueta | ✓ | — | — | — |
+    | Esculturas | ✓ | — | ✓ | — |
+    | Llavero | ✓ | — | — | ✓ |
+    | Letras | ✓ | ✓ | ✓ | ✓ |
+    | Neón SVG | — | ✓ | — | — |
+    | Nombre LED | — | — | ✓ | — |
+
+    **Exporta formatos:**
+    - 3D → STL (impresoras 3D, Cura/PrusaSlicer)
+    - Neón → DXF (máquinas dobladoras LED)
+    - LED → STL + especificaciones
+    - Acrílico → DXF (cortadoras láser, Lightburn)
     """)
