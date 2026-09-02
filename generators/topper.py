@@ -432,6 +432,123 @@ EOF"""
     return resultado
 
 
+def preview_svg_3d(texto, tamaño_mm=80, estilo="Elegante"):
+    """SVG preview simple de topper 3D."""
+    config = ESTILOS.get(estilo, ESTILOS["Elegante"])
+    altura_mm = config["altura_mm"]
+
+    # Escala para SVG (1mm = 2px)
+    scale = 2
+    w = tamaño_mm * scale
+    h = (altura_mm + 5) * scale
+
+    svg = f'''<svg viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="grad3d" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#ddd;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#999;stop-opacity:1" />
+        </linearGradient>
+    </defs>
+    <!-- Base -->
+    <rect x="{(w-tamaño_mm*scale*0.4)/2}" y="{(altura_mm-2)*scale}" width="{tamaño_mm*scale*0.4}" height="{3*scale}"
+          fill="url(#grad3d)" stroke="#666" stroke-width="1"/>
+    <!-- Topper -->
+    <path d="M {(w-tamaño_mm*scale*0.5)/2} {(altura_mm-2)*scale}
+             L {w/2} {2*scale}
+             L {(w+tamaño_mm*scale*0.5)/2} {(altura_mm-2)*scale} Z"
+          fill="url(#grad3d)" stroke="#666" stroke-width="1.5"/>
+    <!-- Estilo label -->
+    <text x="{w/2}" y="{h-5}" text-anchor="middle" font-size="10" fill="#666">{estilo}</text>
+    </svg>'''
+    return svg
+
+def preview_svg_neon(texto, grosor_tubo=10, largo_mm=50):
+    """SVG preview de topper Neón."""
+    scale = 2
+    w = max(largo_mm * scale, 120)
+    h = (grosor_tubo + 10) * scale
+
+    svg = f'''<svg viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <filter id="glow">
+            <feGaussianBlur stdDeviation="1" result="coloredBlur"/>
+            <feMerge>
+                <feMergeNode in="coloredBlur"/>
+                <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+        </filter>
+    </defs>
+    <!-- Tubo LED -->
+    <ellipse cx="{w/2}" cy="{h/2}" rx="{largo_mm*scale/2}" ry="{grosor_tubo*scale/2}"
+             fill="none" stroke="#00ff00" stroke-width="3" filter="url(#glow)" opacity="0.8"/>
+    <ellipse cx="{w/2}" cy="{h/2}" rx="{largo_mm*scale/2-2}" ry="{grosor_tubo*scale/2-2}"
+             fill="none" stroke="#00ff00" stroke-width="1" opacity="0.5"/>
+    <!-- Conexiones -->
+    <circle cx="{w/2-largo_mm*scale/2}" cy="{h/2}" r="4" fill="#ffff00" filter="url(#glow)"/>
+    <circle cx="{w/2+largo_mm*scale/2}" cy="{h/2}" r="4" fill="#ffff00" filter="url(#glow)"/>
+    <text x="{w/2}" y="{h-3}" text-anchor="middle" font-size="10" fill="#00ff00">Tubo LED Flexible</text>
+    </svg>'''
+    return svg
+
+def preview_svg_led(efecto="Fijo", tamaño_mm=80):
+    """SVG preview de topper LED."""
+    scale = 1.5
+    w = tamaño_mm * scale
+    h = (tamaño_mm + 20) * scale
+
+    colores_efecto = {"Fijo": "#ff0000", "Parpadeo": "#ff6600", "Secuencial": "#ffff00", "Arcoíris": "#ff00ff"}
+    color = colores_efecto.get(efecto, "#ff0000")
+
+    svg = f'''<svg viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <filter id="ledglow">
+            <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+            <feMerge>
+                <feMergeNode in="coloredBlur"/>
+                <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+        </filter>
+    </defs>
+    <!-- Base -->
+    <rect x="{(w-tamaño_mm*scale*0.3)/2}" y="{h-30*scale}" width="{tamaño_mm*scale*0.3}" height="{5*scale}"
+          fill="#333" stroke="#000" stroke-width="1"/>
+    <!-- Estructura LED -->
+    <circle cx="{w/2}" cy="{h/2-10*scale}" r="{tamaño_mm*scale*0.35}"
+            fill="none" stroke="#666" stroke-width="2"/>
+    <!-- Luces -->
+    <circle cx="{w/2-tamaño_mm*scale*0.15}" cy="{h/2-10*scale-tamaño_mm*scale*0.15}" r="3"
+            fill="{color}" filter="url(#ledglow)" opacity="0.8"/>
+    <circle cx="{w/2}" cy="{h/2-10*scale-tamaño_mm*scale*0.25}" r="3"
+            fill="{color}" filter="url(#ledglow)" opacity="0.8"/>
+    <circle cx="{w/2+tamaño_mm*scale*0.15}" cy="{h/2-10*scale-tamaño_mm*scale*0.15}" r="3"
+            fill="{color}" filter="url(#ledglow)" opacity="0.8"/>
+    <text x="{w/2}" y="{h-5}" text-anchor="middle" font-size="10" fill="{color}">Efecto: {efecto}</text>
+    </svg>'''
+    return svg
+
+def preview_svg_acrilico(texto, espesor_mm=3, ancho_mm=100, alto_mm=60):
+    """SVG preview de topper Acrílico."""
+    scale = 1
+
+    svg = f'''<svg viewBox="0 0 {ancho_mm} {alto_mm}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="acrylic" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#fff;stop-opacity:0.7" />
+            <stop offset="50%" style="stop-color:#e0e0e0;stop-opacity:0.5" />
+            <stop offset="100%" style="stop-color:#999;stop-opacity:0.3" />
+        </linearGradient>
+    </defs>
+    <!-- Acrílico -->
+    <rect x="5" y="5" width="{ancho_mm-10}" height="{alto_mm-10}"
+          fill="url(#acrylic)" stroke="#333" stroke-width="1.5" rx="3"/>
+    <!-- Grabado de texto -->
+    <text x="{ancho_mm/2}" y="{alto_mm/2+3}" text-anchor="middle" font-size="14"
+          font-family="Arial" font-weight="bold" fill="#333" opacity="0.6">{texto[:8]}</text>
+    <!-- Espesor info -->
+    <text x="{ancho_mm/2}" y="{alto_mm-8}" text-anchor="middle" font-size="9" fill="#666">{espesor_mm}mm</text>
+    </svg>'''
+    return svg
+
 def generar(tipo, texto, tamaño_mm=80, **kwargs):
     """Generador unificado de toppers."""
     if tipo == "3d":

@@ -82,6 +82,29 @@ with col_form:
     generar_click = st.button("Generar topper", type="primary", use_container_width=True)
 
 with col_preview:
+    st.subheader("👁️ Vista previa")
+
+    # Preview visual por tipo
+    if "3D" in tipo_topper:
+        svg_preview = topper.preview_svg_3d(texto, tamaño_mm, estilo)
+        st.image(svg_preview, use_column_width=True)
+
+    elif "Neón" in tipo_topper:
+        largo_estimado = len(texto) * 6 + 20
+        svg_preview = topper.preview_svg_neon(texto, grosor_tubo, largo_estimado)
+        st.image(svg_preview, use_column_width=True)
+
+    elif "LED" in tipo_topper:
+        svg_preview = topper.preview_svg_led(efecto, tamaño_mm)
+        st.image(svg_preview, use_column_width=True)
+
+    elif "Acrílico" in tipo_topper:
+        ancho_est = tamaño_mm + 20
+        alto_est = int(tamaño_mm * 0.6) + 10
+        svg_preview = topper.preview_svg_acrilico(texto, espesor_acrilico, ancho_est, alto_est)
+        st.image(svg_preview, use_column_width=True)
+
+    st.divider()
     st.subheader("📊 Especificaciones")
 
     # Mostrar specs por tipo
