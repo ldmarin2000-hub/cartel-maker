@@ -231,16 +231,21 @@ def generar_3d(texto, tamaño_mm=80, estilo="Elegante", color="Dorado",
 
     if base_tipo == "Palo (clavar en torta)":
         # Palito delgado que se clava en la torta + placa + texto real parado encima
+        # (la placa se dimensiona en función del ancho del texto, igual que las
+        # demás bases, para que el texto no quede desproporcionadamente chico)
+        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm, fuente_ttf=fuente, z0=0)
+        ancho_final = texto3d.extents[0] if texto3d is not None else 40
+
         palo_radio, palo_largo = 1.5, 55
         v, f = _cilindro(palo_radio, palo_largo, z0=-palo_largo)
         piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
 
-        placa_radio, placa_alt = 18, 3
+        placa_radio, placa_alt = max(16, ancho_final * 0.55), 3
         v, f = _cilindro(placa_radio, placa_alt, z0=0)
         piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
 
-        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm, fuente_ttf=fuente, z0=placa_alt)
         if texto3d is not None:
+            texto3d.apply_translation([0, 0, placa_alt])
             piezas.append(texto3d)
 
     elif base_tipo == "Redonda (letras paradas)":
