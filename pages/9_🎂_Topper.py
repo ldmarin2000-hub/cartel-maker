@@ -87,22 +87,22 @@ with col_preview:
     # Preview visual por tipo
     if "3D" in tipo_topper:
         svg_preview = topper.preview_svg_3d(texto, tamaño_mm, estilo)
-        st.image(svg_preview, use_column_width=True)
+        components.html(f'<div style="display:flex;justify-content:center;width:100%">{svg_preview}</div>', height=280)
 
     elif "Neón" in tipo_topper:
         largo_estimado = len(texto) * 6 + 20
         svg_preview = topper.preview_svg_neon(texto, grosor_tubo, largo_estimado)
-        st.image(svg_preview, use_column_width=True)
+        components.html(f'<div style="display:flex;justify-content:center;width:100%">{svg_preview}</div>', height=180)
 
     elif "LED" in tipo_topper:
         svg_preview = topper.preview_svg_led(efecto, tamaño_mm)
-        st.image(svg_preview, use_column_width=True)
+        components.html(f'<div style="display:flex;justify-content:center;width:100%">{svg_preview}</div>', height=280)
 
     elif "Acrílico" in tipo_topper:
         ancho_est = tamaño_mm + 20
         alto_est = int(tamaño_mm * 0.6) + 10
         svg_preview = topper.preview_svg_acrilico(texto, espesor_acrilico, ancho_est, alto_est)
-        st.image(svg_preview, use_column_width=True)
+        components.html(f'<div style="display:flex;justify-content:center;width:100%">{svg_preview}</div>', height=200)
 
     st.divider()
     st.subheader("📊 Especificaciones")
