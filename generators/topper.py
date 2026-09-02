@@ -223,16 +223,99 @@ EOF"""
     return resultado
 
 
-def generar_led(texto, tamaño_mm=80, efecto="Fijo", con_bateria=True):
-    """Generar topper LED con efectos (próximamente)."""
+def generar_led(texto, tamaño_mm=80, material="PLA", efecto="Fijo", con_bateria=True):
+    """Generar topper LED con estructura e integración LED."""
+    os.makedirs(CARPETA_SALIDA, exist_ok=True)
+
+    # Crear cilindro LED: estructura más grande que 3D para albergar LEDs
+    base_radio = 20  # mm
+    base_altura = 4  # mm
+
+    # Generar cilindro de base
+    vertices_base = []
+    faces_base = []
+
+    theta = np.linspace(0, 2*np.pi, 16, endpoint=False)
+    for i, angle in enumerate(theta):
+        x = base_radio * np.cos(angle)
+        y = base_radio * np.sin(angle)
+        vertices_base.append([x, y, 0])
+        vertices_base.append([x, y, base_altura])
+
+    idx_center_bottom = len(vertices_base)
+    vertices_base.append([0, 0, 0])
+    idx_center_top = len(vertices_base)
+    vertices_base.append([0, 0, base_altura])
+
+    # Generar caras
+    n = len(theta)
+    for i in range(n):
+        i_next = (i + 1) % n
+        faces_base.append([i*2, (i_next)*2, idx_center_bottom])
+        faces_base.append([i*2+1, idx_center_top, (i_next)*2+1])
+        faces_base.append([i*2, (i_next)*2, (i_next)*2+1])
+        faces_base.append([i*2, (i_next)*2+1, i*2+1])
+
+    # Crear cilindro LED: estructura hueca para LED strip
+    led_radio = 28  # mm
+    led_altura = 20  # Más alto para espacio de LEDs
+
+    offset_z = base_altura
+
+    vertices_led = []
+    for i, angle in enumerate(theta):
+        x = led_radio * np.cos(angle)
+        y = led_radio * np.sin(angle)
+        vertices_led.append([x, y, offset_z])
+        vertices_led.append([x*0.9, y*0.9, offset_z + led_altura])
+
+    idx_top_center = len(vertices_led)
+    vertices_led.append([0, 0, offset_z + led_altura])
+
+    faces_led = []
+    for i in range(n):
+        i_next = (i + 1) % n
+        faces_led.append([i*2, (i_next)*2, (i_next)*2+1])
+        faces_led.append([i*2, (i_next)*2+1, i*2+1])
+        faces_led.append([i*2+1, idx_top_center, (i_next)*2+1])
+
+    # Combinar vértices
+    all_vertices = np.array(vertices_base + vertices_led, dtype=np.float64)
+    offset_led_faces = len(vertices_base)
+
+    all_faces = faces_base.copy()
+    for face in faces_led:
+        all_faces.append(tuple([v + offset_led_faces for v in face]))
+
+    malla = trimesh.Trimesh(vertices=all_vertices, faces=np.array(all_faces, dtype=np.int64), process=True)
+    malla.fix_normals()
+
+    # Escalar
+    escala = tamaño_mm / max(malla.extents[:2].max(), 1e-6)
+    malla.apply_scale(escala)
+
+    # Exportar STL
+    base_nombre = pieza.nombre_archivo(texto, default="topper")
+    ruta_stl = os.path.join(CARPETA_SALIDA, f"led_{base_nombre}_{efecto}.stl")
+    malla.export(ruta_stl)
+
+    # Especificaciones LED
+    consumo_w = {"Fijo": 5.0, "Parpadeo": 4.5, "Secuencial": 5.5, "Arcoíris": 6.0}.get(efecto, 5.0)
+    voltaje = "5V USB" if con_bateria else "12V"
+
     resultado = {
         "tipo": "led",
         "texto": texto,
         "tamaño_mm": tamaño_mm,
-        "material": "PLA",
+        "material": material,
         "efecto": efecto,
         "con_bateria": con_bateria,
-        "estado": "Próximamente: STL + esquema LED",
+        "consumo_w": consumo_w,
+        "voltaje": voltaje,
+        "ruta_stl": ruta_stl,
+        "vertices": len(malla.vertices),
+        "caras": len(malla.faces),
+        "estado": "✓ Generado",
     }
     return resultado
 

@@ -153,11 +153,35 @@ with col_preview:
                         resultado = topper.generar_led(
                             texto=texto,
                             tamaño_mm=tamaño_mm,
+                            material=material_led,
                             efecto=efecto,
                             con_bateria=baterias
                         )
-                        st.info(f"🔄 {resultado['estado']}")
-                        st.json(resultado)
+
+                        # Preview 3D
+                        if "ruta_stl" in resultado and os.path.exists(resultado["ruta_stl"]):
+                            html_preview = preview3d.armar_html_visor([{"ruta_stl": resultado["ruta_stl"], "color": "#ff6b35"}], height_px=500)
+                            if html_preview:
+                                components.html(html_preview, height=500, scrolling=False)
+
+                        st.markdown(f"""
+                        ### ✓ Topper LED generado
+                        - **Material:** {resultado['material']}
+                        - **Efecto:** {resultado['efecto']}
+                        - **Tamaño:** {resultado['tamaño_mm']}mm
+                        - **Voltaje:** {resultado['voltaje']}
+                        - **Consumo:** {resultado['consumo_w']}W
+                        - **Vértices:** {resultado['vertices']} | **Caras:** {resultado['caras']}
+                        """)
+
+                        if "ruta_stl" in resultado:
+                            with open(resultado["ruta_stl"], "rb") as f:
+                                st.download_button(
+                                    "📥 Descargar STL",
+                                    f.read(),
+                                    file_name=os.path.basename(resultado["ruta_stl"]),
+                                    mime="application/octet-stream"
+                                )
 
                     elif "Acrílico" in tipo_topper:
                         resultado = topper.generar_acrilico(
