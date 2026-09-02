@@ -190,8 +190,24 @@ with col_preview:
                             espesor_mm=espesor_acrilico,
                             acabado=acabado
                         )
-                        st.info(f"🔄 {resultado['estado']}")
-                        st.json(resultado)
+
+                        st.markdown(f"""
+                        ### ✓ Topper Acrílico generado
+                        - **Acabado:** {resultado['acabado']}
+                        - **Espesor:** {resultado['espesor_mm']}mm
+                        - **Dimensiones:** {resultado['ancho']}×{resultado['alto']}mm
+                        - **Potencia láser:** {resultado['potencia_w']}W
+                        - **Tiempo corte:** {resultado['tiempo_corte_s']}s
+                        """)
+
+                        if "ruta_dxf" in resultado and os.path.exists(resultado["ruta_dxf"]):
+                            with open(resultado["ruta_dxf"], "rb") as f:
+                                st.download_button(
+                                    "📥 Descargar DXF",
+                                    f.read(),
+                                    file_name=os.path.basename(resultado["ruta_dxf"]),
+                                    mime="application/dxf"
+                                )
 
                 except Exception as e:
                     st.error(f"Error: {str(e)}")

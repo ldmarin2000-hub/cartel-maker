@@ -321,14 +321,113 @@ def generar_led(texto, tamaño_mm=80, material="PLA", efecto="Fijo", con_bateria
 
 
 def generar_acrilico(texto, tamaño_mm=80, espesor_mm=3, acabado="Transparente"):
-    """Generar topper Acrílico (próximamente)."""
+    """Generar topper Acrílico para grabado láser con DXF."""
+    os.makedirs(CARPETA_SALIDA, exist_ok=True)
+
+    # Crear forma simple de topper: rectángulo + círculos de esquina
+    ancho = tamaño_mm + 20
+    alto = int(tamaño_mm * 0.6) + 10
+    radio_esquina = 5
+
+    # DXF básico para topper acrílico
+    dxf_content = f"""SECTION
+  2
+ENTITIES
+  0
+LWPOLYLINE
+  5
+1F
+100
+AcDbEntity
+  8
+CORTE
+100
+AcDbLwPolyline
+ 90
+4
+ 70
+1
+ 10
+{radio_esquina}
+ 20
+0.0
+ 10
+{ancho - radio_esquina}
+ 20
+0.0
+ 10
+{ancho}
+ 20
+{radio_esquina}
+ 10
+{ancho}
+ 20
+{alto - radio_esquina}
+ 10
+{ancho - radio_esquina}
+ 20
+{alto}
+ 10
+{radio_esquina}
+ 20
+{alto}
+ 10
+0.0
+ 20
+{alto - radio_esquina}
+ 10
+0.0
+ 20
+{radio_esquina}
+  0
+TEXT
+  5
+20
+100
+AcDbEntity
+  8
+GRABADO
+100
+AcDbText
+ 10
+{ancho/2}
+ 20
+{alto/2}
+ 40
+6.0
+  1
+{texto}
+ENDSEC
+  0
+EOF"""
+
+    base_nombre = pieza.nombre_archivo(texto, default="topper")
+    ruta_dxf = os.path.join(CARPETA_SALIDA, f"acrilico_{base_nombre}_{acabado.replace(' ', '_')}.dxf")
+
+    with open(ruta_dxf, "w", encoding="utf-8") as f:
+        f.write(dxf_content)
+
+    # Calcular potencia láser basada en espesor y acabado
+    potencia_base = espesor_mm * 20  # W
+    potencia_grabado = {"Espejo": potencia_base * 0.8, "Transparente": potencia_base * 1.0,
+                        "Mate": potencia_base * 1.2, "Color": potencia_base * 0.9}.get(acabado, potencia_base)
+
+    # Tiempo estimado de corte (aprox. 5mm/s en acrílico)
+    perimetro = 2 * (ancho + alto)
+    tiempo_corte = perimetro / 5  # segundos
+
     resultado = {
         "tipo": "acrilico",
         "texto": texto,
         "tamaño_mm": tamaño_mm,
         "espesor_mm": espesor_mm,
         "acabado": acabado,
-        "estado": "Próximamente: archivo DXF para láser",
+        "ancho": ancho,
+        "alto": alto,
+        "potencia_w": int(potencia_grabado),
+        "tiempo_corte_s": round(tiempo_corte, 1),
+        "ruta_dxf": ruta_dxf,
+        "estado": "✓ Generado",
     }
     return resultado
 
