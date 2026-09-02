@@ -82,6 +82,51 @@ with col_form:
     generar_click = st.button("Generar topper", type="primary", use_container_width=True)
 
 with col_preview:
+    st.subheader("📊 Especificaciones")
+
+    # Mostrar specs por tipo
+    if "3D" in tipo_topper:
+        col_spec1, col_spec2 = st.columns(2)
+        with col_spec1:
+            st.metric("Tamaño estimado", f"{tamaño_mm}mm")
+            st.metric("Material", material_3d)
+        with col_spec2:
+            st.metric("Estilo", estilo)
+            st.metric("Base", base_tipo)
+        st.caption("⚙️ Tiempo: 2-5 min | Costo material: bajo")
+
+    elif "Neón" in tipo_topper:
+        col_spec1, col_spec2 = st.columns(2)
+        with col_spec1:
+            st.metric("Tipo LED", tipo_led.split("(")[0].strip())
+            st.metric("Diámetro", f"{grosor_tubo}mm")
+        with col_spec2:
+            st.metric("Voltaje", "24V")
+            st.metric("Consumo est.", "0.1W")
+        st.caption("⚙️ Tiempo: 1-2h instalación | Costo: medio")
+
+    elif "LED" in tipo_topper:
+        col_spec1, col_spec2 = st.columns(2)
+        with col_spec1:
+            st.metric("Efecto", efecto)
+            st.metric("Material", material_led)
+        with col_spec2:
+            st.metric("Voltaje", "5V USB" if baterias else "12V")
+            st.metric("Consumo", {"Fijo": "5W", "Parpadeo": "4.5W", "Secuencial": "5.5W", "Arcoíris": "6W"}.get(efecto, "5W"))
+        st.caption("⚙️ Tiempo: 3-4h montaje | Costo: alto")
+
+    elif "Acrílico" in tipo_topper:
+        col_spec1, col_spec2 = st.columns(2)
+        with col_spec1:
+            st.metric("Espesor", f"{espesor_acrilico}mm")
+            st.metric("Acabado", acabado)
+        with col_spec2:
+            st.metric("Potencia láser", f"{espesor_acrilico * 20 * {'Espejo': 0.8, 'Transparente': 1.0, 'Mate': 1.2, 'Color': 0.9}.get(acabado, 1.0):.0f}W")
+            st.metric("Tiempo corte", f"{(tamaño_mm * 2 + 40) / 5:.1f}s")
+        st.caption("⚙️ Tiempo: 10-20 min | Costo: muy bajo")
+
+    st.divider()
+
     if generar_click:
         if not texto.strip():
             st.error("Ingresá un texto/diseño")
