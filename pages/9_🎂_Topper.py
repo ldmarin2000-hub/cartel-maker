@@ -4,16 +4,17 @@
 pages/9_🎂_Topper.py
 ---------------------
 Generador unificado de toppers para tortas, cupcakes, y decoraciones.
-Integración 3D completa con STL export y preview interactivo.
+Integración 3D completa con STL export y preview interactivo fiel
+(texto real, fuente real, tipo de base real).
 """
 
 import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import colores, preview3d
+from core import colores, preview3d, fuentes
 from generators import topper
-from ui_streamlit import bloque_presets
+from ui_streamlit import bloque_presets, selector_fuente
 
 st.set_page_config(page_title="Topper · Cartel Maker", page_icon="🎂", layout="wide")
 
@@ -28,7 +29,8 @@ TIPOS_TOPPER = [
 ]
 
 PRESET_KEYS = [
-    "tp_tipo", "tp_texto", "tp_tamaño_mm", "tp_estilo", "tp_material", "tp_color"
+    "tp_tipo", "tp_texto", "tp_tamaño_mm", "tp_estilo", "tp_material", "tp_color",
+    "tp_base_tipo", "tp_tema", "tp_objeto",
 ]
 
 tipo_topper = st.radio("Tipo de topper", TIPOS_TOPPER, horizontal=True, key="tp_tipo")
@@ -41,15 +43,26 @@ with col_form:
     texto = st.text_input("Texto/Diseño", "Topper", key="tp_texto",
                          help="Texto o nombre a grabar/mostrar en el topper")
 
+    # Fuente — selector real de las fuentes curadas/proyecto/sistema
+    ruta_fuente = selector_fuente("Fuente", key="tp_fuente", texto_muestra=texto or "Topper", mostrar_preview=False)
+
     tamaño_mm = st.slider("Tamaño (mm)", 20, 200, 80, step=5, key="tp_tamaño_mm",
                          help="Altura aproximada del topper (mayor = más visible)")
 
-    estilo = st.selectbox("Estilo", ["Minimalista", "Elegante", "Divertido", "Romántico"], key="tp_estilo")
+    estilo = st.selectbox(
+        "Estilo",
+        list(topper.ESTILOS.keys()),
+        key="tp_estilo",
+        help="Controla la altura y personalidad de la silueta"
+    )
+
+    tema = st.selectbox("Tema / Categoría", topper.TEMAS, key="tp_tema")
 
     # Parámetros específicos por tipo
     material_3d = "PLA"
     color_3d = "Blanco"
-    base_tipo = "Sólida"
+    base_tipo = topper.BASES[0]
+    objeto_decorativo = "Ninguno"
     tipo_led = "Flexible (frío)"
     grosor_tubo = 10
     material_led = "PLA"
@@ -60,8 +73,21 @@ with col_form:
 
     if "3D" in tipo_topper:
         st.subheader("Parámetros 3D")
-        material_3d = st.selectbox("Material", ["PLA", "PETG", "ABS", "Resin"], key="tp_material")
-        base_tipo = st.radio("Tipo de base", ["Sólida", "Hueca", "Magnética"], horizontal=True, key="tp_base")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            material_3d = st.selectbox("Material", ["PLA", "PETG", "ABS", "Resin"], key="tp_material")
+            color_3d = st.selectbox("Color", list(colores.NOMBRES), index=0, key="tp_color")
+        with col_b:
+            base_tipo = st.selectbox(
+                "Tipo de base", topper.BASES, key="tp_base_tipo",
+                help=(
+                    "Sólida: base plana clásica. Palo: se clava en la torta. "
+                    "Redonda (letras paradas): letras individuales sobre disco. "
+                    "Redonda con figura arriba: disco + objeto/figura. "
+                    "Sin base: figura libre, apoyada directo."
+                )
+            )
+            objeto_decorativo = st.selectbox("Objeto decorativo", topper.OBJETOS_DECORATIVOS, key="tp_objeto")
 
     elif "Neón" in tipo_topper:
         st.subheader("Parámetros Neón")
@@ -72,7 +98,7 @@ with col_form:
         st.subheader("Parámetros LED")
         material_led = st.selectbox("Material estructura", ["PLA", "Acrílico", "Madera"], key="tp_led_material")
         efecto = st.selectbox("Efecto", ["Fijo", "Parpadeo", "Secuencial", "Arcoíris"], key="tp_led_efecto")
-        baterias = st.checkbox("Incluir compartimiento para batería", key="tp_led_bat")
+        baterias = st.checkbox("Incluir compartimiento para batería", value=True, key="tp_led_bat")
 
     elif "Acrílico" in tipo_topper:
         st.subheader("Parámetros Acrílico")
@@ -84,25 +110,28 @@ with col_form:
 with col_preview:
     st.subheader("👁️ Vista previa")
 
-    # Preview visual por tipo
+    # Preview visual por tipo — texto y fuente reales
     if "3D" in tipo_topper:
-        svg_preview = topper.preview_svg_3d(texto, tamaño_mm, estilo)
-        components.html(f'<div style="display:flex;justify-content:center;width:100%">{svg_preview}</div>', height=280)
+        color_hex = dict(colores.PALETA).get(color_3d, "#cccccc")
+        html_preview = topper.preview_html_3d(
+            texto or "Topper", tamaño_mm, estilo, base_tipo, color_hex, ruta_fuente
+        )
+        components.html(f'<div style="display:flex;justify-content:center;width:100%">{html_preview}</div>', height=300)
 
     elif "Neón" in tipo_topper:
-        largo_estimado = len(texto) * 6 + 20
-        svg_preview = topper.preview_svg_neon(texto, grosor_tubo, largo_estimado)
-        components.html(f'<div style="display:flex;justify-content:center;width:100%">{svg_preview}</div>', height=180)
+        largo_estimado = len((texto or "Topper")) * 6 + 20
+        html_preview = topper.preview_html_neon(texto or "Topper", grosor_tubo, largo_estimado, ruta_fuente)
+        components.html(f'<div style="display:flex;justify-content:center;width:100%;background:#111;border-radius:8px">{html_preview}</div>', height=180)
 
     elif "LED" in tipo_topper:
-        svg_preview = topper.preview_svg_led(efecto, tamaño_mm)
-        components.html(f'<div style="display:flex;justify-content:center;width:100%">{svg_preview}</div>', height=280)
+        html_preview = topper.preview_html_led(texto or "Topper", efecto, tamaño_mm, ruta_fuente)
+        components.html(f'<div style="display:flex;justify-content:center;width:100%;background:#111;border-radius:8px">{html_preview}</div>', height=300)
 
     elif "Acrílico" in tipo_topper:
         ancho_est = tamaño_mm + 20
         alto_est = int(tamaño_mm * 0.6) + 10
-        svg_preview = topper.preview_svg_acrilico(texto, espesor_acrilico, ancho_est, alto_est)
-        components.html(f'<div style="display:flex;justify-content:center;width:100%">{svg_preview}</div>', height=200)
+        html_preview = topper.preview_html_acrilico(texto or "Topper", espesor_acrilico, ancho_est, alto_est, ruta_fuente)
+        components.html(f'<div style="display:flex;justify-content:center;width:100%">{html_preview}</div>', height=200)
 
     st.divider()
     st.subheader("📊 Especificaciones")
@@ -113,10 +142,12 @@ with col_preview:
         with col_spec1:
             st.metric("Tamaño estimado", f"{tamaño_mm}mm")
             st.metric("Material", material_3d)
+            st.metric("Tema", tema)
         with col_spec2:
             st.metric("Estilo", estilo)
-            st.metric("Base", base_tipo)
-        st.caption("⚙️ Tiempo: 2-5 min | Costo material: bajo")
+            st.metric("Base", base_tipo.split(" ")[0])
+            st.metric("Decoración", objeto_decorativo)
+        st.caption("⚙️ Tiempo: 2-6 min | Costo material: bajo")
 
     elif "Neón" in tipo_topper:
         col_spec1, col_spec2 = st.columns(2)
@@ -162,22 +193,27 @@ with col_preview:
                             tamaño_mm=tamaño_mm,
                             estilo=estilo,
                             color=color_3d,
-                            base=base_tipo,
-                            material=material_3d
+                            base_tipo=base_tipo,
+                            material=material_3d,
+                            tema=tema,
+                            objeto_decorativo=objeto_decorativo,
+                            fuente=ruta_fuente,
                         )
 
-                        # Preview 3D si existe archivo STL
                         if "ruta_stl" in resultado and os.path.exists(resultado["ruta_stl"]):
-                            html_preview = preview3d.armar_html_visor([{"ruta_stl": resultado["ruta_stl"], "color": "#f4f4f2"}], height_px=500)
-                            if html_preview:
-                                components.html(html_preview, height=500, scrolling=False)
+                            html_visor = preview3d.armar_html_visor(
+                                [{"ruta_stl": resultado["ruta_stl"], "color": dict(colores.PALETA).get(color_3d, "#f4f4f2")}],
+                                height_px=500
+                            )
+                            if html_visor:
+                                components.html(html_visor, height=500, scrolling=False)
 
-                        # Info y descarga
                         st.markdown(f"""
                         ### ✓ Topper 3D generado
-                        - **Material:** {resultado['material']}
-                        - **Tamaño:** {resultado['tamaño_mm']}mm
-                        - **Estilo:** {resultado['estilo']}
+                        - **Material:** {resultado['material']} · **Color:** {resultado['color']}
+                        - **Tamaño:** {resultado['tamaño_mm']}mm · **Estilo:** {resultado['estilo']}
+                        - **Base:** {resultado['base']}
+                        - **Tema:** {resultado['tema']} · **Decoración:** {resultado['objeto_decorativo']}
                         - **Vértices:** {resultado['vertices']} | **Caras:** {resultado['caras']}
                         - **Watertight:** {"✓ Sí" if resultado['watertight'] else "✗ No"}
                         """)
@@ -193,10 +229,8 @@ with col_preview:
 
                     elif "Neón" in tipo_topper:
                         resultado = topper.generar_neon(
-                            texto=texto,
-                            tamaño_mm=tamaño_mm,
-                            tipo_led=tipo_led,
-                            grosor_tubo=grosor_tubo
+                            texto=texto, tamaño_mm=tamaño_mm, tipo_led=tipo_led,
+                            grosor_tubo=grosor_tubo, fuente=ruta_fuente,
                         )
 
                         st.markdown(f"""
@@ -219,18 +253,16 @@ with col_preview:
 
                     elif "LED" in tipo_topper:
                         resultado = topper.generar_led(
-                            texto=texto,
-                            tamaño_mm=tamaño_mm,
-                            material=material_led,
-                            efecto=efecto,
-                            con_bateria=baterias
+                            texto=texto, tamaño_mm=tamaño_mm, material=material_led,
+                            efecto=efecto, con_bateria=baterias, fuente=ruta_fuente,
                         )
 
-                        # Preview 3D
                         if "ruta_stl" in resultado and os.path.exists(resultado["ruta_stl"]):
-                            html_preview = preview3d.armar_html_visor([{"ruta_stl": resultado["ruta_stl"], "color": "#ff6b35"}], height_px=500)
-                            if html_preview:
-                                components.html(html_preview, height=500, scrolling=False)
+                            html_visor = preview3d.armar_html_visor(
+                                [{"ruta_stl": resultado["ruta_stl"], "color": "#ff6b35"}], height_px=500
+                            )
+                            if html_visor:
+                                components.html(html_visor, height=500, scrolling=False)
 
                         st.markdown(f"""
                         ### ✓ Topper LED generado
@@ -253,10 +285,8 @@ with col_preview:
 
                     elif "Acrílico" in tipo_topper:
                         resultado = topper.generar_acrilico(
-                            texto=texto,
-                            tamaño_mm=tamaño_mm,
-                            espesor_mm=espesor_acrilico,
-                            acabado=acabado
+                            texto=texto, tamaño_mm=tamaño_mm, espesor_mm=espesor_acrilico,
+                            acabado=acabado, fuente=ruta_fuente,
                         )
 
                         st.markdown(f"""
@@ -286,7 +316,7 @@ st.divider()
 with st.expander("📊 Comparativa de toppers"):
     comp_data = {
         "Tipo": ["3D", "Neón", "LED", "Acrílico"],
-        "Tiempo": ["2-5 min", "1-2h", "3-4h", "10-20 min"],
+        "Tiempo": ["2-6 min", "1-2h", "3-4h", "10-20 min"],
         "Costo": ["Bajo", "Medio", "Alto", "Muy bajo"],
         "Durabilidad": ["Excelente", "Buena", "Excelente", "Media"],
         "Interactividad": ["—", "Luz", "Luz+Efecto", "—"],
@@ -294,28 +324,26 @@ with st.expander("📊 Comparativa de toppers"):
     }
     st.dataframe(comp_data, use_container_width=True)
 
+# Guía de bases (nuevo)
+with st.expander("🧱 Guía de tipos de base (Topper 3D)"):
+    st.markdown("""
+    - **Sólida (plana):** base clásica plana que se apoya sobre la torta. Estable, fácil de imprimir.
+    - **Palo (clavar en torta):** incluye un palito rígido que se clava directo en el bizcocho — típico de toppers de cumpleaños/fiesta.
+    - **Redonda (letras paradas):** disco de base con las letras del texto paradas individualmente sobre él — look tipo "nombre en la torta".
+    - **Redonda con figura arriba:** disco de base + un objeto/figura central (pareja, personaje, flor) sobre un tallo corto.
+    - **Sin base (figura libre):** solo la figura/objeto, sin ninguna base — se apoya directo sobre el fondant o la superficie.
+    """)
+
 # Guía de selección
 with st.expander("🎯 Guía de selección"):
     st.markdown("""
-    **Elige 3D si:**
-    - Quieres un topper clásico impreso
-    - Presupuesto limitado
-    - Personajes/logos complejos
+    **Elige 3D si:** querés un topper clásico impreso, presupuesto limitado, personajes/logos complejos.
 
-    **Elige Neón si:**
-    - Buscas efecto luminoso básico
-    - Evento nocturno
-    - Presupuesto medio
+    **Elige Neón si:** buscás efecto luminoso básico, evento nocturno, presupuesto medio.
 
-    **Elige LED si:**
-    - Quieres efecto luminoso avanzado (parpadeo, secuencias)
-    - Evento especial premium
-    - Baterías integradas
+    **Elige LED si:** querés efecto luminoso avanzado (parpadeo, secuencias), evento especial premium, baterías integradas.
 
-    **Elige Acrílico si:**
-    - Presupuesto muy ajustado
-    - Grabado simple
-    - No es reutilizable (ok)
+    **Elige Acrílico si:** presupuesto muy ajustado, grabado simple, no hace falta reutilizar.
     """)
 
 # Info detallada
@@ -324,8 +352,10 @@ with st.expander("ℹ️ Información técnica"):
     ### Toppers 3D
     - **Material:** PLA, PETG, ABS, Resina
     - **Resolución:** 0.2mm capa
-    - **Tiempo impresión:** 2-5 min (80mm)
-    - **Bases:** Sólida (estable), Hueca (ahorro), Magnética (reutilizable)
+    - **Tiempo impresión:** 2-6 min (80mm)
+    - **Bases:** Sólida, Palo, Redonda (letras), Redonda con figura, Sin base
+    - **Estilos:** Minimalista, Elegante, Divertido, Romántico, Moderno, Vintage, Geométrico, Bohemio
+    - **Temas:** General, Matrimonio, Cumpleaños, Fiesta, Bebé/Baby Shower, Graduación, Aniversario, Quince Años
 
     ### Toppers Neón
     - **Tipo LED:** Flexible (24V frío), Rígido (12V cálido), RGB (multicolor)
