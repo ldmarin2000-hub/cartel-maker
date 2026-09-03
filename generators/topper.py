@@ -23,8 +23,11 @@ from core import pieza, fuentes
 # — con un error controlado — el modo 3D en sí.
 _sg = None
 _so = None
+_saf = None
 _TextPath = None
 _FontProperties = None
+_texto2d_mod = None
+_geometry_mod = None
 
 
 def _shapely():
@@ -36,6 +39,14 @@ def _shapely():
     return _sg, _so
 
 
+def _affinity():
+    global _saf
+    if _saf is None:
+        import shapely.affinity as saf
+        _saf = saf
+    return _saf
+
+
 def _textpath():
     global _TextPath, _FontProperties
     if _TextPath is None:
@@ -43,6 +54,25 @@ def _textpath():
         from matplotlib.font_manager import FontProperties
         _TextPath, _FontProperties = TextPath, FontProperties
     return _TextPath, _FontProperties
+
+
+def _texto2d():
+    # core.texto2d importa shapely a nivel de módulo -- mismo motivo que
+    # arriba, se pospone el import para no tumbar la página entera.
+    global _texto2d_mod
+    if _texto2d_mod is None:
+        from core import texto2d
+        _texto2d_mod = texto2d
+    return _texto2d_mod
+
+
+def _geom():
+    # core.geometry también importa shapely a nivel de módulo -- ídem.
+    global _geometry_mod
+    if _geometry_mod is None:
+        from core import geometry
+        _geometry_mod = geometry
+    return _geometry_mod
 
 NOMBRE = "Topper (decoración para tortas)"
 DESCRIPCION = "Toppers 3D, Neón, LED, Acrílico para tortas, cupcakes, postres."
@@ -95,6 +125,10 @@ OBJETOS_DECORATIVOS = [
     "Ninguno", "Flores", "Corazón", "Estrella", "Personaje/Figura",
     "Pareja/Novios", "Juguete", "Animal", "Símbolo",
 ]
+
+# Marcos decorativos para el topper "Plano" — un aro fino alrededor del
+# texto (ver _forma_marco). "Ninguno" deja el texto suelto.
+FORMAS_MARCO = ["Ninguno", "Círculo", "Hexágono", "Pentágono"]
 
 
 def _parsear_base(base_tipo):
@@ -692,6 +726,150 @@ EOF"""
 
 
 # ---------------------------------------------------------------------------
+# Toppers Planos (recortados: 1-3 líneas de texto, marco decorativo
+# opcional, letras conectadas con puentes finos, palo para clavar)
+# ---------------------------------------------------------------------------
+
+def _poligono_regular(cx, cy, radio, n_lados, rotacion=np.pi / 2):
+    """Polígono regular (hexágono, pentágono, etc.) centrado en (cx, cy),
+    circunradio `radio`. `rotacion` en radianes (default: una punta hacia
+    arriba, como en los marcos de los toppers de referencia)."""
+    sg, _ = _shapely()
+    angs = np.linspace(0, 2 * np.pi, n_lados, endpoint=False) + rotacion
+    pts = [(cx + radio * np.cos(a), cy + radio * np.sin(a)) for a in angs]
+    return sg.Polygon(pts)
+
+
+def _forma_marco(forma, cx, cy, radio, grosor_mm):
+    """Aro/marco decorativo (Círculo/Hexágono/Pentágono) de `grosor_mm` de
+    ancho, centrado en (cx, cy), con radio EXTERIOR `radio` — un anillo,
+    no una forma rellena (así el interior queda libre para el texto)."""
+    saf = _affinity()
+    radio_int = max(radio - grosor_mm, 0.1)
+    if forma == "Círculo":
+        sg, _ = _shapely()
+        exterior = sg.Point(cx, cy).buffer(radio, resolution=64)
+        interior = sg.Point(cx, cy).buffer(radio_int, resolution=64)
+    else:
+        n_lados = 6 if forma == "Hexágono" else 5
+        exterior = _poligono_regular(cx, cy, radio, n_lados)
+        interior = saf.scale(exterior, xfact=radio_int / radio, yfact=radio_int / radio, origin=(cx, cy))
+    return exterior.difference(interior)
+
+
+def _armar_geometria_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
+                            espaciado_relativo=-0.05, grosor_marco_mm=3.0,
+                            margen_marco_mm=6.0, ancho_puente_mm=2.5,
+                            con_palo=True, largo_palo_mm=45.0, ancho_palo_mm=6.0,
+                            raster_px=400):
+    """Arma la geometría 2D (shapely) del topper plano: 1 a 3 líneas de
+    texto real (con huecos, "espaciado_relativo" negativo para que las
+    letras de fuentes script queden más juntas), un marco decorativo
+    opcional envolviendo el bloque de texto, y un palo abajo para clavar
+    en la torta. Lo que quede suelto (letras que ni con el espaciado
+    negativo se tocan, o el texto respecto del marco) se une con puentes
+    finos vía core/geometry.py::conectar_componentes -- la misma técnica
+    que ya usa el generador de Neón -- así el diseño sale como UNA sola
+    pieza imprimible sin importar si la fuente conecta sus letras o no.
+    Devuelve (geometria, cantidad_de_puentes)."""
+    sg, so = _shapely()
+    saf = _affinity()
+    t2d = _texto2d()
+    geo = _geom()
+
+    lineas_validas = [l.strip() for l in (lineas or []) if l and l.strip()][:3]
+    if not lineas_validas:
+        raise ValueError("Escribí al menos una línea de texto")
+
+    n = len(lineas_validas)
+    alto_linea_mm = tamaño_mm / (n + (n - 1) * 0.35)
+    gap_mm = alto_linea_mm * 0.35
+
+    piezas_texto = []
+    y_cursor = 0.0
+    for linea in lineas_validas:
+        crudo = t2d.texto_a_poligono_crudo(linea, fuente, raster_px, espaciado_relativo=espaciado_relativo)
+        if crudo is None or crudo.is_empty:
+            continue
+        poli, _ = t2d.escalar_a_alto(crudo, alto_linea_mm)
+        minx, miny, maxx, maxy = poli.bounds
+        cx_linea = (minx + maxx) / 2
+        poli = saf.translate(poli, xoff=-cx_linea, yoff=y_cursor - miny)
+        piezas_texto.append(poli)
+        y_cursor -= (alto_linea_mm + gap_mm)
+
+    if not piezas_texto:
+        raise ValueError("no se pudo extraer ninguna línea de texto (probá otra fuente)")
+
+    texto_total = so.unary_union(piezas_texto) if len(piezas_texto) > 1 else piezas_texto[0]
+    minx, miny, maxx, maxy = texto_total.bounds
+    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
+
+    if marco != "Ninguno":
+        radio = max(maxx - minx, maxy - miny) / 2 + margen_marco_mm
+        aro = _forma_marco(marco, cx, cy, radio, grosor_marco_mm)
+        contenido = so.unary_union([texto_total, aro])
+    else:
+        contenido = texto_total
+
+    conectado, n_puentes = geo.conectar_componentes(contenido, ancho_puente_mm, 0.4)
+
+    if con_palo:
+        minx, miny, maxx, maxy = conectado.bounds
+        solape = min(4.0, alto_linea_mm * 0.3)
+        cx_pata = (minx + maxx) / 2
+        pata = sg.box(cx_pata - ancho_palo_mm / 2, miny - largo_palo_mm,
+                      cx_pata + ancho_palo_mm / 2, miny + solape)
+        conectado = so.unary_union([conectado, pata])
+
+    return conectado, n_puentes
+
+
+def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
+                   espaciado_relativo=-0.05, grosor_marco_mm=3.0, margen_marco_mm=6.0,
+                   ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
+                   ancho_palo_mm=6.0, espesor_mm=3.0, raster_px=400):
+    """Generar topper "plano" (recortado, tipo acrílico/madera láser): 1 a
+    3 líneas de texto, marco decorativo opcional, y palo para clavar en
+    la torta -- ver `_armar_geometria_plano`. Devuelve un dict con la
+    ruta del STL, medidas y avisos."""
+    os.makedirs(CARPETA_SALIDA, exist_ok=True)
+
+    conectado, n_puentes = _armar_geometria_plano(
+        lineas, tamaño_mm, fuente, marco, espaciado_relativo, grosor_marco_mm,
+        margen_marco_mm, ancho_puente_mm, con_palo, largo_palo_mm, ancho_palo_mm, raster_px,
+    )
+
+    piezas_geoms = conectado.geoms if hasattr(conectado, "geoms") else [conectado]
+    mallas = [trimesh.creation.extrude_polygon(p, height=espesor_mm)
+              for p in piezas_geoms if p.is_valid and p.area > 0]
+    if not mallas:
+        raise ValueError("el diseño quedó vacío, probá con otro texto")
+    malla = trimesh.util.concatenate(mallas)
+    malla.fix_normals()
+
+    lineas_validas = [l.strip() for l in lineas if l and l.strip()][:3]
+    base_nombre = pieza.nombre_archivo(" ".join(lineas_validas), default="topper")
+    marco_slug = "".join(c if c.isalnum() else "_" for c in marco).strip("_")
+    ruta_stl = os.path.join(CARPETA_SALIDA, f"topper_plano_{base_nombre}_{marco_slug}.stl")
+    malla.export(ruta_stl)
+
+    return {
+        "tipo": "plano",
+        "lineas": lineas_validas,
+        "tamaño_mm": tamaño_mm,
+        "marco": marco,
+        "puentes": n_puentes,
+        "fuente": fuente,
+        "ruta_stl": ruta_stl,
+        "vertices": len(malla.vertices),
+        "caras": len(malla.faces),
+        "watertight": malla.is_watertight,
+        "estado": "✓ Generado",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Previews HTML (texto real + fuente real vía @font-face embebido)
 # ---------------------------------------------------------------------------
 
@@ -855,6 +1033,53 @@ def preview_html_acrilico(texto, espesor_mm=3, ancho_mm=100, alto_mm=60, fuente_
     <text x="{ancho_mm/2}" y="{alto_mm/2+3}" text-anchor="middle" font-size="{min(16, ancho_mm/max(len(texto),1)*1.4)}"
           font-family="{familia}" font-weight="bold" fill="#333" opacity="0.7">{texto[:12]}</text>
     <text x="{ancho_mm/2}" y="{alto_mm-8}" text-anchor="middle" font-size="9" fill="#666">{espesor_mm}mm</text>
+    </svg>'''
+    return svg
+
+
+def _shapely_a_svg_path(geom):
+    """Convierte un (Multi)Polygon shapely a un string de <path d="..."">
+    SVG con fill-rule evenodd -- así los huecos (interiors, y el hueco
+    del marco) se ven como huecos de verdad sin armar el path a mano.
+    Niega Y porque en SVG el eje Y crece hacia abajo."""
+    piezas = geom.geoms if hasattr(geom, "geoms") else [geom]
+    partes = []
+    for p in piezas:
+        for anillo in [p.exterior] + list(p.interiors):
+            coords = list(anillo.coords)
+            if len(coords) < 2:
+                continue
+            d = f"M {coords[0][0]:.2f},{-coords[0][1]:.2f} " + " ".join(
+                f"L {x:.2f},{-y:.2f}" for x, y in coords[1:]
+            ) + " Z"
+            partes.append(d)
+    return " ".join(partes)
+
+
+def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
+                        color_hex="#d4af37", **kwargs):
+    """Preview real (no esquemático) del topper plano: arma la geometría
+    de verdad (`_armar_geometria_plano`, incluidos los puentes) y la
+    dibuja como SVG. Devuelve None si no se pudo armar el diseño."""
+    try:
+        contenido, n_puentes = _armar_geometria_plano(lineas, tamaño_mm, fuente_ttf, marco, **kwargs)
+    except Exception:
+        return None
+
+    minx, miny, maxx, maxy = contenido.bounds
+    ancho, alto = max(maxx - minx, 1e-6), max(maxy - miny, 1e-6)
+    pad = max(ancho, alto) * 0.06 + 3
+    vb_w, vb_h = ancho + pad * 2, alto + pad * 2
+    tx, ty = -minx + pad, maxy + pad  # ty: ya negamos Y en _shapely_a_svg_path
+    path_d = _shapely_a_svg_path(contenido)
+
+    puentes_txt = f"{n_puentes} puente(s)" if n_puentes else "sin puentes (ya conectado)"
+    svg = f'''<svg viewBox="0 0 {vb_w:.1f} {vb_h:.1f}" xmlns="http://www.w3.org/2000/svg"
+    style="max-width:100%;height:auto;background:#f4f0e8;border-radius:10px">
+    <g transform="translate({tx:.2f},{ty:.2f})">
+        <path d="{path_d}" fill="{color_hex}" fill-rule="evenodd" stroke="#8a6d1a" stroke-width="0.6"/>
+    </g>
+    <text x="{vb_w/2:.1f}" y="{vb_h-4:.1f}" text-anchor="middle" font-size="10" fill="#555">{marco} · {puentes_txt}</text>
     </svg>'''
     return svg
 

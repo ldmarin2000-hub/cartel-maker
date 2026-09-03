@@ -22,6 +22,7 @@ st.title("🎂 Topper (decoración para tortas y más)")
 st.caption("Crea toppers para tortas, cupcakes, postres. Impresión 3D, Neón, LED, Acrílico.")
 
 TIPOS_TOPPER = [
+    "Topper Plano (recortado, líneas de texto)",
     "Topper 3D (escultura pequeña)",
     "Topper Neón (texto/símbolo LED flexible)",
     "Topper LED (iluminado con efectos)",
@@ -31,6 +32,8 @@ TIPOS_TOPPER = [
 PRESET_KEYS = [
     "tp_tipo", "tp_texto", "tp_tamaño_mm", "tp_estilo", "tp_material", "tp_color",
     "tp_base_tipo", "tp_tema", "tp_objeto",
+    "tp_plano_l1", "tp_plano_l2", "tp_plano_l3", "tp_plano_marco", "tp_plano_palo",
+    "tp_plano_espesor",
 ]
 
 tipo_topper = st.radio("Tipo de topper", TIPOS_TOPPER, horizontal=True, key="tp_tipo")
@@ -40,8 +43,19 @@ col_form, col_preview = st.columns([1, 1.3])
 with col_form:
     bloque_presets("topper", PRESET_KEYS)
 
-    texto = st.text_input("Texto/Diseño", "Topper", key="tp_texto",
-                         help="Texto o nombre a grabar/mostrar en el topper")
+    es_plano = "Plano" in tipo_topper
+
+    if es_plano:
+        st.caption("1 a 3 líneas de texto — dejá una línea vacía si no la necesitás.")
+        col_l1, col_l2, col_l3 = st.columns(3)
+        linea1 = col_l1.text_input("Línea 1", "Happy", key="tp_plano_l1")
+        linea2 = col_l2.text_input("Línea 2", "Birthday", key="tp_plano_l2")
+        linea3 = col_l3.text_input("Línea 3", "", key="tp_plano_l3")
+        lineas_plano = [linea1, linea2, linea3]
+        texto = " ".join(l.strip() for l in lineas_plano if l.strip()) or "Topper"
+    else:
+        texto = st.text_input("Texto/Diseño", "Topper", key="tp_texto",
+                             help="Texto o nombre a grabar/mostrar en el topper")
 
     # Fuente — selector real de las fuentes curadas/proyecto/sistema
     ruta_fuente = selector_fuente("Fuente", key="tp_fuente", texto_muestra=texto or "Topper", mostrar_preview=False)
@@ -70,8 +84,28 @@ with col_form:
     baterias = True
     espesor_acrilico = 3
     acabado = "Transparente"
+    marco_plano = "Ninguno"
+    con_palo_plano = True
+    espesor_plano = 3.0
 
-    if "3D" in tipo_topper:
+    if es_plano:
+        st.subheader("Parámetros Plano")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            marco_plano = st.selectbox(
+                "Marco decorativo", topper.FORMAS_MARCO, key="tp_plano_marco",
+                help="Un aro fino alrededor del texto (Círculo/Hexágono/Pentágono). "
+                     "'Ninguno' deja el texto suelto, unido solo por los puentes finos."
+            )
+            espesor_plano = st.slider("Espesor (mm)", 1.5, 6.0, 3.0, step=0.5, key="tp_plano_espesor")
+        with col_b:
+            con_palo_plano = st.checkbox("Palo para clavar en la torta", value=True, key="tp_plano_palo")
+        st.caption(
+            "Las letras/líneas sueltas de la fuente elegida se conectan automáticamente con "
+            "puentes finos para que todo salga como una sola pieza rígida."
+        )
+
+    elif "3D" in tipo_topper:
         st.subheader("Parámetros 3D")
         col_a, col_b = st.columns(2)
         with col_a:
@@ -115,7 +149,16 @@ with col_preview:
     st.subheader("👁️ Vista previa")
 
     # Preview visual por tipo — texto y fuente reales
-    if "3D" in tipo_topper:
+    if es_plano:
+        html_preview = topper.preview_html_plano(
+            lineas_plano, tamaño_mm, marco_plano, ruta_fuente, con_palo=con_palo_plano
+        )
+        if html_preview:
+            components.html(f'<div style="display:flex;justify-content:center;width:100%">{html_preview}</div>', height=320)
+        else:
+            st.info("Escribí al menos una línea de texto para ver la vista previa.")
+
+    elif "3D" in tipo_topper:
         color_hex = dict(colores.PALETA).get(color_3d, "#cccccc")
         html_preview = topper.preview_html_3d(
             texto or "Topper", tamaño_mm, estilo, base_tipo, color_hex, ruta_fuente
@@ -141,7 +184,18 @@ with col_preview:
     st.subheader("📊 Especificaciones")
 
     # Mostrar specs por tipo
-    if "3D" in tipo_topper:
+    if es_plano:
+        n_lineas = sum(1 for l in lineas_plano if l.strip())
+        col_spec1, col_spec2 = st.columns(2)
+        with col_spec1:
+            st.metric("Tamaño", f"{tamaño_mm}mm")
+            st.metric("Líneas", n_lineas)
+        with col_spec2:
+            st.metric("Marco", marco_plano)
+            st.metric("Espesor", f"{espesor_plano}mm")
+        st.caption("⚙️ Tiempo: 15-30 min | Costo material: muy bajo | Una sola pieza, se imprime plana")
+
+    elif "3D" in tipo_topper:
         col_spec1, col_spec2 = st.columns(2)
         with col_spec1:
             st.metric("Tamaño estimado", f"{tamaño_mm}mm")
@@ -186,12 +240,49 @@ with col_preview:
     st.divider()
 
     if generar_click:
-        if not texto.strip():
+        if es_plano and not any(l.strip() for l in lineas_plano):
+            st.error("Escribí al menos una línea de texto")
+        elif not es_plano and not texto.strip():
             st.error("Ingresá un texto/diseño")
         else:
             with st.spinner("Generando topper..."):
                 try:
-                    if "3D" in tipo_topper:
+                    if es_plano:
+                        resultado = topper.generar_plano(
+                            lineas=lineas_plano,
+                            tamaño_mm=tamaño_mm,
+                            fuente=ruta_fuente,
+                            marco=marco_plano,
+                            con_palo=con_palo_plano,
+                            espesor_mm=espesor_plano,
+                        )
+
+                        if "ruta_stl" in resultado and os.path.exists(resultado["ruta_stl"]):
+                            html_visor = preview3d.armar_html_visor(
+                                [{"ruta_stl": resultado["ruta_stl"], "color": "#d4af37"}], height_px=500
+                            )
+                            if html_visor:
+                                components.html(html_visor, height=500, scrolling=False)
+
+                        st.markdown(f"""
+                        ### ✓ Topper Plano generado
+                        - **Líneas:** {" / ".join(resultado['lineas'])}
+                        - **Marco:** {resultado['marco']} · **Tamaño:** {resultado['tamaño_mm']}mm
+                        - **Puentes de unión:** {resultado['puentes']}
+                        - **Vértices:** {resultado['vertices']} | **Caras:** {resultado['caras']}
+                        - **Watertight:** {"✓ Sí" if resultado['watertight'] else "✗ No"}
+                        """)
+
+                        if "ruta_stl" in resultado:
+                            with open(resultado["ruta_stl"], "rb") as f:
+                                st.download_button(
+                                    "📥 Descargar STL",
+                                    f.read(),
+                                    file_name=os.path.basename(resultado["ruta_stl"]),
+                                    mime="application/octet-stream"
+                                )
+
+                    elif "3D" in tipo_topper:
                         resultado = topper.generar_3d(
                             texto=texto,
                             tamaño_mm=tamaño_mm,

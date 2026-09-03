@@ -21,6 +21,7 @@ de un ícono en forma de anillo) vuelve a "perforar" ese hueco en vez de
 desaparecer -- sumar/restar todo contra el contorno más grande sin
 respetar el anidado real borraría ese detalle."""
 
+from shapely.geometry import MultiPolygon
 from shapely.ops import unary_union
 
 
@@ -28,7 +29,19 @@ def combinar_con_huecos(polys):
     """Devuelve un único polígono/multipolígono shapely a partir de una
     lista de polígonos sueltos, resolviendo el anidado real (sentido de
     giro relativo al contenedor inmediato, de adentro hacia afuera).
-    Devuelve None si `polys` está vacía."""
+    Devuelve None si `polys` está vacía.
+
+    Cada item de `polys` tiene que ser un Polygon simple (con `.exterior`)
+    -- pero un contorno auto-cruzado (típico en curvas de fuentes/SVG mal
+    condicionadas) a veces llega ya convertido en MultiPolygon por un
+    `buffer(0)` previo del que llama; se desarma acá para no romper."""
+    if not polys:
+        return None
+
+    planos = []
+    for p in polys:
+        planos.extend(p.geoms if isinstance(p, MultiPolygon) else [p])
+    polys = [p for p in planos if not p.is_empty and p.area > 0]
     if not polys:
         return None
 
