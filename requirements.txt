@@ -2,7 +2,7 @@ pillow==10.3.0
 numpy==1.26.4
 scikit-image==0.23.2
 networkx==3.3
-shapely==2.1.2
+shapely==2.0.4
 scipy==1.13.1
 trimesh==5.0.0
 rtree==1.0.1

@@ -12,12 +12,37 @@ import os
 import base64
 import numpy as np
 import trimesh
-import shapely.geometry as sg
-import shapely.ops as so
-from matplotlib.textpath import TextPath
-from matplotlib.font_manager import FontProperties
 
 from core import pieza, fuentes
+
+# shapely/matplotlib.textpath se importan on-demand (ver _shapely(), _textpath())
+# en vez de al cargar el módulo: si el entorno tiene una instalación de shapely
+# rota (pasó en Streamlit Cloud con 2.1.x — AttributeError en shapely.lib al
+# importar), un import a nivel de módulo tumba TODA la página de Topper
+# (incluidos Neón/LED/Acrílico, que no dependen de shapely). Así, solo falla
+# — con un error controlado — el modo 3D en sí.
+_sg = None
+_so = None
+_TextPath = None
+_FontProperties = None
+
+
+def _shapely():
+    global _sg, _so
+    if _sg is None:
+        import shapely.geometry as sg
+        import shapely.ops as so
+        _sg, _so = sg, so
+    return _sg, _so
+
+
+def _textpath():
+    global _TextPath, _FontProperties
+    if _TextPath is None:
+        from matplotlib.textpath import TextPath
+        from matplotlib.font_manager import FontProperties
+        _TextPath, _FontProperties = TextPath, FontProperties
+    return _TextPath, _FontProperties
 
 NOMBRE = "Topper (decoración para tortas)"
 DESCRIPCION = "Toppers 3D, Neón, LED, Acrílico para tortas, cupcakes, postres."
@@ -126,6 +151,8 @@ def _texto_a_poligono(texto, fuente_ttf=None, tam_fuente=100):
     """Convierte `texto` en un shapely (Multi)Polygon con agujeros reales
     (la "o" tiene hueco, etc.) usando los contornos vectoriales de la
     fuente elegida — texto real, no una aproximación de bloques."""
+    sg, so = _shapely()
+    TextPath, FontProperties = _textpath()
     try:
         fp = FontProperties(fname=fuente_ttf) if fuente_ttf else FontProperties()
         tp = TextPath((0, 0), texto, size=tam_fuente, prop=fp)
@@ -240,6 +267,7 @@ def _figura_decorativa(tipo_objeto, radio, centro_z):
         return trimesh.util.concatenate([lobulo1, lobulo2, punta])
     if tipo_objeto == "Estrella":
         # Extrude de un polígono de estrella de 5 puntas
+        sg, _ = _shapely()
         n_puntas = 5
         angs = np.linspace(0, 2 * np.pi, n_puntas * 2, endpoint=False) + np.pi / 2
         pts = []
