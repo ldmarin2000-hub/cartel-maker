@@ -74,6 +74,18 @@ def _geom():
         _geometry_mod = geometry
     return _geometry_mod
 
+
+_svg_import_mod = None
+
+
+def _svg_import():
+    # core.svg_import también importa shapely a nivel de módulo -- ídem.
+    global _svg_import_mod
+    if _svg_import_mod is None:
+        from core import svg_import
+        _svg_import_mod = svg_import
+    return _svg_import_mod
+
 NOMBRE = "Topper (decoración para tortas)"
 DESCRIPCION = "Toppers 3D, Neón, LED, Acrílico para tortas, cupcakes, postres."
 
@@ -128,7 +140,7 @@ OBJETOS_DECORATIVOS = [
 
 # Marcos decorativos para el topper "Plano" — un aro fino alrededor del
 # texto (ver _forma_marco). "Ninguno" deja el texto suelto.
-FORMAS_MARCO = ["Ninguno", "Círculo", "Hexágono", "Pentágono"]
+FORMAS_MARCO = ["Ninguno", "Círculo", "Hexágono", "Pentágono", "SVG propio"]
 
 
 def _parsear_base(base_tipo):
@@ -757,7 +769,39 @@ def _forma_marco(forma, cx, cy, radio, grosor_mm):
     return exterior.difference(interior)
 
 
+def _marco_desde_svg(ruta_svg, cx, cy, radio, grosor_mm):
+    """Aro a partir de la silueta de un SVG propio (core/svg_import.py,
+    el mismo importador que usa Neón SVG y las decoraciones del
+    Llavero): se escala la silueta rellena para que su lado/diámetro
+    mayor mida `2*radio`, se centra en (cx, cy) y se hueca con el mismo
+    criterio que los marcos de la lista (copia interior escalada +
+    difference) -- funciona bien para un SVG de silueta cerrada simple
+    (una estrella, un corazón, un logo); un SVG que YA es un aro/corona
+    (con sus propios huecos) puede salir con una forma rara al
+    volverlo a huecar."""
+    svg_import = _svg_import()
+    saf = _affinity()
+
+    forma = svg_import.svg_a_poligono(ruta_svg)
+    if forma is None:
+        raise ValueError(f"no se pudo sacar ninguna forma con área del SVG: {ruta_svg}")
+
+    minx, miny, maxx, maxy = forma.bounds
+    radio_actual = max(maxx - minx, maxy - miny) / 2
+    if radio_actual <= 0:
+        raise ValueError("el SVG no tiene área utilizable")
+
+    factor = radio / radio_actual
+    forma = saf.scale(forma, xfact=factor, yfact=factor, origin=(0, 0))
+    forma = saf.translate(forma, xoff=cx, yoff=cy)
+
+    radio_int = max(radio - grosor_mm, 0.1)
+    interior = saf.scale(forma, xfact=radio_int / radio, yfact=radio_int / radio, origin=(cx, cy))
+    return forma.difference(interior)
+
+
 def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
+                           marco_svg=None,
                            espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
                            offset_vertical_mm=0.0, grosor_marco_mm=3.0,
                            margen_marco_mm=6.0, borde_texto_mm=0.0,
@@ -823,7 +867,10 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
 
     aro = None
-    if marco != "Ninguno":
+    if marco == "SVG propio" and marco_svg:
+        radio = max(maxx - minx, maxy - miny) / 2 + margen_marco_mm
+        aro = _marco_desde_svg(marco_svg, cx, cy, radio, grosor_marco_mm)
+    elif marco != "Ninguno" and marco != "SVG propio":
         radio = max(maxx - minx, maxy - miny) / 2 + margen_marco_mm
         aro = _forma_marco(marco, cx, cy, radio, grosor_marco_mm)
 
@@ -886,7 +933,7 @@ def _extrudir_geom(geom, espesor_mm):
     return malla
 
 
-def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
+def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_svg=None,
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
                    grosor_marco_mm=3.0, margen_marco_mm=6.0, borde_texto_mm=0.0,
                    ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
@@ -906,7 +953,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     os.makedirs(CARPETA_SALIDA, exist_ok=True)
 
     regiones, n_puentes = _armar_regiones_plano(
-        lineas, tamaño_mm=tamaño_mm, fuente=fuente, marco=marco,
+        lineas, tamaño_mm=tamaño_mm, fuente=fuente, marco=marco, marco_svg=marco_svg,
         espaciado_relativo=espaciado_relativo, separacion_lineas_mm=separacion_lineas_mm,
         offset_vertical_mm=offset_vertical_mm, grosor_marco_mm=grosor_marco_mm,
         margen_marco_mm=margen_marco_mm, borde_texto_mm=borde_texto_mm,

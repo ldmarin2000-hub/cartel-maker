@@ -36,6 +36,7 @@ PRESET_KEYS = [
     "tp_plano_espesor", "tp_plano_separacion", "tp_plano_palo_largo", "tp_plano_palo_ancho",
     "tp_plano_offset_y", "tp_plano_borde", "tp_plano_color_texto", "tp_plano_color_borde",
     "tp_plano_color_marco", "tp_plano_color_palo", "tp_plano_ams",
+    "tp_plano_margen_marco", "tp_plano_grosor_marco",
 ]
 
 tipo_topper = st.radio("Tipo de topper", TIPOS_TOPPER, horizontal=True, key="tp_tipo")
@@ -96,8 +97,32 @@ with col_form:
         with col_a:
             marco_plano = st.selectbox(
                 "Marco decorativo", topper.FORMAS_MARCO, key="tp_plano_marco",
-                help="Un aro fino alrededor del texto (Círculo/Hexágono/Pentágono). "
-                     "'Ninguno' deja el texto suelto, unido solo por los puentes finos."
+                help="Un aro fino alrededor del texto (Círculo/Hexágono/Pentágono/tu propio "
+                     "SVG). 'Ninguno' deja el texto suelto, unido solo por los puentes finos."
+            )
+            marco_svg_ruta = None
+            if marco_plano == "SVG propio":
+                marco_svg_subido = st.file_uploader(
+                    "SVG para el marco", type=["svg"], key="tp_plano_marco_svg",
+                    help="Se usa la silueta del SVG como aro alrededor del texto (funciona "
+                         "mejor con una silueta cerrada simple -- una estrella, un corazón, "
+                         "un logo -- que con un dibujo que ya es un aro/corona)."
+                )
+                if marco_svg_subido is not None:
+                    os.makedirs("output", exist_ok=True)
+                    marco_svg_ruta = os.path.join("output", f"_subido_tp_marco_{marco_svg_subido.name}")
+                    with open(marco_svg_ruta, "wb") as f:
+                        f.write(marco_svg_subido.getvalue())
+            margen_marco_plano = st.slider(
+                "Distancia del marco al texto (mm)", 2.0, 30.0, 6.0, step=1.0,
+                disabled=marco_plano == "Ninguno", key="tp_plano_margen_marco",
+                help="Qué tan grande es el marco respecto del texto -- más margen, más lejos "
+                     "queda el aro de las letras (marco más grande)."
+            )
+            grosor_marco_plano = st.slider(
+                "Grosor del marco (mm)", 1.0, 8.0, 3.0, step=0.5,
+                disabled=marco_plano == "Ninguno", key="tp_plano_grosor_marco",
+                help="Ancho de la línea del aro en sí (no confundir con la distancia al texto)."
             )
             espesor_plano = st.slider("Espesor (mm)", 1.5, 6.0, 3.0, step=0.5, key="tp_plano_espesor")
             separacion_lineas_plano = st.slider(
@@ -198,18 +223,22 @@ with col_preview:
 
     # Preview visual por tipo — texto y fuente reales
     if es_plano:
-        html_preview = topper.preview_html_plano(
-            lineas_plano, tamaño_mm, marco_plano, ruta_fuente,
-            color_texto=colores.hex_de(color_texto_plano), color_borde=colores.hex_de(color_borde_plano),
-            color_marco=colores.hex_de(color_marco_plano), color_palo=colores.hex_de(color_palo_plano),
-            separacion_lineas_mm=separacion_lineas_plano, offset_vertical_mm=offset_vertical_plano,
-            borde_texto_mm=borde_texto_plano,
-            con_palo=con_palo_plano, largo_palo_mm=largo_palo_plano, ancho_palo_mm=ancho_palo_plano,
-        )
-        if html_preview:
-            components.html(f'<div style="display:flex;justify-content:center;width:100%">{html_preview}</div>', height=320)
+        if marco_plano == "SVG propio" and not marco_svg_ruta:
+            st.info("Subí un SVG para el marco para ver la vista previa.")
         else:
-            st.info("Escribí al menos una línea de texto para ver la vista previa.")
+            html_preview = topper.preview_html_plano(
+                lineas_plano, tamaño_mm, marco_plano, ruta_fuente, marco_svg=marco_svg_ruta,
+                color_texto=colores.hex_de(color_texto_plano), color_borde=colores.hex_de(color_borde_plano),
+                color_marco=colores.hex_de(color_marco_plano), color_palo=colores.hex_de(color_palo_plano),
+                separacion_lineas_mm=separacion_lineas_plano, offset_vertical_mm=offset_vertical_plano,
+                borde_texto_mm=borde_texto_plano,
+                margen_marco_mm=margen_marco_plano, grosor_marco_mm=grosor_marco_plano,
+                con_palo=con_palo_plano, largo_palo_mm=largo_palo_plano, ancho_palo_mm=ancho_palo_plano,
+            )
+            if html_preview:
+                components.html(f'<div style="display:flex;justify-content:center;width:100%">{html_preview}</div>', height=320)
+            else:
+                st.info("Escribí al menos una línea de texto para ver la vista previa.")
 
     elif "3D" in tipo_topper:
         color_hex = dict(colores.PALETA).get(color_3d, "#cccccc")
@@ -295,6 +324,8 @@ with col_preview:
     if generar_click:
         if es_plano and not any(l.strip() for l in lineas_plano):
             st.error("Escribí al menos una línea de texto")
+        elif es_plano and marco_plano == "SVG propio" and not marco_svg_ruta:
+            st.error("Subí un SVG para el marco (o cambiá a otra forma de marco)")
         elif not es_plano and not texto.strip():
             st.error("Ingresá un texto/diseño")
         else:
@@ -306,6 +337,9 @@ with col_preview:
                             tamaño_mm=tamaño_mm,
                             fuente=ruta_fuente,
                             marco=marco_plano,
+                            marco_svg=marco_svg_ruta,
+                            margen_marco_mm=margen_marco_plano,
+                            grosor_marco_mm=grosor_marco_plano,
                             separacion_lineas_mm=separacion_lineas_plano,
                             offset_vertical_mm=offset_vertical_plano,
                             borde_texto_mm=borde_texto_plano,
