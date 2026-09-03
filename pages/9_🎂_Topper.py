@@ -81,13 +81,17 @@ with col_form:
             base_tipo = st.selectbox(
                 "Tipo de base", topper.BASES, key="tp_base_tipo",
                 help=(
-                    "Sólida: base plana clásica. Palo: se clava en la torta. "
-                    "Redonda (letras paradas): letras individuales sobre disco. "
-                    "Redonda con figura arriba: disco + objeto/figura. "
-                    "Sin base: figura libre, apoyada directo."
+                    "Elegí una forma (Redonda/Ovalada/Cuadrada/Rectangular) combinada con un "
+                    "modo: Plana (se apoya), Con palo (se clava en la torta) o Con figura arriba "
+                    "(agrega el objeto decorativo elegido sobre un tallo). "
+                    "'Redonda (letras paradas)': cada letra parada sobre un disco. "
+                    "'Sin base': solo la figura/texto, sin ninguna placa."
                 )
             )
-            objeto_decorativo = st.selectbox("Objeto decorativo", topper.OBJETOS_DECORATIVOS, key="tp_objeto")
+            objeto_decorativo = st.selectbox(
+                "Objeto decorativo", topper.OBJETOS_DECORATIVOS, key="tp_objeto",
+                help="Se agrega al costado del texto (o como figura central si la base es \"Con figura arriba\"). Cada tipo tiene su propia silueta simplificada."
+            )
 
     elif "Neón" in tipo_topper:
         st.subheader("Parámetros Neón")
@@ -327,11 +331,21 @@ with st.expander("📊 Comparativa de toppers"):
 # Guía de bases (nuevo)
 with st.expander("🧱 Guía de tipos de base (Topper 3D)"):
     st.markdown("""
-    - **Sólida (plana):** base clásica plana que se apoya sobre la torta. Estable, fácil de imprimir.
-    - **Palo (clavar en torta):** incluye un palito rígido que se clava directo en el bizcocho — típico de toppers de cumpleaños/fiesta.
+    Cada base combina una **forma** con un **modo** — 4 formas × 3 modos = 12 combinaciones,
+    más 2 casos especiales:
+
+    **Formas:** Redonda, Ovalada, Cuadrada, Rectangular.
+
+    **Modos:**
+    - **Plana (apoyada):** base clásica que se apoya sobre la torta. Estable, fácil de imprimir.
+    - **Con palo (clavar en torta):** incluye un palito rígido que se clava directo en el bizcocho — típico de toppers de cumpleaños/fiesta.
+    - **Con figura arriba:** la base + el objeto decorativo elegido (flores, corazón, personaje, pareja, etc.) sobre un tallo corto, al costado del texto.
+
+    **Casos especiales:**
     - **Redonda (letras paradas):** disco de base con las letras del texto paradas individualmente sobre él — look tipo "nombre en la torta".
-    - **Redonda con figura arriba:** disco de base + un objeto/figura central (pareja, personaje, flor) sobre un tallo corto.
-    - **Sin base (figura libre):** solo la figura/objeto, sin ninguna base — se apoya directo sobre el fondant o la superficie.
+    - **Sin base (figura libre):** solo el texto/figura, sin ninguna base — se apoya directo sobre el fondant o la superficie.
+
+    Ejemplos: *"Cuadrada — Con palo (clavar en torta)"*, *"Ovalada — Con figura arriba"*, *"Rectangular — Plana (apoyada)"*.
     """)
 
 # Guía de selección
@@ -353,7 +367,7 @@ with st.expander("ℹ️ Información técnica"):
     - **Material:** PLA, PETG, ABS, Resina
     - **Resolución:** 0.2mm capa
     - **Tiempo impresión:** 2-6 min (80mm)
-    - **Bases:** Sólida, Palo, Redonda (letras), Redonda con figura, Sin base
+    - **Bases:** 4 formas (Redonda/Ovalada/Cuadrada/Rectangular) × 3 modos (Plana/Con palo/Con figura arriba), + Redonda (letras paradas) y Sin base — 14 combinaciones
     - **Estilos:** Minimalista, Elegante, Divertido, Romántico, Moderno, Vintage, Geométrico, Bohemio
     - **Temas:** General, Matrimonio, Cumpleaños, Fiesta, Bebé/Baby Shower, Graduación, Aniversario, Quince Años
 

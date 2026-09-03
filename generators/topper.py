@@ -40,12 +40,20 @@ ESTILOS = {
     "Bohemio":      {"altura_mm": 10, "curva": 0.3},
 }
 
-# Tipos de base — cómo se apoya/inserta el topper en la torta
-BASES = [
-    "Sólida (plana)",
-    "Palo (clavar en torta)",
+# Formas de base disponibles (silueta de la placa/base)
+FORMAS_BASE = ["Redonda", "Ovalada", "Cuadrada", "Rectangular"]
+
+# Modos de base — cómo se apoya/inserta el topper en la torta, combinados
+# con cada forma de FORMAS_BASE
+MODOS_BASE = ["Plana (apoyada)", "Con palo (clavar en torta)", "Con figura arriba"]
+
+# Catálogo completo de bases: cada forma × cada modo, más los dos casos
+# especiales que no dependen de una silueta de placa (letras paradas sobre
+# disco, y figura libre sin ninguna base) — así el usuario elige entre
+# muchas combinaciones (redonda/ovalada/cuadrada/rectangular, con o sin
+# palo, con o sin figura decorativa arriba) para potenciar la creatividad.
+BASES = [f"{forma} — {modo}" for forma in FORMAS_BASE for modo in MODOS_BASE] + [
     "Redonda (letras paradas)",
-    "Redonda con figura arriba",
     "Sin base (figura libre)",
 ]
 
@@ -55,11 +63,22 @@ TEMAS = [
     "Graduación", "Aniversario", "Quince Años",
 ]
 
-# Objetos decorativos que se pueden agregar sobre la base
+# Objetos decorativos que se pueden agregar sobre la base — cada uno tiene
+# su propia geometría simplificada (ver _figura_decorativa), no todos son
+# la misma esfera genérica.
 OBJETOS_DECORATIVOS = [
     "Ninguno", "Flores", "Corazón", "Estrella", "Personaje/Figura",
     "Pareja/Novios", "Juguete", "Animal", "Símbolo",
 ]
+
+
+def _parsear_base(base_tipo):
+    """Descompone un valor de BASES en (forma, modo). Para los casos
+    especiales (letras paradas / sin base) devuelve modo=None."""
+    if " — " in base_tipo:
+        forma, modo = base_tipo.split(" — ", 1)
+        return forma, modo
+    return base_tipo, None
 
 
 def _fuente_por_defecto():
@@ -185,6 +204,83 @@ def _bloque(ancho, profundidad, altura, cx=0.0, cy=0.0, z0=0.0):
     return caja
 
 
+def _forma_base(forma, radio, altura, z0=0.0, factor_ovalo=0.62):
+    """Malla de la base según su silueta — Redonda/Ovalada/Cuadrada/
+    Rectangular — todas dimensionadas por un único `radio` (mitad del
+    lado/diámetro mayor), para que las cuatro se puedan pedir con el mismo
+    parámetro de tamaño."""
+    if forma == "Ovalada":
+        v, f = _cilindro(radio, altura, z0=z0, segmentos=28)
+        malla = trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True)
+        malla.apply_scale([1.0, factor_ovalo, 1.0])
+        return malla
+    if forma == "Cuadrada":
+        lado = radio * 1.7
+        return _bloque(lado, lado, altura, z0=z0)
+    if forma == "Rectangular":
+        return _bloque(radio * 2.1, radio * 1.3, altura, z0=z0)
+    # "Redonda" (default)
+    v, f = _cilindro(radio, altura, z0=z0, segmentos=28)
+    return trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True)
+
+
+def _figura_decorativa(tipo_objeto, radio, centro_z):
+    """Malla simplificada según el objeto decorativo elegido — cada tipo
+    tiene su propia silueta (no todos son la misma esfera genérica)."""
+    if tipo_objeto == "Corazón":
+        # Dos esferas juntas arriba + cono invertido abajo, aproximando un corazón
+        lobulo1 = trimesh.creation.icosphere(subdivisions=2, radius=radio * 0.62)
+        lobulo1.apply_translation([-radio * 0.42, 0, centro_z + radio * 0.25])
+        lobulo2 = trimesh.creation.icosphere(subdivisions=2, radius=radio * 0.62)
+        lobulo2.apply_translation([radio * 0.42, 0, centro_z + radio * 0.25])
+        punta = trimesh.creation.cone(radius=radio * 0.95, height=radio * 1.3, sections=16)
+        R = trimesh.transformations.rotation_matrix(np.pi, [1, 0, 0])
+        punta.apply_transform(R)
+        punta.apply_translation([0, 0, centro_z - radio * 0.05])
+        return trimesh.util.concatenate([lobulo1, lobulo2, punta])
+    if tipo_objeto == "Estrella":
+        # Extrude de un polígono de estrella de 5 puntas
+        n_puntas = 5
+        angs = np.linspace(0, 2 * np.pi, n_puntas * 2, endpoint=False) + np.pi / 2
+        pts = []
+        for i, a in enumerate(angs):
+            r = radio if i % 2 == 0 else radio * 0.42
+            pts.append((r * np.cos(a), r * np.sin(a)))
+        poly = sg.Polygon(pts)
+        malla = trimesh.creation.extrude_polygon(poly, height=radio * 0.6)
+        malla.apply_translation([0, 0, centro_z - radio * 0.3])
+        return malla
+    if tipo_objeto == "Pareja/Novios":
+        # Dos figuras simples (cono+esfera cada una) una junto a la otra
+        piezas = []
+        for signo in (-1, 1):
+            cuerpo = trimesh.creation.cone(radius=radio * 0.45, height=radio * 1.1, sections=16)
+            cuerpo.apply_translation([signo * radio * 0.5, 0, centro_z - radio * 0.55])
+            cabeza = trimesh.creation.icosphere(subdivisions=2, radius=radio * 0.32)
+            cabeza.apply_translation([signo * radio * 0.5, 0, centro_z + radio * 0.5])
+            piezas += [cuerpo, cabeza]
+        return trimesh.util.concatenate(piezas)
+    if tipo_objeto in ("Personaje/Figura", "Juguete", "Animal"):
+        # Cuerpo (cono) + cabeza (esfera) — silueta genérica de figura de pie
+        cuerpo = trimesh.creation.cone(radius=radio * 0.6, height=radio * 1.3, sections=16)
+        cuerpo.apply_translation([0, 0, centro_z - radio * 0.55])
+        cabeza = trimesh.creation.icosphere(subdivisions=2, radius=radio * 0.45)
+        cabeza.apply_translation([0, 0, centro_z + radio * 0.5])
+        return trimesh.util.concatenate([cuerpo, cabeza])
+    if tipo_objeto == "Flores":
+        # Centro + 5 pétalos (esferas chicas alrededor)
+        centro = trimesh.creation.icosphere(subdivisions=2, radius=radio * 0.4)
+        centro.apply_translation([0, 0, centro_z])
+        piezas = [centro]
+        for a in np.linspace(0, 2 * np.pi, 5, endpoint=False):
+            petalo = trimesh.creation.icosphere(subdivisions=1, radius=radio * 0.4)
+            petalo.apply_translation([radio * 0.55 * np.cos(a), radio * 0.55 * np.sin(a), centro_z])
+            piezas.append(petalo)
+        return trimesh.util.concatenate(piezas)
+    # "Símbolo" y default: esfera lisa
+    return _esfera(radio, centro_z=centro_z)
+
+
 def _combinar(mallas):
     """Concatena mallas (sin booleana real, solo unión de geometría para
     export STL — suficiente para imprimir como piezas fusionadas visualmente)."""
@@ -213,7 +309,7 @@ def _orientar_para_visor(malla):
 # ---------------------------------------------------------------------------
 
 def generar_3d(texto, tamaño_mm=80, estilo="Elegante", color="Dorado",
-               base_tipo="Sólida (plana)", material="PLA",
+               base_tipo="Redonda — Plana (apoyada)", material="PLA",
                tema="General", objeto_decorativo="Ninguno", fuente=None):
     """Generar topper 3D imprimible con STL export.
 
@@ -228,51 +324,17 @@ def generar_3d(texto, tamaño_mm=80, estilo="Elegante", color="Dorado",
     texto_valido = (texto or "").strip() or "Topper"
 
     piezas = []
+    forma, modo = _parsear_base(base_tipo)
+    base_alt = 3
 
-    if base_tipo == "Palo (clavar en torta)":
-        # Palito delgado que se clava en la torta + placa + texto real parado encima
-        # (la placa se dimensiona en función del ancho del texto, igual que las
-        # demás bases, para que el texto no quede desproporcionadamente chico)
-        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm, fuente_ttf=fuente, z0=0)
-        ancho_final = texto3d.extents[0] if texto3d is not None else 40
-
-        palo_radio, palo_largo = 1.5, 55
-        v, f = _cilindro(palo_radio, palo_largo, z0=-palo_largo)
-        piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
-
-        placa_radio, placa_alt = max(16, ancho_final * 0.55), 3
-        v, f = _cilindro(placa_radio, placa_alt, z0=0)
-        piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
-
-        if texto3d is not None:
-            texto3d.apply_translation([0, 0, placa_alt])
-            piezas.append(texto3d)
-
-    elif base_tipo == "Redonda (letras paradas)":
+    if base_tipo == "Redonda (letras paradas)":
         # Disco de base + el texto real parado sobre él (cada letra, con sus huecos reales)
-        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm, fuente_ttf=fuente, z0=3)
+        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm, fuente_ttf=fuente, z0=base_alt)
         ancho_final = texto3d.extents[0] if texto3d is not None else 40
-        base_radio, base_alt = max(20, ancho_final * 0.65), 3
-        v, f = _cilindro(base_radio, base_alt, z0=0)
-        piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
+        base_radio = max(20, ancho_final * 0.65)
+        piezas.append(_forma_base("Redonda", base_radio, base_alt, z0=0))
         if texto3d is not None:
             piezas.append(texto3d)
-
-    elif base_tipo == "Redonda con figura arriba":
-        base_radio, base_alt = 24, 3
-        v, f = _cilindro(base_radio, base_alt, z0=0)
-        piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
-
-        # Texto grabado en bajo relieve sobre el disco (no elevado, para dejar
-        # lugar visual al objeto decorativo que va arriba en el tallo)
-        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm * 0.55, fuente_ttf=fuente, z0=base_alt, grosor=1.2)
-        if texto3d is not None:
-            piezas.append(texto3d)
-
-        # Tallo + figura decorativa (esfera simplificada) representando el objeto elegido
-        v, f = _cilindro(2.5, 12, z0=base_alt)
-        piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
-        piezas.append(_esfera(altura_mm * 0.9, centro_z=base_alt + 12 + altura_mm * 0.9))
 
     elif base_tipo == "Sin base (figura libre)":
         # Solo el texto, parado directo en el piso — sin ninguna base
@@ -280,25 +342,66 @@ def generar_3d(texto, tamaño_mm=80, estilo="Elegante", color="Dorado",
         if texto3d is not None:
             piezas.append(texto3d)
 
-    else:  # "Sólida (plana)" — base circular clásica + texto real parado encima
-        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm, fuente_ttf=fuente, z0=3)
+    elif modo == "Con palo (clavar en torta)":
+        # Palito delgado que se clava en la torta + placa (con la forma
+        # elegida) + texto real parado encima
+        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm, fuente_ttf=fuente, z0=0)
         ancho_final = texto3d.extents[0] if texto3d is not None else 40
-        base_radio, base_alt = max(15, ancho_final * 0.6), 3
-        v, f = _cilindro(base_radio, base_alt, z0=0)
+
+        palo_radio, palo_largo = 1.5, 55
+        v, f = _cilindro(palo_radio, palo_largo, z0=-palo_largo)
         piezas.append(trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True))
+
+        placa_radio = max(16, ancho_final * 0.55)
+        piezas.append(_forma_base(forma, placa_radio, base_alt, z0=0))
+
+        if texto3d is not None:
+            texto3d.apply_translation([0, 0, base_alt])
+            piezas.append(texto3d)
+
+    elif modo == "Con figura arriba":
+        # Texto parado y visible, centrado en la base + tallo con la figura
+        # decorativa elegida al costado en X (eje que la rotación final no
+        # toca), representando el objeto elegido (flores/personaje/etc.)
+        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm, fuente_ttf=fuente, z0=0)
+        ancho_final = texto3d.extents[0] if texto3d is not None else 40
+        base_radio = max(24, ancho_final * 0.85)
+
+        piezas.append(_forma_base(forma, base_radio, base_alt, z0=0))
+
+        if texto3d is not None:
+            texto3d.apply_translation([0, 0, base_alt])
+            piezas.append(texto3d)
+
+        x_fig = ancho_final / 2 + base_radio * 0.25
+        v, f = _cilindro(2.5, 12, z0=base_alt)
+        tallo = trimesh.Trimesh(vertices=v, faces=np.array(f, dtype=np.int64), process=True)
+        tallo.apply_translation([x_fig, 0, 0])
+        piezas.append(tallo)
+        objeto_figura = objeto_decorativo if objeto_decorativo != "Ninguno" else "Símbolo"
+        figura = _figura_decorativa(objeto_figura, altura_mm * 0.6, centro_z=base_alt + 12 + altura_mm * 0.6)
+        figura.apply_translation([x_fig, 0, 0])
+        piezas.append(figura)
+
+    else:  # "Plana (apoyada)" (o forma no reconocida) — base con la forma elegida + texto encima
+        texto3d = _texto_a_malla3d(texto_valido, altura=altura_mm, fuente_ttf=fuente, z0=base_alt)
+        ancho_final = texto3d.extents[0] if texto3d is not None else 40
+        base_radio = max(15, ancho_final * 0.6)
+        piezas.append(_forma_base(forma, base_radio, base_alt, z0=0))
         if texto3d is not None:
             piezas.append(texto3d)
 
-    # Objeto decorativo adicional (una esfera simplificada al costado del texto,
-    # representando flores/figura/etc. — independiente de la base elegida)
-    if objeto_decorativo != "Ninguno" and base_tipo != "Redonda con figura arriba":
+    # Objeto decorativo adicional (con la silueta elegida) al costado del
+    # texto — independiente de la base, salvo en "Con figura arriba" donde
+    # el objeto YA es la figura central del tallo.
+    if objeto_decorativo != "Ninguno" and modo != "Con figura arriba":
         ancho_texto = piezas[-1].extents[0] if piezas else 40
-        z0_obj = 0 if base_tipo == "Sin base (figura libre)" else 3
+        z0_obj = 0 if base_tipo == "Sin base (figura libre)" else base_alt
         r_obj = altura_mm * 0.35
         x_obj = ancho_texto / 2 + r_obj + 4
-        esfera_dec = _esfera(r_obj, centro_z=z0_obj + r_obj)
-        esfera_dec.apply_translation([x_obj, 0, 0])
-        piezas.append(esfera_dec)
+        figura_dec = _figura_decorativa(objeto_decorativo, r_obj, centro_z=z0_obj + r_obj)
+        figura_dec.apply_translation([x_obj, 0, 0])
+        piezas.append(figura_dec)
 
     malla = _combinar(piezas)
     malla.fix_normals()
@@ -583,12 +686,29 @@ def _font_face_css(ruta_ttf, familia="topper-preview-font"):
     return css, familia
 
 
-def preview_html_3d(texto, tamaño_mm=80, estilo="Elegante", base_tipo="Sólida (plana)",
+def _svg_silueta_base(forma, cx, base_y, rx, ry_factor=0.28, fill="#ddd"):
+    """SVG de la silueta de la base (vista en perspectiva simple, como una
+    elipse achatada) según la forma elegida."""
+    ry = rx * ry_factor
+    if forma == "Cuadrada":
+        lado = rx * 1.5
+        return f'<rect x="{cx-lado/2}" y="{base_y-ry}" width="{lado}" height="{ry*2}" rx="4" fill="{fill}" stroke="#666"/>'
+    if forma == "Rectangular":
+        anchoR = rx * 2.0
+        return f'<rect x="{cx-anchoR/2}" y="{base_y-ry}" width="{anchoR}" height="{ry*2}" rx="4" fill="{fill}" stroke="#666"/>'
+    if forma == "Ovalada":
+        return f'<ellipse cx="{cx}" cy="{base_y}" rx="{rx*1.3}" ry="{ry*0.75}" fill="{fill}" stroke="#666"/>'
+    # "Redonda"
+    return f'<ellipse cx="{cx}" cy="{base_y}" rx="{rx}" ry="{ry}" fill="{fill}" stroke="#666"/>'
+
+
+def preview_html_3d(texto, tamaño_mm=80, estilo="Elegante", base_tipo="Redonda — Plana (apoyada)",
                      color_hex="#cccccc", fuente_ttf=None):
     """Preview HTML (SVG + @font-face real) de topper 3D — refleja texto,
-    fuente y tipo de base elegidos."""
+    fuente y tipo de base (forma × modo, o caso especial) elegidos."""
     config = ESTILOS.get(estilo, ESTILOS["Elegante"])
     altura_mm = config["altura_mm"]
+    forma, modo = _parsear_base(base_tipo)
 
     css, familia = _font_face_css(fuente_ttf)
 
@@ -599,10 +719,10 @@ def preview_html_3d(texto, tamaño_mm=80, estilo="Elegante", base_tipo="Sólida 
     cx = w / 2
     base_y = h - 20 * scale
 
-    if base_tipo == "Palo (clavar en torta)":
+    if modo == "Con palo (clavar en torta)":
         cuerpo = f'''
         <line x1="{cx}" y1="{base_y}" x2="{cx}" y2="{h-4}" stroke="#8B5A2B" stroke-width="4"/>
-        <ellipse cx="{cx}" cy="{base_y}" rx="26" ry="6" fill="#ccc" stroke="#666"/>
+        {_svg_silueta_base(forma, cx, base_y, 26, 0.22, "#ccc")}
         <path d="M {cx-tamaño_mm*scale*0.28} {base_y} L {cx} {base_y-altura_mm*scale} L {cx+tamaño_mm*scale*0.28} {base_y} Z"
               fill="{color_hex}" stroke="#666" stroke-width="1.5"/>'''
     elif base_tipo == "Redonda (letras paradas)":
@@ -616,24 +736,29 @@ def preview_html_3d(texto, tamaño_mm=80, estilo="Elegante", base_tipo="Sólida 
             lh = altura_mm * scale * (0.7 + 0.3 * ((i % 3) / 2))
             bloques += f'<rect x="{lx-ancho_letra*0.35}" y="{base_y-lh}" width="{ancho_letra*0.7}" height="{lh}" fill="{color_hex}" stroke="#666" stroke-width="1"/>'
             bloques += f'<text x="{lx}" y="{base_y-lh/2+6}" text-anchor="middle" font-size="14" font-family="{familia}" fill="#222">{ch}</text>'
-        cuerpo = f'<ellipse cx="{cx}" cy="{base_y}" rx="{w*0.4}" ry="10" fill="#ddd" stroke="#666"/>' + bloques
-    elif base_tipo == "Redonda con figura arriba":
+        cuerpo = _svg_silueta_base("Redonda", cx, base_y, w * 0.4, 0.25, "#ddd") + bloques
+    elif modo == "Con figura arriba":
         cuerpo = f'''
-        <ellipse cx="{cx}" cy="{base_y}" rx="30" ry="7" fill="#ddd" stroke="#666"/>
-        <line x1="{cx}" y1="{base_y}" x2="{cx}" y2="{base_y-15}" stroke="#999" stroke-width="3"/>
-        <circle cx="{cx}" cy="{base_y-15-altura_mm*scale*0.5}" r="{altura_mm*scale*0.5}" fill="{color_hex}" stroke="#666" stroke-width="1.5"/>'''
+        {_svg_silueta_base(forma, cx, base_y, 30, 0.23, "#ddd")}
+        <path d="M {cx-tamaño_mm*scale*0.22} {base_y} L {cx-tamaño_mm*scale*0.02} {base_y-altura_mm*scale} L {cx+tamaño_mm*scale*0.18} {base_y} Z"
+              fill="{color_hex}" stroke="#666" stroke-width="1.2"/>
+        <line x1="{cx+tamaño_mm*scale*0.28}" y1="{base_y}" x2="{cx+tamaño_mm*scale*0.28}" y2="{base_y-15}" stroke="#999" stroke-width="3"/>
+        <circle cx="{cx+tamaño_mm*scale*0.28}" cy="{base_y-15-altura_mm*scale*0.4}" r="{altura_mm*scale*0.4}" fill="#e8a33d" stroke="#666" stroke-width="1.5"/>'''
     elif base_tipo == "Sin base (figura libre)":
         cuerpo = f'''
         <circle cx="{cx}" cy="{base_y-altura_mm*scale*0.6}" r="{altura_mm*scale*0.6}" fill="{color_hex}" stroke="#666" stroke-width="1.5"/>'''
-    else:  # Sólida (plana)
+    else:  # "Plana (apoyada)" (default)
         cuerpo = f'''
-        <rect x="{cx-25}" y="{base_y}" width="50" height="8" fill="#ddd" stroke="#666"/>
+        {_svg_silueta_base(forma, cx, base_y, 25, 0.16, "#ddd")}
         <path d="M {cx-tamaño_mm*scale*0.3} {base_y} L {cx} {base_y-altura_mm*scale} L {cx+tamaño_mm*scale*0.3} {base_y} Z"
               fill="{color_hex}" stroke="#666" stroke-width="1.5"/>'''
 
     etiqueta_texto = ""
     if base_tipo != "Redonda (letras paradas)":
-        etiqueta_texto = f'<text x="{cx}" y="{base_y - altura_mm*scale - 8}" text-anchor="middle" font-size="16" font-family="{familia}" fill="#111" font-weight="bold">{texto[:16]}</text>'
+        y_texto = base_y - altura_mm * scale - 8
+        if modo == "Con figura arriba":
+            y_texto = base_y - altura_mm * scale * 0.7
+        etiqueta_texto = f'<text x="{cx}" y="{y_texto}" text-anchor="middle" font-size="16" font-family="{familia}" fill="#111" font-weight="bold">{texto[:16]}</text>'
 
     svg = f'''{css}<svg viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;background:#eef0f2;border-radius:10px">
     <rect x="0" y="0" width="{w}" height="{h}" fill="#eef0f2" rx="10"/>
