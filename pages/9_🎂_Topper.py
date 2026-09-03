@@ -34,7 +34,8 @@ PRESET_KEYS = [
     "tp_base_tipo", "tp_tema", "tp_objeto",
     "tp_plano_l1", "tp_plano_l2", "tp_plano_l3", "tp_plano_marco", "tp_plano_palo",
     "tp_plano_espesor", "tp_plano_separacion", "tp_plano_palo_largo", "tp_plano_palo_ancho",
-    "tp_plano_offset_y",
+    "tp_plano_offset_y", "tp_plano_borde", "tp_plano_color_texto", "tp_plano_color_borde",
+    "tp_plano_color_marco", "tp_plano_color_palo", "tp_plano_ams",
 ]
 
 tipo_topper = st.radio("Tipo de topper", TIPOS_TOPPER, horizontal=True, key="tp_tipo")
@@ -125,6 +126,33 @@ with col_form:
             "puentes finos para que todo salga como una sola pieza rígida."
         )
 
+        st.markdown("**Colores** (para imprimir con AMS multicolor, o de guía para pintar a mano)")
+        borde_texto_plano = st.slider(
+            "Borde del texto (mm)", 0.0, 3.0, 0.0, step=0.25, key="tp_plano_borde",
+            help="Un contorno fino alrededor de cada letra, de un color distinto al del texto. 0 = sin borde."
+        )
+        col_c1, col_c2, col_c3, col_c4 = st.columns(4)
+        color_texto_plano = col_c1.selectbox("Texto", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"), key="tp_plano_color_texto")
+        color_borde_plano = col_c2.selectbox(
+            "Borde", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Negro"),
+            disabled=borde_texto_plano <= 0, key="tp_plano_color_borde",
+        )
+        color_marco_plano = col_c3.selectbox(
+            "Marco", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
+            disabled=marco_plano == "Ninguno", key="tp_plano_color_marco",
+        )
+        color_palo_plano = col_c4.selectbox(
+            "Palo", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
+            disabled=not con_palo_plano, key="tp_plano_color_palo",
+        )
+        tiene_ams_plano = st.checkbox(
+            "Imprimir con AMS (multicolor)", value=False, key="tp_plano_ams",
+            help="Sin esto, el STL sale en una sola pieza para imprimir de un solo color (podés "
+                 "pintarlo a mano después usando la vista previa de colores como guía). Con "
+                 "esto, además se genera un .3mf ya pintado por región que abre directo en "
+                 "Bambu Studio con los colores puestos."
+        )
+
     elif "3D" in tipo_topper:
         st.subheader("Parámetros 3D")
         col_a, col_b = st.columns(2)
@@ -172,7 +200,10 @@ with col_preview:
     if es_plano:
         html_preview = topper.preview_html_plano(
             lineas_plano, tamaño_mm, marco_plano, ruta_fuente,
+            color_texto=colores.hex_de(color_texto_plano), color_borde=colores.hex_de(color_borde_plano),
+            color_marco=colores.hex_de(color_marco_plano), color_palo=colores.hex_de(color_palo_plano),
             separacion_lineas_mm=separacion_lineas_plano, offset_vertical_mm=offset_vertical_plano,
+            borde_texto_mm=borde_texto_plano,
             con_palo=con_palo_plano, largo_palo_mm=largo_palo_plano, ancho_palo_mm=ancho_palo_plano,
         )
         if html_preview:
@@ -277,10 +308,16 @@ with col_preview:
                             marco=marco_plano,
                             separacion_lineas_mm=separacion_lineas_plano,
                             offset_vertical_mm=offset_vertical_plano,
+                            borde_texto_mm=borde_texto_plano,
                             con_palo=con_palo_plano,
                             largo_palo_mm=largo_palo_plano,
                             ancho_palo_mm=ancho_palo_plano,
                             espesor_mm=espesor_plano,
+                            tiene_ams=tiene_ams_plano,
+                            color_texto=color_texto_plano,
+                            color_borde=color_borde_plano,
+                            color_marco=color_marco_plano,
+                            color_palo=color_palo_plano,
                         )
 
                         if "ruta_stl" in resultado and os.path.exists(resultado["ruta_stl"]):
@@ -302,10 +339,28 @@ with col_preview:
                         if "ruta_stl" in resultado:
                             with open(resultado["ruta_stl"], "rb") as f:
                                 st.download_button(
-                                    "📥 Descargar STL",
+                                    "📥 Descargar STL (una sola pieza/color)",
                                     f.read(),
                                     file_name=os.path.basename(resultado["ruta_stl"]),
                                     mime="application/octet-stream"
+                                )
+
+                        if resultado.get("ruta_3mf_multicolor"):
+                            st.caption("Con AMS: el .3mf ya viene con los colores puestos, abre directo en Bambu Studio.")
+                            with open(resultado["ruta_3mf_multicolor"], "rb") as f:
+                                st.download_button(
+                                    "📥 Descargar 3MF multicolor (recomendado con AMS)",
+                                    f.read(),
+                                    file_name=os.path.basename(resultado["ruta_3mf_multicolor"]),
+                                    mime="model/3mf",
+                                )
+                        if resultado.get("ruta_stl_multicolor"):
+                            with open(resultado["ruta_stl_multicolor"], "rb") as f:
+                                st.download_button(
+                                    "📥 Descargar STL multicolor (respaldo para otro slicer)",
+                                    f.read(),
+                                    file_name=os.path.basename(resultado["ruta_stl_multicolor"]),
+                                    mime="application/octet-stream",
                                 )
 
                     elif "3D" in tipo_topper:

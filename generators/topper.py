@@ -757,26 +757,37 @@ def _forma_marco(forma, cx, cy, radio, grosor_mm):
     return exterior.difference(interior)
 
 
-def _armar_geometria_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
-                            espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
-                            offset_vertical_mm=0.0, grosor_marco_mm=3.0,
-                            margen_marco_mm=6.0, ancho_puente_mm=2.5,
-                            con_palo=True, largo_palo_mm=45.0, ancho_palo_mm=6.0,
-                            raster_px=400):
-    """Arma la geometría 2D (shapely) del topper plano: 1 a 3 líneas de
-    texto real (con huecos, "espaciado_relativo" negativo para que las
-    letras de fuentes script queden más juntas), separadas entre sí por
-    `separacion_lineas_mm`, un marco decorativo opcional envolviendo el
-    bloque de texto (`offset_vertical_mm` corre el texto hacia arriba/
-    abajo DENTRO del marco, que se arma con el tamaño y centro del texto
-    SIN ese corrimiento -- así se puede descentrar el texto a propósito
-    sin que el marco lo siga), y un palo abajo para clavar en la torta.
+def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
+                           espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
+                           offset_vertical_mm=0.0, grosor_marco_mm=3.0,
+                           margen_marco_mm=6.0, borde_texto_mm=0.0,
+                           ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
+                           ancho_palo_mm=6.0, raster_px=400):
+    """Arma las 4 regiones del topper plano -- texto / borde del texto /
+    marco / palo -- YA SIN superponerse entre sí, pensadas para pintar o
+    imprimir cada una de un color distinto (AMS). `borde_texto_mm=0`
+    desactiva el borde (queda en None). 1 a 3 líneas de texto real (con
+    huecos, "espaciado_relativo" negativo para que las letras de fuentes
+    script queden más juntas), separadas entre sí por
+    `separacion_lineas_mm`; `offset_vertical_mm` corre el texto hacia
+    arriba/abajo DENTRO del marco, que se arma con el tamaño y centro
+    del texto SIN ese corrimiento -- así se puede descentrar el texto a
+    propósito sin que el marco lo siga.
+
     Lo que quede suelto (letras que ni con el espaciado negativo se
     tocan, el texto respecto del marco, o el palo si no llega a tocar el
     diseño) se une con puentes finos vía
     core/geometry.py::conectar_componentes -- la misma técnica que ya
     usa el generador de Neón -- así el diseño sale como UNA sola pieza
-    imprimible pase lo que pase. Devuelve (geometria, cantidad_de_puentes)."""
+    imprimible pase lo que pase; ese material extra de unión se le suma
+    a la región más "de borde" que haya disponible (borde > marco >
+    texto) para que no aparezca una quinta región sin nombre.
+
+    Devuelve (regiones, cantidad_de_puentes), con `regiones` un dict
+    {"texto": geom, "borde": geom|None, "marco": geom|None,
+    "palo": geom|None} -- unir todo lo que no sea None da la pieza
+    completa conectada (equivalente a lo que devolvía la vieja
+    _armar_geometria_plano)."""
     sg, so = _shapely()
     saf = _affinity()
     t2d = _texto2d()
@@ -818,10 +829,31 @@ def _armar_geometria_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
 
     if offset_vertical_mm:
         texto_total = saf.translate(texto_total, yoff=offset_vertical_mm)
+    if aro is not None:
+        texto_total = texto_total.difference(aro)
 
-    contenido = so.unary_union([texto_total, aro]) if aro is not None else texto_total
+    borde = None
+    if borde_texto_mm > 0:
+        borde = texto_total.buffer(borde_texto_mm, join_style=1).difference(texto_total)
+        if aro is not None:
+            borde = borde.difference(aro)
+        if borde.is_empty:
+            borde = None
+
+    nombradas = [g for g in (texto_total, borde, aro) if g is not None]
+    contenido = so.unary_union(nombradas) if len(nombradas) > 1 else nombradas[0]
     conectado, n_puentes = geo.conectar_componentes(contenido, ancho_puente_mm, 0.4)
 
+    extra = conectado.difference(contenido)
+    if not extra.is_empty:
+        if borde is not None:
+            borde = so.unary_union([borde, extra])
+        elif aro is not None:
+            aro = so.unary_union([aro, extra])
+        else:
+            texto_total = so.unary_union([texto_total, extra])
+
+    palo = None
     if con_palo:
         minx, miny, maxx, maxy = conectado.bounds
         cx_pata = (minx + maxx) / 2
@@ -830,44 +862,77 @@ def _armar_geometria_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         # segundo pase de conectar_componentes de abajo la suelda igual.
         pata = sg.box(cx_pata - ancho_palo_mm / 2, miny - largo_palo_mm,
                       cx_pata + ancho_palo_mm / 2, miny + 0.5)
-        conectado, n_puentes_pata = geo.conectar_componentes(
-            so.unary_union([conectado, pata]), ancho_puente_mm, 0.4
-        )
+        antes = so.unary_union([conectado, pata])
+        conectado, n_puentes_pata = geo.conectar_componentes(antes, ancho_puente_mm, 0.4)
         n_puentes += n_puentes_pata
+        extra_palo = conectado.difference(antes)
+        palo = so.unary_union([pata, extra_palo]) if not extra_palo.is_empty else pata
 
-    return conectado, n_puentes
+    return {"texto": texto_total, "borde": borde, "marco": aro, "palo": palo}, n_puentes
+
+
+def _extrudir_geom(geom, espesor_mm):
+    """Extruye un (Multi)Polygon shapely a un trimesh.Trimesh de altura
+    `espesor_mm`, o None si `geom` es None/vacío."""
+    if geom is None or geom.is_empty:
+        return None
+    piezas_geoms = geom.geoms if hasattr(geom, "geoms") else [geom]
+    mallas = [trimesh.creation.extrude_polygon(p, height=espesor_mm)
+              for p in piezas_geoms if p.is_valid and p.area > 0]
+    if not mallas:
+        return None
+    malla = trimesh.util.concatenate(mallas)
+    malla.fix_normals()
+    return malla
 
 
 def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
-                   grosor_marco_mm=3.0, margen_marco_mm=6.0,
+                   grosor_marco_mm=3.0, margen_marco_mm=6.0, borde_texto_mm=0.0,
                    ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
-                   ancho_palo_mm=6.0, espesor_mm=3.0, raster_px=400):
+                   ancho_palo_mm=6.0, espesor_mm=3.0, raster_px=400,
+                   tiene_ams=False, color_texto="Dorado", color_borde="Blanco",
+                   color_marco="Dorado", color_palo="Dorado"):
     """Generar topper "plano" (recortado, tipo acrílico/madera láser): 1 a
-    3 líneas de texto, marco decorativo opcional, y palo para clavar en
-    la torta -- ver `_armar_geometria_plano`. Devuelve un dict con la
-    ruta del STL, medidas y avisos."""
+    3 líneas de texto, marco decorativo opcional, borde de texto
+    opcional, y palo para clavar en la torta -- ver
+    `_armar_regiones_plano`. Con `tiene_ams=True` exporta ADEMÁS un .3mf
+    y un .stl multicolor con cada región (texto/borde/marco/palo) ya
+    pintada de su color (mismo mecanismo que el Llavero,
+    core/pieza.py::exportar_multicolor*) -- sin AMS, el STL simple sirve
+    igual como guía para pintar a mano (las regiones existen igual,
+    nada más que en un solo color al imprimir). Devuelve un dict con las
+    rutas, medidas y avisos."""
     os.makedirs(CARPETA_SALIDA, exist_ok=True)
 
-    conectado, n_puentes = _armar_geometria_plano(
-        lineas, tamaño_mm, fuente, marco, espaciado_relativo, separacion_lineas_mm,
-        offset_vertical_mm, grosor_marco_mm, margen_marco_mm, ancho_puente_mm,
-        con_palo, largo_palo_mm, ancho_palo_mm, raster_px,
+    regiones, n_puentes = _armar_regiones_plano(
+        lineas, tamaño_mm=tamaño_mm, fuente=fuente, marco=marco,
+        espaciado_relativo=espaciado_relativo, separacion_lineas_mm=separacion_lineas_mm,
+        offset_vertical_mm=offset_vertical_mm, grosor_marco_mm=grosor_marco_mm,
+        margen_marco_mm=margen_marco_mm, borde_texto_mm=borde_texto_mm,
+        ancho_puente_mm=ancho_puente_mm, con_palo=con_palo, largo_palo_mm=largo_palo_mm,
+        ancho_palo_mm=ancho_palo_mm, raster_px=raster_px,
     )
-
-    piezas_geoms = conectado.geoms if hasattr(conectado, "geoms") else [conectado]
-    mallas = [trimesh.creation.extrude_polygon(p, height=espesor_mm)
-              for p in piezas_geoms if p.is_valid and p.area > 0]
-    if not mallas:
-        raise ValueError("el diseño quedó vacío, probá con otro texto")
-    malla = trimesh.util.concatenate(mallas)
-    malla.fix_normals()
 
     lineas_validas = [l.strip() for l in lineas if l and l.strip()][:3]
     base_nombre = pieza.nombre_archivo(" ".join(lineas_validas), default="topper")
     marco_slug = "".join(c if c.isalnum() else "_" for c in marco).strip("_")
     ruta_stl = os.path.join(CARPETA_SALIDA, f"topper_plano_{base_nombre}_{marco_slug}.stl")
+
+    mallas_por_region = {clave: _extrudir_geom(geom, espesor_mm) for clave, geom in regiones.items()}
+    mallas_presentes = [m for m in mallas_por_region.values() if m is not None]
+    if not mallas_presentes:
+        raise ValueError("el diseño quedó vacío, probá con otro texto")
+    malla = trimesh.util.concatenate(mallas_presentes)
     malla.export(ruta_stl)
+
+    ruta_3mf_multicolor = None
+    ruta_stl_multicolor = None
+    if tiene_ams:
+        ruta_3mf_multicolor = os.path.join(CARPETA_SALIDA, f"topper_plano_{base_nombre}_{marco_slug}_multicolor.3mf")
+        pieza.exportar_multicolor_3mf(mallas_presentes, ruta_3mf_multicolor)
+        ruta_stl_multicolor = os.path.join(CARPETA_SALIDA, f"topper_plano_{base_nombre}_{marco_slug}_multicolor.stl")
+        pieza.exportar_multicolor(mallas_presentes, ruta_stl_multicolor)
 
     return {
         "tipo": "plano",
@@ -877,6 +942,9 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         "puentes": n_puentes,
         "fuente": fuente,
         "ruta_stl": ruta_stl,
+        "ruta_3mf_multicolor": ruta_3mf_multicolor,
+        "ruta_stl_multicolor": ruta_stl_multicolor,
+        "colores": {"texto": color_texto, "borde": color_borde, "marco": color_marco, "palo": color_palo},
         "vertices": len(malla.vertices),
         "caras": len(malla.faces),
         "watertight": malla.is_watertight,
@@ -1072,28 +1140,38 @@ def _shapely_a_svg_path(geom):
 
 
 def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
-                        color_hex="#d4af37", **kwargs):
-    """Preview real (no esquemático) del topper plano: arma la geometría
-    de verdad (`_armar_geometria_plano`, incluidos los puentes) y la
-    dibuja como SVG. Devuelve None si no se pudo armar el diseño."""
+                        color_texto="#d4af37", color_borde="#f4f4f2",
+                        color_marco="#d4af37", color_palo="#d4af37", **kwargs):
+    """Preview real (no esquemático) del topper plano: arma las 4
+    regiones de verdad (`_armar_regiones_plano`, incluidos los puentes)
+    y las dibuja como SVG, cada una de su color -- sirve como guía de
+    pintado incluso para quien imprima en un solo color. Devuelve None
+    si no se pudo armar el diseño."""
     try:
-        contenido, n_puentes = _armar_geometria_plano(lineas, tamaño_mm, fuente_ttf, marco, **kwargs)
+        regiones, n_puentes = _armar_regiones_plano(lineas, tamaño_mm, fuente_ttf, marco, **kwargs)
     except Exception:
         return None
 
-    minx, miny, maxx, maxy = contenido.bounds
+    so = _shapely()[1]
+    partes = [g for g in regiones.values() if g is not None]
+    todo = so.unary_union(partes) if len(partes) > 1 else partes[0]
+    minx, miny, maxx, maxy = todo.bounds
     ancho, alto = max(maxx - minx, 1e-6), max(maxy - miny, 1e-6)
     pad = max(ancho, alto) * 0.06 + 3
     vb_w, vb_h = ancho + pad * 2, alto + pad * 2
     tx, ty = -minx + pad, maxy + pad  # ty: ya negamos Y en _shapely_a_svg_path
-    path_d = _shapely_a_svg_path(contenido)
+
+    colores_region = {"marco": color_marco, "palo": color_palo, "borde": color_borde, "texto": color_texto}
+    capas = "".join(
+        f'<path d="{_shapely_a_svg_path(regiones[clave])}" fill="{colores_region[clave]}" '
+        f'fill-rule="evenodd" stroke="#00000055" stroke-width="0.4"/>'
+        for clave in ("marco", "palo", "borde", "texto") if regiones.get(clave) is not None
+    )
 
     puentes_txt = f"{n_puentes} puente(s)" if n_puentes else "sin puentes (ya conectado)"
     svg = f'''<svg viewBox="0 0 {vb_w:.1f} {vb_h:.1f}" xmlns="http://www.w3.org/2000/svg"
     style="max-width:100%;height:auto;background:#f4f0e8;border-radius:10px">
-    <g transform="translate({tx:.2f},{ty:.2f})">
-        <path d="{path_d}" fill="{color_hex}" fill-rule="evenodd" stroke="#8a6d1a" stroke-width="0.6"/>
-    </g>
+    <g transform="translate({tx:.2f},{ty:.2f})">{capas}</g>
     <text x="{vb_w/2:.1f}" y="{vb_h-4:.1f}" text-anchor="middle" font-size="10" fill="#555">{marco} · {puentes_txt}</text>
     </svg>'''
     return svg
