@@ -11,14 +11,35 @@ en la práctica resultó frágil (a veces ni divide bien, ver charla con el
 usuario). Con esto el archivo abre listo, con los colores ya asignados,
 sin pasos extra.
 
-Formato deducido leyendo un .3mf real exportado por Bambu Studio (no hay
-spec pública de esta extensión particular): cada `<triangle>` lleva un
-atributo `paint_color="N"` donde N = número de extruder (1, 2, 3...) x 4
-— confirmado empíricamente: un archivo de referencia con 2 colores tenía
-SOLO los valores "4" y "8" en TODOS sus triángulos, sin excepción (ni uno
-sin pintar). El resto del paquete (Content_Types, .rels, namespaces) es
-el boilerplate estándar de Bambu Studio, copiado tal cual de ese mismo
-archivo de referencia.
+Formato del atributo `paint_color`: no hay spec pública, pero el motor
+que lo lee/escribe SÍ es open-source (BambuStudio, GPLv3) --
+`TriangleSelector::serialize()` en `src/libslic3r/TriangleSelector.cpp`
+y `FacetsAnnotation::get_triangle_as_string()` en
+`src/libslic3r/Model.cpp`. Cada triángulo (sin subdividir, que es
+nuestro caso: pintamos el triángulo ENTERO de un color, no una parte)
+codifica su estado (`EnforcerBlockerType`, donde Extruder1=1,
+Extruder2=2, Extruder3=3, ...) en grupos de 4 bits (un dígito hex cada
+uno), armados así:
+  - 2 bits siempre en cero (marcan "sin subdividir")
+  - si el extruder es 1 o 2: 2 bits más con el valor (1 o 2) -- un
+    único dígito hex de resultado: "4" para extruder 1, "8" para
+    extruder 2 (esto SÍ se confirmó mirando un .3mf de 2 colores real:
+    todos sus triángulos tenían "4" u "8", nada más).
+  - si el extruder es 3 o más: 2 bits en "11" (marcador de "valor
+    extendido"), y el `extruder - 3` se agrega en grupos de 4 bits
+    adicionales (con relleno "F" cada vez que ese resto pasa de 15) --
+    para extruder 3..17 da dos dígitos hex: la unidad primero, "C" fijo
+    después (ej. extruder 3 = "0C", extruder 4 = "1C", ..., extruder 17
+    = "EC"). Ver `_paint_color_code()` más abajo.
+
+Probé antes una fórmula más simple (extruder × 4 en decimal) que
+coincidía por casualidad para 1-2 colores pero rompía el archivo entero
+con 3 o más (Bambu Studio los rechazaba con "configuración no válida")
+-- quedó reemplazada por esta, derivada directo del código fuente en
+vez de adivinada.
+
+El resto del paquete (Content_Types, .rels, namespaces) es el
+boilerplate estándar de Bambu Studio, copiado de un .3mf de referencia.
 """
 
 import zipfile
@@ -61,19 +82,37 @@ _MODEL_FOOTER = """    </triangles>
 """
 
 
+def _paint_color_code(numero_extruder):
+    """Código hex que espera `paint_color` para un triángulo ENTERO
+    (sin subdividir) pintado con el extruder `numero_extruder` (1 =
+    primer color/slot). Ver la nota de formato al principio del
+    archivo -- extruder 1 y 2 son casos de un solo dígito ("4" y "8"),
+    del 3 en adelante son dos dígitos."""
+    if numero_extruder == 1:
+        return "4"
+    if numero_extruder == 2:
+        return "8"
+    resto = numero_extruder - 3
+    relleno = ""
+    while resto >= 15:
+        relleno += "F"
+        resto -= 15
+    return f"{resto:X}{relleno}C"
+
+
 def exportar_pintado(piezas, ruta_3mf):
     """`piezas`: lista de trimesh.Trimesh ya en su posición real
     ensamblada, cada una de un color/extruder distinto (mismo contrato
     que core/pieza.py::exportar_multicolor). Escribe un único .3mf con
     UNA sola malla combinada, cada triángulo pintado según de qué pieza
-    vino (`paint_color = (índice + 1) * 4`) — así Bambu Studio lo abre
-    con los colores ya puestos, sin dividir nada. Devuelve la cantidad
-    total de triángulos escritos."""
+    vino (`_paint_color_code`) — así Bambu Studio lo abre con los
+    colores ya puestos, sin dividir nada. Devuelve la cantidad total de
+    triángulos escritos."""
     partes_vertices = []
     lineas_triangulos = []
     offset = 0
     for i, malla in enumerate(piezas):
-        paint_color = (i + 1) * 4
+        paint_color = _paint_color_code(i + 1)
         verts = malla.vertices
         partes_vertices.append(verts)
         for f in malla.faces:
