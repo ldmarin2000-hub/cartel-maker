@@ -33,7 +33,8 @@ PRESET_KEYS = [
     "tp_tipo", "tp_texto", "tp_tamaño_mm", "tp_estilo", "tp_material", "tp_color",
     "tp_base_tipo", "tp_tema", "tp_objeto",
     "tp_plano_l1", "tp_plano_l2", "tp_plano_l3", "tp_plano_marco", "tp_plano_palo",
-    "tp_plano_espesor",
+    "tp_plano_espesor", "tp_plano_separacion", "tp_plano_palo_largo", "tp_plano_palo_ancho",
+    "tp_plano_offset_y",
 ]
 
 tipo_topper = st.radio("Tipo de topper", TIPOS_TOPPER, horizontal=True, key="tp_tipo")
@@ -98,8 +99,27 @@ with col_form:
                      "'Ninguno' deja el texto suelto, unido solo por los puentes finos."
             )
             espesor_plano = st.slider("Espesor (mm)", 1.5, 6.0, 3.0, step=0.5, key="tp_plano_espesor")
+            separacion_lineas_plano = st.slider(
+                "Separación entre líneas (mm)", 0.0, 30.0, 10.0, step=1.0, key="tp_plano_separacion",
+                help="Espacio entre los renglones cuando hay 2 o 3 líneas de texto."
+            )
         with col_b:
             con_palo_plano = st.checkbox("Palo para clavar en la torta", value=True, key="tp_plano_palo")
+            largo_palo_plano = st.slider(
+                "Largo del palo (mm)", 20.0, 100.0, 45.0, step=5.0,
+                disabled=not con_palo_plano, key="tp_plano_palo_largo",
+            )
+            ancho_palo_plano = st.slider(
+                "Ancho del palo (mm)", 3.0, 15.0, 6.0, step=1.0,
+                disabled=not con_palo_plano, key="tp_plano_palo_ancho",
+            )
+        offset_vertical_plano = st.slider(
+            "Mover el texto arriba/abajo (mm)", -30.0, 30.0, 0.0, step=1.0, key="tp_plano_offset_y",
+            disabled=marco_plano == "Ninguno",
+            help="Corre el bloque de texto hacia arriba (+) o abajo (-) DENTRO del marco, que "
+                 "se queda quieto en su lugar. Sin marco no tiene efecto (no hay nada respecto "
+                 "de qué descentrarlo)."
+        )
         st.caption(
             "Las letras/líneas sueltas de la fuente elegida se conectan automáticamente con "
             "puentes finos para que todo salga como una sola pieza rígida."
@@ -151,7 +171,9 @@ with col_preview:
     # Preview visual por tipo — texto y fuente reales
     if es_plano:
         html_preview = topper.preview_html_plano(
-            lineas_plano, tamaño_mm, marco_plano, ruta_fuente, con_palo=con_palo_plano
+            lineas_plano, tamaño_mm, marco_plano, ruta_fuente,
+            separacion_lineas_mm=separacion_lineas_plano, offset_vertical_mm=offset_vertical_plano,
+            con_palo=con_palo_plano, largo_palo_mm=largo_palo_plano, ancho_palo_mm=ancho_palo_plano,
         )
         if html_preview:
             components.html(f'<div style="display:flex;justify-content:center;width:100%">{html_preview}</div>', height=320)
@@ -253,7 +275,11 @@ with col_preview:
                             tamaño_mm=tamaño_mm,
                             fuente=ruta_fuente,
                             marco=marco_plano,
+                            separacion_lineas_mm=separacion_lineas_plano,
+                            offset_vertical_mm=offset_vertical_plano,
                             con_palo=con_palo_plano,
+                            largo_palo_mm=largo_palo_plano,
+                            ancho_palo_mm=ancho_palo_plano,
                             espesor_mm=espesor_plano,
                         )
 

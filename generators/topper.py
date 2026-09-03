@@ -758,20 +758,25 @@ def _forma_marco(forma, cx, cy, radio, grosor_mm):
 
 
 def _armar_geometria_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
-                            espaciado_relativo=-0.05, grosor_marco_mm=3.0,
+                            espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
+                            offset_vertical_mm=0.0, grosor_marco_mm=3.0,
                             margen_marco_mm=6.0, ancho_puente_mm=2.5,
                             con_palo=True, largo_palo_mm=45.0, ancho_palo_mm=6.0,
                             raster_px=400):
     """Arma la geometría 2D (shapely) del topper plano: 1 a 3 líneas de
     texto real (con huecos, "espaciado_relativo" negativo para que las
-    letras de fuentes script queden más juntas), un marco decorativo
-    opcional envolviendo el bloque de texto, y un palo abajo para clavar
-    en la torta. Lo que quede suelto (letras que ni con el espaciado
-    negativo se tocan, o el texto respecto del marco) se une con puentes
-    finos vía core/geometry.py::conectar_componentes -- la misma técnica
-    que ya usa el generador de Neón -- así el diseño sale como UNA sola
-    pieza imprimible sin importar si la fuente conecta sus letras o no.
-    Devuelve (geometria, cantidad_de_puentes)."""
+    letras de fuentes script queden más juntas), separadas entre sí por
+    `separacion_lineas_mm`, un marco decorativo opcional envolviendo el
+    bloque de texto (`offset_vertical_mm` corre el texto hacia arriba/
+    abajo DENTRO del marco, que se arma con el tamaño y centro del texto
+    SIN ese corrimiento -- así se puede descentrar el texto a propósito
+    sin que el marco lo siga), y un palo abajo para clavar en la torta.
+    Lo que quede suelto (letras que ni con el espaciado negativo se
+    tocan, el texto respecto del marco, o el palo si no llega a tocar el
+    diseño) se une con puentes finos vía
+    core/geometry.py::conectar_componentes -- la misma técnica que ya
+    usa el generador de Neón -- así el diseño sale como UNA sola pieza
+    imprimible pase lo que pase. Devuelve (geometria, cantidad_de_puentes)."""
     sg, so = _shapely()
     saf = _affinity()
     t2d = _texto2d()
@@ -782,8 +787,9 @@ def _armar_geometria_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         raise ValueError("Escribí al menos una línea de texto")
 
     n = len(lineas_validas)
-    alto_linea_mm = tamaño_mm / (n + (n - 1) * 0.35)
-    gap_mm = alto_linea_mm * 0.35
+    alto_linea_mm = (tamaño_mm - (n - 1) * separacion_lineas_mm) / n
+    if alto_linea_mm < 5:
+        raise ValueError("el tamaño es muy chico para esa separación entre líneas -- subí el tamaño o bajá la separación")
 
     piezas_texto = []
     y_cursor = 0.0
@@ -796,7 +802,7 @@ def _armar_geometria_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         cx_linea = (minx + maxx) / 2
         poli = saf.translate(poli, xoff=-cx_linea, yoff=y_cursor - miny)
         piezas_texto.append(poli)
-        y_cursor -= (alto_linea_mm + gap_mm)
+        y_cursor -= (alto_linea_mm + separacion_lineas_mm)
 
     if not piezas_texto:
         raise ValueError("no se pudo extraer ninguna línea de texto (probá otra fuente)")
@@ -805,28 +811,36 @@ def _armar_geometria_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     minx, miny, maxx, maxy = texto_total.bounds
     cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
 
+    aro = None
     if marco != "Ninguno":
         radio = max(maxx - minx, maxy - miny) / 2 + margen_marco_mm
         aro = _forma_marco(marco, cx, cy, radio, grosor_marco_mm)
-        contenido = so.unary_union([texto_total, aro])
-    else:
-        contenido = texto_total
 
+    if offset_vertical_mm:
+        texto_total = saf.translate(texto_total, yoff=offset_vertical_mm)
+
+    contenido = so.unary_union([texto_total, aro]) if aro is not None else texto_total
     conectado, n_puentes = geo.conectar_componentes(contenido, ancho_puente_mm, 0.4)
 
     if con_palo:
         minx, miny, maxx, maxy = conectado.bounds
-        solape = min(4.0, alto_linea_mm * 0.3)
         cx_pata = (minx + maxx) / 2
+        # el tope de la pata llega hasta miny + un pelín (no hace falta
+        # calcular el solape justo: si no alcanza a tocar el diseño, el
+        # segundo pase de conectar_componentes de abajo la suelda igual.
         pata = sg.box(cx_pata - ancho_palo_mm / 2, miny - largo_palo_mm,
-                      cx_pata + ancho_palo_mm / 2, miny + solape)
-        conectado = so.unary_union([conectado, pata])
+                      cx_pata + ancho_palo_mm / 2, miny + 0.5)
+        conectado, n_puentes_pata = geo.conectar_componentes(
+            so.unary_union([conectado, pata]), ancho_puente_mm, 0.4
+        )
+        n_puentes += n_puentes_pata
 
     return conectado, n_puentes
 
 
 def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
-                   espaciado_relativo=-0.05, grosor_marco_mm=3.0, margen_marco_mm=6.0,
+                   espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
+                   grosor_marco_mm=3.0, margen_marco_mm=6.0,
                    ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
                    ancho_palo_mm=6.0, espesor_mm=3.0, raster_px=400):
     """Generar topper "plano" (recortado, tipo acrílico/madera láser): 1 a
@@ -836,8 +850,9 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     os.makedirs(CARPETA_SALIDA, exist_ok=True)
 
     conectado, n_puentes = _armar_geometria_plano(
-        lineas, tamaño_mm, fuente, marco, espaciado_relativo, grosor_marco_mm,
-        margen_marco_mm, ancho_puente_mm, con_palo, largo_palo_mm, ancho_palo_mm, raster_px,
+        lineas, tamaño_mm, fuente, marco, espaciado_relativo, separacion_lineas_mm,
+        offset_vertical_mm, grosor_marco_mm, margen_marco_mm, ancho_puente_mm,
+        con_palo, largo_palo_mm, ancho_palo_mm, raster_px,
     )
 
     piezas_geoms = conectado.geoms if hasattr(conectado, "geoms") else [conectado]
