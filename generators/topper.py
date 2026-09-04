@@ -973,7 +973,9 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
             else:
                 decoracion = decoracion.difference(aro)
 
-    nombradas = [g for g in (texto_total, borde, aro, decoracion) if g is not None]
+    nombradas_principales = [g for g in (texto_total, borde, aro) if g is not None]
+    principal = so.unary_union(nombradas_principales) if len(nombradas_principales) > 1 else nombradas_principales[0]
+    nombradas = nombradas_principales + ([decoracion] if decoracion is not None else [])
     contenido = so.unary_union(nombradas) if len(nombradas) > 1 else nombradas[0]
     conectado, n_puentes = geo.conectar_componentes(contenido, ancho_puente_mm, 0.4)
 
@@ -984,7 +986,16 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
 
     palo = None
     if con_palo:
-        minx, miny, maxx, maxy = conectado.bounds
+        # OJO: centrado/apoyado en "principal" (texto+borde+marco), NO en
+        # el diseño completo -- si se usara el bbox con la decoración
+        # incluida, una decoración grande o que cuelgue hacia abajo (una
+        # figura, un moño largo) corre el palito de lugar sin sentido, a
+        # veces terminando pegado a una pata/rulo de la decoración en vez
+        # de centrado bajo el texto. Así el palito queda siempre donde
+        # iría sin decoración, y si la decoración cuelga cerca de todos
+        # modos, el puente de conectar_componentes la suelda ahí (se ve
+        # como si la decoración se apoyara en el palito, no al revés).
+        minx, miny, maxx, maxy = principal.bounds
         cx_pata = (minx + maxx) / 2
         # el tope de la pata llega hasta miny + un pelín (no hace falta
         # calcular el solape justo: si no alcanza a tocar el diseño, el
@@ -1005,14 +1016,31 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     }, n_puentes
 
 
+_SIMPLIFY_EXTRUSION_MM = 0.05  # limpia ruido numérico de union()/difference() antes de triangular
+
+
 def _extrudir_geom(geom, espesor_mm):
     """Extruye un (Multi)Polygon shapely a un trimesh.Trimesh de altura
-    `espesor_mm`, o None si `geom` es None/vacío."""
+    `espesor_mm`, o None si `geom` es None/vacío. Simplifica un poquito
+    cada sub-polígono antes de extruir (mismo motivo que
+    core/texto2d.py::SIMPLIFY_MM): un polígono que salió de varios
+    union()/difference() seguidos (típico en los puentes finos de
+    conectar_componentes, sobre todo si un puente quedó cortito) a veces
+    junta puntos casi-colineales o casi-duplicados que confunden al
+    triangulador y dejan la malla no watertight -- visto en la región
+    "conectores" con un puente chico. El área prácticamente no cambia,
+    solo saca esos puntos redundantes."""
     if geom is None or geom.is_empty:
         return None
     piezas_geoms = geom.geoms if hasattr(geom, "geoms") else [geom]
-    mallas = [trimesh.creation.extrude_polygon(p, height=espesor_mm)
-              for p in piezas_geoms if p.is_valid and p.area > 0]
+    mallas = []
+    for p in piezas_geoms:
+        if not p.is_valid or p.area <= 0:
+            continue
+        p = p.simplify(_SIMPLIFY_EXTRUSION_MM, preserve_topology=True)
+        if p.is_empty or p.area <= 0:
+            continue
+        mallas.append(trimesh.creation.extrude_polygon(p, height=espesor_mm))
     if not mallas:
         return None
     malla = trimesh.util.concatenate(mallas)
