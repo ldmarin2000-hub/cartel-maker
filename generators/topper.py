@@ -1046,6 +1046,16 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
     malla = trimesh.util.concatenate(mallas_presentes)
     malla.export(ruta_stl)
 
+    # Un STL por región SIEMPRE (no solo con AMS) -- para que el visor 3D de
+    # la página pueda mostrar el resultado con los colores reales elegidos
+    # en vez de un color parejo fijo (no para imprimir sueltas: son coplanares,
+    # no se pegan bien a mano -- para eso está el STL combinado de arriba).
+    piezas_color = []
+    for clave in claves_presentes:
+        ruta_region = os.path.join(CARPETA_SALIDA, f"topper_plano_{base_nombre}_{marco_slug}_{clave}.stl")
+        mallas_por_region[clave].export(ruta_region)
+        piezas_color.append({"clave": clave, "ruta_stl": ruta_region, "color": colores_por_region[clave]})
+
     ruta_3mf_multicolor = None
     ruta_stl_multicolor = None
     if tiene_ams:
@@ -1063,6 +1073,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         "puentes": n_puentes,
         "fuente": fuente,
         "ruta_stl": ruta_stl,
+        "piezas_color": piezas_color,
         "ruta_3mf_multicolor": ruta_3mf_multicolor,
         "ruta_stl_multicolor": ruta_stl_multicolor,
         "colores": {"texto": color_texto, "borde": color_borde, "marco": color_marco, "palo": color_palo, "decoracion": color_decoracion},

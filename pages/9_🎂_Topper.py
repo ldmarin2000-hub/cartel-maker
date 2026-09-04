@@ -388,12 +388,13 @@ with col_preview:
                             color_decoracion=color_decoracion_plano,
                         )
 
-                        if "ruta_stl" in resultado and os.path.exists(resultado["ruta_stl"]):
-                            html_visor = preview3d.armar_html_visor(
-                                [{"ruta_stl": resultado["ruta_stl"], "color": "#d4af37"}], height_px=500
-                            )
-                            if html_visor:
-                                components.html(html_visor, height=500, scrolling=False)
+                        piezas_visor_plano = [
+                            {"ruta_stl": p["ruta_stl"], "color": colores.hex_de(p["color"]), "nombre": p["clave"]}
+                            for p in resultado.get("piezas_color", [])
+                        ]
+                        html_visor = preview3d.armar_html_visor(piezas_visor_plano, height_px=500)
+                        if html_visor:
+                            components.html(html_visor, height=500, scrolling=False)
 
                         st.markdown(f"""
                         ### ✓ Topper Plano generado
