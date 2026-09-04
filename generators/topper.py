@@ -884,14 +884,15 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     llega a tocar el diseño) se une con puentes finos vía
     core/geometry.py::conectar_componentes -- la misma técnica que ya
     usa el generador de Neón -- así el diseño sale como UNA sola pieza
-    imprimible pase lo que pase; ese material extra de unión se le suma
-    a la región más "de borde" que haya disponible (borde > marco >
-    decoración > texto) para que no aparezca una sexta región sin
-    nombre.
+    imprimible pase lo que pase. Esos puentes quedan como su PROPIA
+    región ("conectores"), no mezclados en ninguna de las otras -- así
+    se pueden imprimir de un color/filamento distinto (ej. transparente,
+    para que casi no se noten).
 
     Devuelve (regiones, cantidad_de_puentes), con `regiones` un dict
     {"texto": geom, "borde": geom|None, "marco": geom|None,
-    "palo": geom|None, "decoracion": geom|None} -- unir todo lo que no
+    "palo": geom|None, "decoracion": geom|None, "conectores": geom|None}
+    -- unir todo lo que no
     sea None da la pieza completa conectada."""
     sg, so = _shapely()
     saf = _affinity()
@@ -968,16 +969,10 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     contenido = so.unary_union(nombradas) if len(nombradas) > 1 else nombradas[0]
     conectado, n_puentes = geo.conectar_componentes(contenido, ancho_puente_mm, 0.4)
 
+    conectores = None
     extra = conectado.difference(contenido)
     if not extra.is_empty:
-        if borde is not None:
-            borde = so.unary_union([borde, extra])
-        elif aro is not None:
-            aro = so.unary_union([aro, extra])
-        elif decoracion is not None:
-            decoracion = so.unary_union([decoracion, extra])
-        else:
-            texto_total = so.unary_union([texto_total, extra])
+        conectores = extra
 
     palo = None
     if con_palo:
@@ -992,9 +987,14 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         conectado, n_puentes_pata = geo.conectar_componentes(antes, ancho_puente_mm, 0.4)
         n_puentes += n_puentes_pata
         extra_palo = conectado.difference(antes)
-        palo = so.unary_union([pata, extra_palo]) if not extra_palo.is_empty else pata
+        palo = pata
+        if not extra_palo.is_empty:
+            conectores = extra_palo if conectores is None else so.unary_union([conectores, extra_palo])
 
-    return {"texto": texto_total, "borde": borde, "marco": aro, "palo": palo, "decoracion": decoracion}, n_puentes
+    return {
+        "texto": texto_total, "borde": borde, "marco": aro, "palo": palo,
+        "decoracion": decoracion, "conectores": conectores,
+    }, n_puentes
 
 
 def _extrudir_geom(geom, espesor_mm):
@@ -1020,7 +1020,8 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
                    ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
                    ancho_palo_mm=6.0, espesor_mm=3.0, raster_px=400,
                    tiene_ams=False, color_texto="Dorado", color_borde="Blanco",
-                   color_marco="Dorado", color_palo="Dorado", color_decoracion="Dorado"):
+                   color_marco="Dorado", color_palo="Dorado", color_decoracion="Dorado",
+                   color_conectores="Transparente/Natural"):
     """Generar topper "plano" (recortado, tipo acrílico/madera láser): 1 a
     3 líneas de texto, marco decorativo opcional, borde de texto
     opcional, decoración (SVG propio) opcional, y palo para clavar en la
@@ -1051,7 +1052,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
 
     colores_por_region = {
         "texto": color_texto, "borde": color_borde, "marco": color_marco,
-        "palo": color_palo, "decoracion": color_decoracion,
+        "palo": color_palo, "decoracion": color_decoracion, "conectores": color_conectores,
     }
     mallas_por_region = {clave: _extrudir_geom(geom, espesor_mm) for clave, geom in regiones.items()}
     claves_presentes = [clave for clave, m in mallas_por_region.items() if m is not None]
@@ -1091,7 +1092,10 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         "piezas_color": piezas_color,
         "ruta_3mf_multicolor": ruta_3mf_multicolor,
         "ruta_stl_multicolor": ruta_stl_multicolor,
-        "colores": {"texto": color_texto, "borde": color_borde, "marco": color_marco, "palo": color_palo, "decoracion": color_decoracion},
+        "colores": {
+            "texto": color_texto, "borde": color_borde, "marco": color_marco, "palo": color_palo,
+            "decoracion": color_decoracion, "conectores": color_conectores,
+        },
         "vertices": len(malla.vertices),
         "caras": len(malla.faces),
         "watertight": malla.is_watertight,
@@ -1289,7 +1293,7 @@ def _shapely_a_svg_path(geom):
 def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
                         color_texto="#d4af37", color_borde="#f4f4f2",
                         color_marco="#d4af37", color_palo="#d4af37",
-                        color_decoracion="#d4af37", **kwargs):
+                        color_decoracion="#d4af37", color_conectores="#dce8e8", **kwargs):
     """Preview real (no esquemático) del topper plano: arma las 5
     regiones de verdad (`_armar_regiones_plano`, incluidos los puentes)
     y las dibuja como SVG, cada una de su color -- sirve como guía de
@@ -1310,13 +1314,13 @@ def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
     tx, ty = -minx + pad, maxy + pad  # ty: ya negamos Y en _shapely_a_svg_path
 
     colores_region = {
-        "marco": color_marco, "palo": color_palo, "decoracion": color_decoracion,
-        "borde": color_borde, "texto": color_texto,
+        "conectores": color_conectores, "marco": color_marco, "palo": color_palo,
+        "decoracion": color_decoracion, "borde": color_borde, "texto": color_texto,
     }
     capas = "".join(
         f'<path d="{_shapely_a_svg_path(regiones[clave])}" fill="{colores_region[clave]}" '
         f'fill-rule="evenodd" stroke="#00000055" stroke-width="0.4"/>'
-        for clave in ("marco", "palo", "decoracion", "borde", "texto") if regiones.get(clave) is not None
+        for clave in ("conectores", "marco", "palo", "decoracion", "borde", "texto") if regiones.get(clave) is not None
     )
 
     puentes_txt = f"{n_puentes} puente(s)" if n_puentes else "sin puentes (ya conectado)"

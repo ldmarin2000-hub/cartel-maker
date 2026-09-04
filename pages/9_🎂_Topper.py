@@ -38,6 +38,7 @@ PRESET_KEYS = [
     "tp_plano_color_marco", "tp_plano_color_palo", "tp_plano_ams",
     "tp_plano_margen_marco", "tp_plano_grosor_marco", "tp_plano_texto_sobre_marco",
     "tp_plano_decoracion_lado", "tp_plano_decoracion_tam", "tp_plano_color_decoracion",
+    "tp_plano_color_conectores",
 ]
 
 tipo_topper = st.radio("Tipo de topper", TIPOS_TOPPER, horizontal=True, key="tp_tipo")
@@ -186,7 +187,7 @@ with col_form:
             "Borde del texto (mm)", 0.0, 3.0, 0.0, step=0.25, key="tp_plano_borde",
             help="Un contorno fino alrededor de cada letra, de un color distinto al del texto. 0 = sin borde."
         )
-        col_c0, col_c1, col_c2, col_c3, col_c4 = st.columns(5)
+        col_c0, col_c1, col_c2, col_c3, col_c4, col_c5 = st.columns(6)
         color_texto_plano = col_c0.selectbox("Texto", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"), key="tp_plano_color_texto")
         color_borde_plano = col_c1.selectbox(
             "Borde", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Negro"),
@@ -203,6 +204,12 @@ with col_form:
         color_decoracion_plano = col_c4.selectbox(
             "Decoración", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
             disabled=decoracion_svg_ruta is None, key="tp_plano_color_decoracion",
+        )
+        color_conectores_plano = col_c5.selectbox(
+            "Conectores", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Transparente/Natural"),
+            key="tp_plano_color_conectores",
+            help="Los puentes finos que sueldan letras sueltas (y el palo, si hace falta). "
+                 "Un filamento transparente/natural hace que casi no se noten.",
         )
         tiene_ams_plano = st.checkbox(
             "Imprimir con AMS (multicolor)", value=False, key="tp_plano_ams",
@@ -269,6 +276,7 @@ with col_preview:
                 color_texto=colores.hex_de(color_texto_plano), color_borde=colores.hex_de(color_borde_plano),
                 color_marco=colores.hex_de(color_marco_plano), color_palo=colores.hex_de(color_palo_plano),
                 color_decoracion=colores.hex_de(color_decoracion_plano),
+                color_conectores=colores.hex_de(color_conectores_plano),
                 separacion_lineas_mm=separacion_lineas_plano, offset_vertical_mm=offset_vertical_plano,
                 borde_texto_mm=borde_texto_plano,
                 margen_marco_mm=margen_marco_plano, grosor_marco_mm=grosor_marco_plano,
@@ -397,6 +405,7 @@ with col_preview:
                             color_marco=color_marco_plano,
                             color_palo=color_palo_plano,
                             color_decoracion=color_decoracion_plano,
+                            color_conectores=color_conectores_plano,
                         )
 
                         piezas_visor_plano = [
