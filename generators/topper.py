@@ -975,14 +975,6 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
 
     nombradas_principales = [g for g in (texto_total, borde, aro) if g is not None]
     principal = so.unary_union(nombradas_principales) if len(nombradas_principales) > 1 else nombradas_principales[0]
-    nombradas = nombradas_principales + ([decoracion] if decoracion is not None else [])
-    contenido = so.unary_union(nombradas) if len(nombradas) > 1 else nombradas[0]
-    conectado, n_puentes = geo.conectar_componentes(contenido, ancho_puente_mm, 0.4)
-
-    conectores = None
-    extra = conectado.difference(contenido)
-    if not extra.is_empty:
-        conectores = extra
 
     palo = None
     if con_palo:
@@ -992,23 +984,28 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         # figura, un moño largo) corre el palito de lugar sin sentido, a
         # veces terminando pegado a una pata/rulo de la decoración en vez
         # de centrado bajo el texto. Así el palito queda siempre donde
-        # iría sin decoración, y si la decoración cuelga cerca de todos
-        # modos, el puente de conectar_componentes la suelda ahí (se ve
-        # como si la decoración se apoyara en el palito, no al revés).
+        # iría sin decoración.
         minx, miny, maxx, maxy = principal.bounds
         cx_pata = (minx + maxx) / 2
-        # el tope de la pata llega hasta miny + un pelín (no hace falta
-        # calcular el solape justo: si no alcanza a tocar el diseño, el
-        # segundo pase de conectar_componentes de abajo la suelda igual.
-        pata = sg.box(cx_pata - ancho_palo_mm / 2, miny - largo_palo_mm,
+        palo = sg.box(cx_pata - ancho_palo_mm / 2, miny - largo_palo_mm,
                       cx_pata + ancho_palo_mm / 2, miny + 0.5)
-        antes = so.unary_union([conectado, pata])
-        conectado, n_puentes_pata = geo.conectar_componentes(antes, ancho_puente_mm, 0.4)
-        n_puentes += n_puentes_pata
-        extra_palo = conectado.difference(antes)
-        palo = pata
-        if not extra_palo.is_empty:
-            conectores = extra_palo if conectores is None else so.unary_union([conectores, extra_palo])
+
+    # Las 5 piezas (texto/borde/marco/decoración/palo) se conectan TODAS
+    # JUNTAS en un solo pase -- así el árbol de expansión mínima elige de
+    # verdad el puente más corto entre TODO lo que hay, en vez de conectar
+    # primero la decoración al texto (sin saber todavía dónde va a caer el
+    # palito) y recién después soldar el palito aparte: si una decoración
+    # que cuelga (un moño, una cola) termina más cerca del palito que del
+    # texto, ahora se suelda directo ahí en lugar de sumar un puente
+    # aparte, más largo y más visible, hacia el texto.
+    nombradas = nombradas_principales + [g for g in (decoracion, palo) if g is not None]
+    contenido = so.unary_union(nombradas) if len(nombradas) > 1 else nombradas[0]
+    conectado, n_puentes = geo.conectar_componentes(contenido, ancho_puente_mm, 0.4)
+
+    conectores = None
+    extra = conectado.difference(contenido)
+    if not extra.is_empty:
+        conectores = extra
 
     return {
         "texto": texto_total, "borde": borde, "marco": aro, "palo": palo,
