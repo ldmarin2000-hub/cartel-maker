@@ -13,7 +13,7 @@ import base64
 import numpy as np
 import trimesh
 
-from core import pieza, fuentes
+from core import pieza, fuentes, colores
 
 # shapely/matplotlib.textpath se importan on-demand (ver _shapely(), _textpath())
 # en vez de al cargar el módulo: si el entorno tiene una instalación de shapely
@@ -1034,8 +1034,13 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
     marco_slug = "".join(c if c.isalnum() else "_" for c in marco).strip("_")
     ruta_stl = os.path.join(CARPETA_SALIDA, f"topper_plano_{base_nombre}_{marco_slug}.stl")
 
+    colores_por_region = {
+        "texto": color_texto, "borde": color_borde, "marco": color_marco,
+        "palo": color_palo, "decoracion": color_decoracion,
+    }
     mallas_por_region = {clave: _extrudir_geom(geom, espesor_mm) for clave, geom in regiones.items()}
-    mallas_presentes = [m for m in mallas_por_region.values() if m is not None]
+    claves_presentes = [clave for clave, m in mallas_por_region.items() if m is not None]
+    mallas_presentes = [mallas_por_region[clave] for clave in claves_presentes]
     if not mallas_presentes:
         raise ValueError("el diseño quedó vacío, probá con otro texto")
     malla = trimesh.util.concatenate(mallas_presentes)
@@ -1044,8 +1049,9 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
     ruta_3mf_multicolor = None
     ruta_stl_multicolor = None
     if tiene_ams:
+        colores_hex = [colores.hex_de(colores_por_region[clave]) for clave in claves_presentes]
         ruta_3mf_multicolor = os.path.join(CARPETA_SALIDA, f"topper_plano_{base_nombre}_{marco_slug}_multicolor.3mf")
-        pieza.exportar_multicolor_3mf(mallas_presentes, ruta_3mf_multicolor)
+        pieza.exportar_multicolor_3mf(mallas_presentes, ruta_3mf_multicolor, colores_hex=colores_hex)
         ruta_stl_multicolor = os.path.join(CARPETA_SALIDA, f"topper_plano_{base_nombre}_{marco_slug}_multicolor.stl")
         pieza.exportar_multicolor(mallas_presentes, ruta_stl_multicolor)
 

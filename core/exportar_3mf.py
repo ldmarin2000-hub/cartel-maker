@@ -54,8 +54,22 @@ bbs_3mf.cpp) al principio del <model>.
 
 El resto del paquete (Content_Types, .rels, namespaces) es el
 boilerplate estándar de Bambu Studio, copiado de un .3mf de referencia.
+
+IMPORTANTE -- lo que el paint_color NO hace: solo dice "este triángulo
+es del extruder/slot N", no lleva ningún color adentro. El color de
+verdad que se VE sale de `filament_colour` en `Metadata/
+project_settings.config` (un JSON plano, ver `ConfigBase::save_to_json`
+en Config.cpp -- claves = nombre de la opción, arrays para las que
+tienen un valor por extruder). Sin ese archivo, Bambu Studio pinta cada
+slot con lo que sea que ya tenga configurado ese número de extruder en
+el proyecto actual -- por eso probamos un .3mf con 4 colores elegidos
+(dorado/blanco/negro/etc.) y salió con OTROS colores (los que ya
+estaban puestos en esos slots), aunque cada región sí se distinguía
+bien de las demás. `exportar_pintado(..., colores_hex=[...])` ahora
+también escribe ese archivo -- ver `_project_config_json()`.
 """
 
+import json
 import zipfile
 
 import numpy as np
@@ -116,14 +130,40 @@ def _paint_color_code(numero_extruder):
     return f"{resto:X}{relleno}C"
 
 
-def exportar_pintado(piezas, ruta_3mf):
+def _project_config_json(colores_hex):
+    """`Metadata/project_settings.config` mínimo (mismo formato JSON
+    plano que escribe ConfigBase::save_to_json) -- alcanza con
+    `filament_colour`/`filament_type`, un valor por extruder/slot, en
+    el mismo orden que las `piezas` de `exportar_pintado` (slot 1 =
+    piezas[0], etc.). Sin esto el color de cada slot queda librado a lo
+    que ya tuviera configurado el proyecto donde se abra el archivo."""
+    n = len(colores_hex)
+    return json.dumps({
+        "version": "01.09.05.51",
+        "name": "project_settings",
+        "from": "project",
+        "filament_colour": list(colores_hex),
+        "filament_type": ["PLA"] * n,
+        "filament_settings_id": [""] * n,
+    }, ensure_ascii=False, indent=1)
+
+
+def exportar_pintado(piezas, ruta_3mf, colores_hex=None):
     """`piezas`: lista de trimesh.Trimesh ya en su posición real
     ensamblada, cada una de un color/extruder distinto (mismo contrato
     que core/pieza.py::exportar_multicolor). Escribe un único .3mf con
     UNA sola malla combinada, cada triángulo pintado según de qué pieza
     vino (`_paint_color_code`) — así Bambu Studio lo abre con los
-    colores ya puestos, sin dividir nada. Devuelve la cantidad total de
-    triángulos escritos."""
+    colores ya puestos, sin dividir nada.
+
+    `colores_hex`: opcional, un "#RRGGBB" por pieza (mismo orden y
+    misma cantidad que `piezas`) -- si se pasa, se agrega
+    `Metadata/project_settings.config` con esos colores
+    (`_project_config_json`) para que cada slot muestre el color
+    elegido de verdad, en vez de heredar el que ya tuviera configurado
+    el proyecto donde se abra el archivo.
+
+    Devuelve la cantidad total de triángulos escritos."""
     partes_vertices = []
     lineas_triangulos = []
     offset = 0
@@ -155,5 +195,7 @@ def exportar_pintado(piezas, ruta_3mf):
         z.writestr("[Content_Types].xml", _CONTENT_TYPES)
         z.writestr("_rels/.rels", _RELS)
         z.writestr("3D/3dmodel.model", modelo_xml)
+        if colores_hex:
+            z.writestr("Metadata/project_settings.config", _project_config_json(colores_hex))
 
     return len(lineas_triangulos)
