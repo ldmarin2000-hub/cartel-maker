@@ -38,6 +38,20 @@ con 3 o más (Bambu Studio los rechazaba con "configuración no válida")
 -- quedó reemplazada por esta, derivada directo del código fuente en
 vez de adivinada.
 
+Con el paint_color ya bien codificado, Bambu Studio SEGUÍA rechazando
+el archivo con el mismo error ("El archivo 3mf tiene una configuración
+no válida, carga solo los datos de geometría"). La causa: nuestro .3mf
+no tenía ningún `<metadata>` en el <model>, y `_handle_end_metadata()`
+en bbs_3mf.cpp solo marca el archivo como "`is_bbl_3mf`" (uno propio de
+Bambu Studio, con soporte completo de paint_color y demás extensiones)
+si encuentra `<metadata name="Application">` con un valor que empiece
+con "BambuStudio-" -- sin esa marca, Bambu Studio lo trata como un .3mf
+GENÉRICO de otro programa, y para esos no confía/interpreta el
+paint_color -- de ahí el "carga solo los datos de geometría" (ignora
+todo lo que no sea la malla). Agregamos esas dos líneas de metadata
+(mismos nombres/valores que escribe `save_model_to_file()` en
+bbs_3mf.cpp) al principio del <model>.
+
 El resto del paquete (Content_Types, .rels, namespaces) es el
 boilerplate estándar de Bambu Studio, copiado de un .3mf de referencia.
 """
@@ -61,6 +75,8 @@ _RELS = """<?xml version="1.0" encoding="UTF-8"?>
 
 _MODEL_HEADER = """<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
+ <metadata name="Application">BambuStudio-01.09.05.51</metadata>
+ <metadata name="BambuStudio:3mfVersion">1</metadata>
  <resources>
   <object id="1" type="model">
    <mesh>
