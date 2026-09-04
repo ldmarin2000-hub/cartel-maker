@@ -36,7 +36,7 @@ PRESET_KEYS = [
     "tp_plano_espesor", "tp_plano_separacion", "tp_plano_palo_largo", "tp_plano_palo_ancho",
     "tp_plano_offset_y", "tp_plano_borde", "tp_plano_color_texto", "tp_plano_color_borde",
     "tp_plano_color_marco", "tp_plano_color_palo", "tp_plano_ams",
-    "tp_plano_margen_marco", "tp_plano_grosor_marco",
+    "tp_plano_margen_marco", "tp_plano_grosor_marco", "tp_plano_texto_sobre_marco",
     "tp_plano_decoracion_lado", "tp_plano_decoracion_tam", "tp_plano_color_decoracion",
 ]
 
@@ -124,6 +124,13 @@ with col_form:
                 "Grosor del marco (mm)", 1.0, 8.0, 3.0, step=0.5,
                 disabled=marco_plano == "Ninguno", key="tp_plano_grosor_marco",
                 help="Ancho de la línea del aro en sí (no confundir con la distancia al texto)."
+            )
+            texto_sobre_marco_plano = st.checkbox(
+                "Texto sobre el marco", value=False,
+                disabled=marco_plano == "Ninguno", key="tp_plano_texto_sobre_marco",
+                help="Solo importa si el texto llega a tocar el marco (con poca distancia o "
+                     "texto grande). Destildado (de siempre): el marco tapa al texto donde se "
+                     "crucen. Tildado: al revés, el texto queda encima y le hace un hueco al marco."
             )
             espesor_plano = st.slider("Espesor (mm)", 1.5, 6.0, 3.0, step=0.5, key="tp_plano_espesor")
             separacion_lineas_plano = st.slider(
@@ -265,6 +272,7 @@ with col_preview:
                 separacion_lineas_mm=separacion_lineas_plano, offset_vertical_mm=offset_vertical_plano,
                 borde_texto_mm=borde_texto_plano,
                 margen_marco_mm=margen_marco_plano, grosor_marco_mm=grosor_marco_plano,
+                texto_sobre_marco=texto_sobre_marco_plano,
                 con_palo=con_palo_plano, largo_palo_mm=largo_palo_plano, ancho_palo_mm=ancho_palo_plano,
             )
             if html_preview:
@@ -370,6 +378,7 @@ with col_preview:
                             fuente=ruta_fuente,
                             marco=marco_plano,
                             marco_svg=marco_svg_ruta,
+                            texto_sobre_marco=texto_sobre_marco_plano,
                             decoracion_svg=decoracion_svg_ruta,
                             decoracion_tam_mm=decoracion_tam_plano,
                             decoracion_lado=decoracion_lado_plano,

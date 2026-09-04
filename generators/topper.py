@@ -853,7 +853,7 @@ def _posicionar_decoracion(forma, lado, minx, miny, maxx, maxy):
 
 
 def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
-                           marco_svg=None,
+                           marco_svg=None, texto_sobre_marco=False,
                            decoracion_svg=None, decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                            espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
                            offset_vertical_mm=0.0, grosor_marco_mm=3.0,
@@ -870,7 +870,10 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     `separacion_lineas_mm`; `offset_vertical_mm` corre el texto hacia
     arriba/abajo DENTRO del marco, que se arma con el tamaño y centro
     del texto SIN ese corrimiento -- así se puede descentrar el texto a
-    propósito sin que el marco lo siga. `decoracion_svg` (ruta a un SVG
+    propósito sin que el marco lo siga. `texto_sobre_marco` decide quién
+    "gana" donde el texto (y su borde) cruza el marco: en False (de
+    siempre) el marco tapa al texto; en True es al revés, el texto tapa
+    al marco (le deja un hueco ahí). `decoracion_svg` (ruta a un SVG
     propio) agrega un dibujo/ícono suelto (ver `_decoracion_desde_svg` /
     `_posicionar_decoracion`) en el lado elegido (`decoracion_lado`,
     ver LADOS_DECORACION_PLANO) respecto del marco si hay, si no del
@@ -934,16 +937,26 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
 
     if offset_vertical_mm:
         texto_total = saf.translate(texto_total, yoff=offset_vertical_mm)
-    if aro is not None:
-        texto_total = texto_total.difference(aro)
 
     borde = None
     if borde_texto_mm > 0:
         borde = texto_total.buffer(borde_texto_mm, join_style=1).difference(texto_total)
-        if aro is not None:
-            borde = borde.difference(aro)
-        if borde.is_empty:
-            borde = None
+
+    if aro is not None:
+        if texto_sobre_marco:
+            # el texto (+ su borde) gana donde se crucen -- el marco queda
+            # con un hueco ahí en vez de taparlos.
+            tapado = texto_total if borde is None else so.unary_union([texto_total, borde])
+            aro = aro.difference(tapado)
+        else:
+            # comportamiento de siempre: el marco gana, tapa lo que se
+            # cruce del texto/borde.
+            texto_total = texto_total.difference(aro)
+            if borde is not None:
+                borde = borde.difference(aro)
+
+    if borde is not None and borde.is_empty:
+        borde = None
 
     decoracion = None
     if decoracion_svg:
@@ -1000,6 +1013,7 @@ def _extrudir_geom(geom, espesor_mm):
 
 
 def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_svg=None,
+                   texto_sobre_marco=False,
                    decoracion_svg=None, decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
                    grosor_marco_mm=3.0, margen_marco_mm=6.0, borde_texto_mm=0.0,
@@ -1021,6 +1035,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
 
     regiones, n_puentes = _armar_regiones_plano(
         lineas, tamaño_mm=tamaño_mm, fuente=fuente, marco=marco, marco_svg=marco_svg,
+        texto_sobre_marco=texto_sobre_marco,
         decoracion_svg=decoracion_svg, decoracion_tam_mm=decoracion_tam_mm, decoracion_lado=decoracion_lado,
         espaciado_relativo=espaciado_relativo, separacion_lineas_mm=separacion_lineas_mm,
         offset_vertical_mm=offset_vertical_mm, grosor_marco_mm=grosor_marco_mm,
