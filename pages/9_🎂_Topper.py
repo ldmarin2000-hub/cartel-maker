@@ -40,6 +40,7 @@ PRESET_KEYS = [
     "tp_plano_decoracion_lado", "tp_plano_decoracion_tam", "tp_plano_color_decoracion",
     "tp_plano_decoracion_sobre_marco",
     "tp_plano_color_conectores",
+    "tp_plano_base", "tp_plano_base_ancho_extra", "tp_plano_base_alto", "tp_plano_color_base",
     "tp_plano_marco_imagen_umbral", "tp_plano_marco_imagen_invertir",
     "tp_plano_decoracion_imagen_umbral", "tp_plano_decoracion_imagen_invertir",
 ]
@@ -177,6 +178,21 @@ with col_form:
                 "Ancho del palo (mm)", 3.0, 15.0, 6.0, step=1.0,
                 disabled=not con_palo_plano, key="tp_plano_palo_ancho",
             )
+            con_base_plano = st.checkbox(
+                "Con base (en vez de clavar directo)", value=False, key="tp_plano_base",
+                help="Una placa/plataforma horizontal abajo de todo el diseño -- alternativa al "
+                     "marco, para el estilo 'topper parado sobre una base' (bautismo, casamiento). "
+                     "Si además hay palo, sale de la base en vez de directo del texto."
+            )
+            ancho_base_extra_plano = st.slider(
+                "Ancho extra de la base (mm)", 0.0, 40.0, 10.0, step=2.0,
+                disabled=not con_base_plano, key="tp_plano_base_ancho_extra",
+                help="Cuánto más ancha es la base que el diseño (a cada lado)."
+            )
+            alto_base_plano = st.slider(
+                "Alto de la base (mm)", 2.0, 15.0, 6.0, step=1.0,
+                disabled=not con_base_plano, key="tp_plano_base_alto",
+            )
         offset_vertical_plano = st.slider(
             "Mover el texto arriba/abajo (mm)", -30.0, 30.0, 0.0, step=1.0, key="tp_plano_offset_y",
             disabled=marco_plano == "Ninguno",
@@ -233,7 +249,7 @@ with col_form:
             disabled=not hay_decoracion,
         )
         decoracion_tam_plano = col_d2.slider(
-            "Tamaño (mm)", 8.0, 60.0, 25.0, step=1.0, key="tp_plano_decoracion_tam",
+            "Tamaño (mm)", 8.0, 150.0, 25.0, step=1.0, key="tp_plano_decoracion_tam",
             disabled=not hay_decoracion,
         )
         decoracion_sobre_marco_plano = st.checkbox(
@@ -250,7 +266,7 @@ with col_form:
             "Borde del texto (mm)", 0.0, 3.0, 0.0, step=0.25, key="tp_plano_borde",
             help="Un contorno fino alrededor de cada letra, de un color distinto al del texto. 0 = sin borde."
         )
-        col_c0, col_c1, col_c2, col_c3, col_c4, col_c5 = st.columns(6)
+        col_c0, col_c1, col_c2, col_c3 = st.columns(4)
         color_texto_plano = col_c0.selectbox("Texto", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"), key="tp_plano_color_texto")
         color_borde_plano = col_c1.selectbox(
             "Borde", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Negro"),
@@ -260,15 +276,20 @@ with col_form:
             "Marco", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
             disabled=marco_plano == "Ninguno", key="tp_plano_color_marco",
         )
-        color_palo_plano = col_c3.selectbox(
+        color_base_plano = col_c3.selectbox(
+            "Base", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
+            disabled=not con_base_plano, key="tp_plano_color_base",
+        )
+        col_c4, col_c5, col_c6 = st.columns(3)
+        color_palo_plano = col_c4.selectbox(
             "Palo", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
             disabled=not con_palo_plano, key="tp_plano_color_palo",
         )
-        color_decoracion_plano = col_c4.selectbox(
+        color_decoracion_plano = col_c5.selectbox(
             "Decoración", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
             disabled=not hay_decoracion, key="tp_plano_color_decoracion",
         )
-        color_conectores_plano = col_c5.selectbox(
+        color_conectores_plano = col_c6.selectbox(
             "Conectores", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Transparente/Natural"),
             key="tp_plano_color_conectores",
             help="Los puentes finos que sueldan letras sueltas (y el palo, si hace falta). "
@@ -347,11 +368,13 @@ with col_preview:
                 color_marco=colores.hex_de(color_marco_plano), color_palo=colores.hex_de(color_palo_plano),
                 color_decoracion=colores.hex_de(color_decoracion_plano),
                 color_conectores=colores.hex_de(color_conectores_plano),
+                color_base=colores.hex_de(color_base_plano),
                 separacion_lineas_mm=separacion_lineas_plano, offset_vertical_mm=offset_vertical_plano,
                 borde_texto_mm=borde_texto_plano,
                 margen_marco_mm=margen_marco_plano, grosor_marco_mm=grosor_marco_plano,
                 texto_sobre_marco=texto_sobre_marco_plano,
                 con_palo=con_palo_plano, largo_palo_mm=largo_palo_plano, ancho_palo_mm=ancho_palo_plano,
+                con_base=con_base_plano, ancho_base_extra_mm=ancho_base_extra_plano, alto_base_mm=alto_base_plano,
             )
             if html_preview:
                 components.html(f'<div style="display:flex;justify-content:center;width:100%">{html_preview}</div>', height=320)
@@ -477,6 +500,9 @@ with col_preview:
                             con_palo=con_palo_plano,
                             largo_palo_mm=largo_palo_plano,
                             ancho_palo_mm=ancho_palo_plano,
+                            con_base=con_base_plano,
+                            ancho_base_extra_mm=ancho_base_extra_plano,
+                            alto_base_mm=alto_base_plano,
                             espesor_mm=espesor_plano,
                             tiene_ams=tiene_ams_plano,
                             color_texto=color_texto_plano,
@@ -485,6 +511,7 @@ with col_preview:
                             color_palo=color_palo_plano,
                             color_decoracion=color_decoracion_plano,
                             color_conectores=color_conectores_plano,
+                            color_base=color_base_plano,
                         )
 
                         piezas_visor_plano = [

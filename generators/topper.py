@@ -929,7 +929,8 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                            offset_vertical_mm=0.0, grosor_marco_mm=3.0,
                            margen_marco_mm=6.0, borde_texto_mm=0.0,
                            ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
-                           ancho_palo_mm=6.0, raster_px=400):
+                           ancho_palo_mm=6.0, con_base=False, ancho_base_extra_mm=10.0,
+                           alto_base_mm=6.0, raster_px=400):
     """Arma las 5 regiones del topper plano -- texto / borde del texto /
     marco / palo / decoración -- YA SIN superponerse entre sí, pensadas
     para pintar o imprimir cada una de un color distinto (AMS).
@@ -943,7 +944,11 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     propósito sin que el marco lo siga. `texto_sobre_marco` decide quién
     "gana" donde el texto (y su borde) cruza el marco: en False (de
     siempre) el marco tapa al texto; en True es al revés, el texto tapa
-    al marco (le deja un hueco ahí). `decoracion_svg` (ruta a un SVG
+    al marco (le deja un hueco ahí). `con_base` agrega una placa
+    horizontal abajo de todo (alternativa al marco, estilo "topper
+    parado sobre una base" en vez de "adentro de un aro") -- si además
+    hay palo, sale directo de la base en vez de directo del texto.
+    `decoracion_svg` (ruta a un SVG
     propio) agrega un dibujo/ícono suelto (ver `_decoracion_desde_svg` /
     `_posicionar_decoracion`) en el lado elegido (`decoracion_lado`,
     ver LADOS_DECORACION_PLANO) respecto del marco si hay, si no del
@@ -1053,29 +1058,41 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     nombradas_principales = [g for g in (texto_total, borde, aro) if g is not None]
     principal = so.unary_union(nombradas_principales) if len(nombradas_principales) > 1 else nombradas_principales[0]
 
+    base = None
+    soporte = principal
+    if con_base:
+        # Una placa/plataforma horizontal abajo de todo -- alternativa al
+        # marco (que envuelve el texto) para el estilo "topper apoyado
+        # sobre una base", como pastel de bautismo/casamiento: ancho =
+        # el diseño + un margen a cada lado, altura fija chica.
+        minx, miny, maxx, maxy = principal.bounds
+        base = sg.box(minx - ancho_base_extra_mm, miny - alto_base_mm,
+                      maxx + ancho_base_extra_mm, miny + 0.5)
+        soporte = so.unary_union([principal, base])
+
     palo = None
     if con_palo:
-        # OJO: centrado/apoyado en "principal" (texto+borde+marco), NO en
-        # el diseño completo -- si se usara el bbox con la decoración
-        # incluida, una decoración grande o que cuelgue hacia abajo (una
-        # figura, un moño largo) corre el palito de lugar sin sentido, a
-        # veces terminando pegado a una pata/rulo de la decoración en vez
-        # de centrado bajo el texto. Así el palito queda siempre donde
-        # iría sin decoración.
-        minx, miny, maxx, maxy = principal.bounds
+        # OJO: centrado/apoyado en "soporte" (texto+borde+marco+base si
+        # hay), NO en el diseño completo -- si se usara el bbox con la
+        # decoración incluida, una decoración grande o que cuelgue hacia
+        # abajo (una figura, un moño largo) corre el palito de lugar sin
+        # sentido, a veces terminando pegado a una pata/rulo de la
+        # decoración en vez de centrado bajo el texto/base. Así el
+        # palito sale siempre de la base (si hay) o del texto (si no).
+        minx, miny, maxx, maxy = soporte.bounds
         cx_pata = (minx + maxx) / 2
         palo = sg.box(cx_pata - ancho_palo_mm / 2, miny - largo_palo_mm,
                       cx_pata + ancho_palo_mm / 2, miny + 0.5)
 
-    # Las 5 piezas (texto/borde/marco/decoración/palo) se conectan TODAS
-    # JUNTAS en un solo pase -- así el árbol de expansión mínima elige de
-    # verdad el puente más corto entre TODO lo que hay, en vez de conectar
-    # primero la decoración al texto (sin saber todavía dónde va a caer el
-    # palito) y recién después soldar el palito aparte: si una decoración
-    # que cuelga (un moño, una cola) termina más cerca del palito que del
-    # texto, ahora se suelda directo ahí en lugar de sumar un puente
-    # aparte, más largo y más visible, hacia el texto.
-    nombradas = nombradas_principales + [g for g in (decoracion, palo) if g is not None]
+    # Las piezas (texto/borde/marco/base/decoración/palo) se conectan
+    # TODAS JUNTAS en un solo pase -- así el árbol de expansión mínima
+    # elige de verdad el puente más corto entre TODO lo que hay, en vez
+    # de conectar primero la decoración al texto (sin saber todavía
+    # dónde va a caer el palito) y recién después soldar el palito
+    # aparte: si una decoración que cuelga (un moño, una cola) termina
+    # más cerca del palito que del texto, ahora se suelda directo ahí en
+    # lugar de sumar un puente aparte, más largo y más visible.
+    nombradas = nombradas_principales + [g for g in (base, decoracion, palo) if g is not None]
     contenido = so.unary_union(nombradas) if len(nombradas) > 1 else nombradas[0]
     conectado, n_puentes = geo.conectar_componentes(contenido, ancho_puente_mm, 0.4)
 
@@ -1085,7 +1102,7 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         conectores = extra
 
     return {
-        "texto": texto_total, "borde": borde, "marco": aro, "palo": palo,
+        "texto": texto_total, "borde": borde, "marco": aro, "base": base, "palo": palo,
         "decoracion": decoracion, "conectores": conectores,
     }, n_puentes
 
@@ -1132,10 +1149,11 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
                    grosor_marco_mm=3.0, margen_marco_mm=6.0, borde_texto_mm=0.0,
                    ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
-                   ancho_palo_mm=6.0, espesor_mm=3.0, raster_px=400,
+                   ancho_palo_mm=6.0, con_base=False, ancho_base_extra_mm=10.0, alto_base_mm=6.0,
+                   espesor_mm=3.0, raster_px=400,
                    tiene_ams=False, color_texto="Dorado", color_borde="Blanco",
                    color_marco="Dorado", color_palo="Dorado", color_decoracion="Dorado",
-                   color_conectores="Transparente/Natural"):
+                   color_conectores="Transparente/Natural", color_base="Dorado"):
     """Generar topper "plano" (recortado, tipo acrílico/madera láser): 1 a
     3 líneas de texto, marco decorativo opcional, borde de texto
     opcional, decoración (SVG propio) opcional, y palo para clavar en la
@@ -1161,7 +1179,8 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         offset_vertical_mm=offset_vertical_mm, grosor_marco_mm=grosor_marco_mm,
         margen_marco_mm=margen_marco_mm, borde_texto_mm=borde_texto_mm,
         ancho_puente_mm=ancho_puente_mm, con_palo=con_palo, largo_palo_mm=largo_palo_mm,
-        ancho_palo_mm=ancho_palo_mm, raster_px=raster_px,
+        ancho_palo_mm=ancho_palo_mm, con_base=con_base, ancho_base_extra_mm=ancho_base_extra_mm,
+        alto_base_mm=alto_base_mm, raster_px=raster_px,
     )
 
     lineas_validas = [l.strip() for l in lineas if l and l.strip()][:3]
@@ -1172,6 +1191,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
     colores_por_region = {
         "texto": color_texto, "borde": color_borde, "marco": color_marco,
         "palo": color_palo, "decoracion": color_decoracion, "conectores": color_conectores,
+        "base": color_base,
     }
     mallas_por_region = {clave: _extrudir_geom(geom, espesor_mm) for clave, geom in regiones.items()}
     claves_presentes = [clave for clave, m in mallas_por_region.items() if m is not None]
@@ -1213,7 +1233,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         "ruta_stl_multicolor": ruta_stl_multicolor,
         "colores": {
             "texto": color_texto, "borde": color_borde, "marco": color_marco, "palo": color_palo,
-            "decoracion": color_decoracion, "conectores": color_conectores,
+            "decoracion": color_decoracion, "conectores": color_conectores, "base": color_base,
         },
         "vertices": len(malla.vertices),
         "caras": len(malla.faces),
@@ -1412,7 +1432,8 @@ def _shapely_a_svg_path(geom):
 def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
                         color_texto="#d4af37", color_borde="#f4f4f2",
                         color_marco="#d4af37", color_palo="#d4af37",
-                        color_decoracion="#d4af37", color_conectores="#dce8e8", **kwargs):
+                        color_decoracion="#d4af37", color_conectores="#dce8e8",
+                        color_base="#d4af37", **kwargs):
     """Preview real (no esquemático) del topper plano: arma las 5
     regiones de verdad (`_armar_regiones_plano`, incluidos los puentes)
     y las dibuja como SVG, cada una de su color -- sirve como guía de
@@ -1433,13 +1454,13 @@ def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
     tx, ty = -minx + pad, maxy + pad  # ty: ya negamos Y en _shapely_a_svg_path
 
     colores_region = {
-        "conectores": color_conectores, "marco": color_marco, "palo": color_palo,
+        "conectores": color_conectores, "base": color_base, "marco": color_marco, "palo": color_palo,
         "decoracion": color_decoracion, "borde": color_borde, "texto": color_texto,
     }
     capas = "".join(
         f'<path d="{_shapely_a_svg_path(regiones[clave])}" fill="{colores_region[clave]}" '
         f'fill-rule="evenodd" stroke="#00000055" stroke-width="0.4"/>'
-        for clave in ("conectores", "marco", "palo", "decoracion", "borde", "texto") if regiones.get(clave) is not None
+        for clave in ("conectores", "base", "marco", "palo", "decoracion", "borde", "texto") if regiones.get(clave) is not None
     )
 
     puentes_txt = f"{n_puentes} puente(s)" if n_puentes else "sin puentes (ya conectado)"
