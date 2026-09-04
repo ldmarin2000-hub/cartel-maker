@@ -48,15 +48,11 @@ def _mascara_desde_imagen(ruta_imagen, umbral, invertir):
     return mascara
 
 
-def imagen_a_poligono_crudo(ruta_imagen, umbral=128, invertir=False):
-    """Vectoriza `ruta_imagen` (cualquier formato que abra PIL — PNG,
-    JPG, etc) a un polígono shapely SIN escalar (unidades de píxel) —
-    usa el canal alfa como máscara si la imagen tiene transparencia (PNG
-    recortado, lo más común para un logo), si no umbraliza por
-    luminosidad (oscuro = forma, sobre fondo claro; `invertir=True` para
-    el caso contrario, forma clara sobre fondo oscuro). Devuelve None si
-    no se pudo sacar ninguna forma con área."""
-    mascara = _mascara_desde_imagen(ruta_imagen, umbral, invertir)
+def _mascara_a_poligono(mascara):
+    """Vectoriza una máscara booleana (marching squares) a un polígono
+    shapely con huecos -- el paso compartido entre
+    `imagen_a_poligono_crudo` (una máscara) e
+    `imagen_a_poligonos_por_color` (una máscara por color detectado)."""
     contornos = measure.find_contours(mascara.astype(float), level=0.5)
     alto_px = mascara.shape[0]
 
@@ -73,3 +69,61 @@ def imagen_a_poligono_crudo(ruta_imagen, umbral=128, invertir=False):
         polys.append(p)
 
     return combinar_con_huecos(polys)
+
+
+def imagen_a_poligono_crudo(ruta_imagen, umbral=128, invertir=False):
+    """Vectoriza `ruta_imagen` (cualquier formato que abra PIL — PNG,
+    JPG, etc) a un polígono shapely SIN escalar (unidades de píxel) —
+    usa el canal alfa como máscara si la imagen tiene transparencia (PNG
+    recortado, lo más común para un logo), si no umbraliza por
+    luminosidad (oscuro = forma, sobre fondo claro; `invertir=True` para
+    el caso contrario, forma clara sobre fondo oscuro). Devuelve None si
+    no se pudo sacar ninguna forma con área."""
+    mascara = _mascara_desde_imagen(ruta_imagen, umbral, invertir)
+    return _mascara_a_poligono(mascara)
+
+
+def imagen_a_poligonos_por_color(ruta_imagen, max_colores=4):
+    """Separa `ruta_imagen` en hasta `max_colores` regiones por color
+    real (cuantización, PIL Image.quantize) en vez de una silueta de un
+    solo color -- pensado para un logo/escudo con varios colores bien
+    definidos (rojo/blanco/etc), no para una foto. Usa el canal alfa
+    para ignorar el fondo transparente si la imagen lo tiene; si no,
+    cuantiza la imagen completa (el fondo sólido puede salir como uno
+    de los colores detectados -- normal, el que llama puede optar por
+    no usar ese color). Sin escalar (unidades de píxel), en el MISMO
+    sistema de coordenadas entre sí (a diferencia de vectorizar cada
+    color por separado con `imagen_a_poligono_crudo`, que perdería la
+    posición relativa entre colores).
+
+    Devuelve una lista de (polígono, "#rrggbb") ordenada de mayor a
+    menor área, o lista vacía si no se pudo sacar nada."""
+    img = Image.open(ruta_imagen)
+    ancho, alto = img.size
+    escala = TAMANO_TRABAJO_PX / max(ancho, alto)
+    if escala < 1:
+        img = img.resize((max(1, int(ancho * escala)), max(1, int(alto * escala))), Image.LANCZOS)
+
+    tiene_alfa = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
+    img_rgba = img.convert("RGBA")
+    alfa = np.array(img_rgba)[:, :, 3]
+    mascara_valida = alfa > 16 if tiene_alfa else np.ones(alfa.shape, dtype=bool)
+
+    cuantizada = img_rgba.convert("RGB").quantize(colors=max_colores, method=Image.Quantize.MEDIANCUT)
+    paleta = cuantizada.getpalette()
+    indices = np.array(cuantizada)
+
+    candidatos = []
+    for idx in sorted(set(indices[mascara_valida].tolist())):
+        mascara_color = (indices == idx) & mascara_valida
+        area_px = int(mascara_color.sum())
+        if area_px < AREA_MINIMA_PX:
+            continue
+        poligono = _mascara_a_poligono(mascara_color)
+        if poligono is None or poligono.is_empty:
+            continue
+        r, g, b = paleta[idx * 3], paleta[idx * 3 + 1], paleta[idx * 3 + 2]
+        candidatos.append((area_px, poligono, f"#{r:02x}{g:02x}{b:02x}"))
+
+    candidatos.sort(key=lambda t: t[0], reverse=True)
+    return [(poligono, color_hex) for _, poligono, color_hex in candidatos]

@@ -55,3 +55,26 @@ def hex_de(nombre, default="#CCCCCC"):
     """Hex del color curado `nombre`, o `default` si no está en la
     paleta (por si llega un nombre viejo de una sesión anterior)."""
     return _HEX_POR_NOMBRE.get(nombre, default)
+
+
+def _rgb(hex_color):
+    hex_color = hex_color.lstrip("#")
+    return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def nombre_mas_cercano(hex_color):
+    """Nombre de la paleta cuyo color se parece más a `hex_color`
+    (distancia euclídea en RGB) -- para sugerir un color real de
+    filamento a partir de un color detectado automáticamente (ej. al
+    separar una imagen por colores)."""
+    try:
+        objetivo = _rgb(hex_color)
+    except (ValueError, IndexError):
+        return NOMBRES[0]
+    mejor_nombre, mejor_dist = NOMBRES[0], float("inf")
+    for nombre, hex_pal in PALETA:
+        r, g, b = _rgb(hex_pal)
+        dist = (r - objetivo[0]) ** 2 + (g - objetivo[1]) ** 2 + (b - objetivo[2]) ** 2
+        if dist < mejor_dist:
+            mejor_nombre, mejor_dist = nombre, dist
+    return mejor_nombre

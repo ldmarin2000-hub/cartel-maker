@@ -43,6 +43,7 @@ PRESET_KEYS = [
     "tp_plano_base", "tp_plano_base_ancho_extra", "tp_plano_base_alto", "tp_plano_color_base",
     "tp_plano_marco_imagen_umbral", "tp_plano_marco_imagen_invertir",
     "tp_plano_decoracion_imagen_umbral", "tp_plano_decoracion_imagen_invertir",
+    "tp_plano_decoracion_origen", "tp_plano_decoracion_multicolor_max",
 ]
 
 tipo_topper = st.radio("Tipo de topper", TIPOS_TOPPER, horizontal=True, key="tp_tipo")
@@ -206,27 +207,39 @@ with col_form:
         )
 
         st.markdown("**Decoración** (opcional, un dibujo/ícono propio pegado al topper)")
-        decoracion_svg_subido = st.file_uploader(
-            "SVG para la decoración", type=["svg"], key="tp_plano_decoracion_svg",
-            help="Un dibujo suelto (una mariposa, un moño, un logo) que se pega al costado o "
-                 "arriba del diseño -- funciona mejor con una silueta cerrada simple."
+        origen_decoracion_plano = st.radio(
+            "Origen", ["Ninguna", "SVG", "Imagen (un color)", "Imagen multicolor"],
+            horizontal=True, key="tp_plano_decoracion_origen",
+            help="Imagen multicolor: separa automáticamente hasta 4 colores reales de la "
+                 "imagen (un logo, un escudo) en vez de una silueta de un solo color."
         )
-        decoracion_svg_ruta = None
-        if decoracion_svg_subido is not None:
-            os.makedirs("output", exist_ok=True)
-            decoracion_svg_ruta = os.path.join("output", f"_subido_tp_decoracion_{decoracion_svg_subido.name}")
-            with open(decoracion_svg_ruta, "wb") as f:
-                f.write(decoracion_svg_subido.getvalue())
 
+        decoracion_svg_ruta = None
         decoracion_imagen_ruta = None
         decoracion_imagen_umbral_plano = 128
         decoracion_imagen_invertir_plano = False
-        if decoracion_svg_ruta is None:
+        decoracion_multicolor_imagen_ruta = None
+        decoracion_multicolor_max_plano = topper.MAX_COLORES_DECORACION_MULTICOLOR
+        colores_detectados_decoracion = []
+        colores_asignados_decoracion = []
+
+        if origen_decoracion_plano == "SVG":
+            decoracion_svg_subido = st.file_uploader(
+                "SVG para la decoración", type=["svg"], key="tp_plano_decoracion_svg",
+                help="Un dibujo suelto (una mariposa, un moño, un logo) que se pega al costado o "
+                     "arriba del diseño -- funciona mejor con una silueta cerrada simple."
+            )
+            if decoracion_svg_subido is not None:
+                os.makedirs("output", exist_ok=True)
+                decoracion_svg_ruta = os.path.join("output", f"_subido_tp_decoracion_{decoracion_svg_subido.name}")
+                with open(decoracion_svg_ruta, "wb") as f:
+                    f.write(decoracion_svg_subido.getvalue())
+
+        elif origen_decoracion_plano == "Imagen (un color)":
             decoracion_imagen_subida = st.file_uploader(
-                "...o una imagen (PNG/JPG) para la decoración", type=["png", "jpg", "jpeg"],
+                "Imagen (PNG/JPG) para la decoración", type=["png", "jpg", "jpeg"],
                 key="tp_plano_decoracion_imagen",
-                help="Un logo/ícono simple (silueta clara sobre fondo liso o transparente, no "
-                     "una foto). Si subís las dos cosas, el SVG tiene prioridad."
+                help="Un logo/ícono simple (silueta clara sobre fondo liso o transparente, no una foto)."
             )
             if decoracion_imagen_subida is not None:
                 os.makedirs("output", exist_ok=True)
@@ -242,7 +255,51 @@ with col_form:
                          "un píxel para contar como parte del dibujo."
                 )
 
-        hay_decoracion = decoracion_svg_ruta is not None or decoracion_imagen_ruta is not None
+        elif origen_decoracion_plano == "Imagen multicolor":
+            decoracion_multicolor_subida = st.file_uploader(
+                "Imagen (PNG/JPG) a separar por color", type=["png", "jpg", "jpeg"],
+                key="tp_plano_decoracion_multicolor_imagen",
+                help="Un logo/escudo con colores bien definidos (no una foto ni degradados) -- "
+                     "cada color detectado sale como su propia región, para pintarla con el "
+                     "filamento real que corresponda."
+            )
+            if decoracion_multicolor_subida is not None:
+                os.makedirs("output", exist_ok=True)
+                decoracion_multicolor_imagen_ruta = os.path.join(
+                    "output", f"_subido_tp_decoracion_multicolor_{decoracion_multicolor_subida.name}")
+                with open(decoracion_multicolor_imagen_ruta, "wb") as f:
+                    f.write(decoracion_multicolor_subida.getvalue())
+                decoracion_multicolor_max_plano = st.slider(
+                    "Cantidad de colores a separar", 2, topper.MAX_COLORES_DECORACION_MULTICOLOR, topper.MAX_COLORES_DECORACION_MULTICOLOR,
+                    key="tp_plano_decoracion_multicolor_max",
+                )
+                colores_detectados_decoracion = topper.detectar_colores_imagen(
+                    decoracion_multicolor_imagen_ruta, max_colores=decoracion_multicolor_max_plano
+                )
+                if not colores_detectados_decoracion:
+                    st.warning("No se pudo detectar ningún color con área en esta imagen.")
+                else:
+                    st.caption("Color detectado → color de filamento real a usar:")
+                    cols_detectados = st.columns(len(colores_detectados_decoracion))
+                    for i, hex_detectado in enumerate(colores_detectados_decoracion):
+                        with cols_detectados[i]:
+                            st.color_picker(
+                                f"Detectado {i + 1}", value=hex_detectado, disabled=True,
+                                key=f"tp_plano_decoracion_multicolor_muestra_{i}",
+                            )
+                            sugerido = colores.nombre_mas_cercano(hex_detectado)
+                            elegido = st.selectbox(
+                                f"→ color {i + 1}", list(colores.NOMBRES),
+                                index=list(colores.NOMBRES).index(sugerido),
+                                key=f"tp_plano_decoracion_multicolor_color_{i}",
+                                label_visibility="collapsed",
+                            )
+                            colores_asignados_decoracion.append(elegido)
+
+        hay_decoracion = (
+            decoracion_svg_ruta is not None or decoracion_imagen_ruta is not None
+            or bool(colores_detectados_decoracion)
+        )
         col_d1, col_d2 = st.columns(2)
         decoracion_lado_plano = col_d1.selectbox(
             "Lado", topper.LADOS_DECORACION_PLANO, key="tp_plano_decoracion_lado",
@@ -287,7 +344,19 @@ with col_form:
         )
         color_decoracion_plano = col_c5.selectbox(
             "Decoración", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
-            disabled=not hay_decoracion, key="tp_plano_color_decoracion",
+            disabled=not hay_decoracion or origen_decoracion_plano == "Imagen multicolor",
+            key="tp_plano_color_decoracion",
+            help="Con 'Imagen multicolor' no se usa este selector -- el color de cada región "
+                 "sale de lo que elegiste arriba, en 'Color detectado → color de filamento real'."
+                 if origen_decoracion_plano == "Imagen multicolor" else None,
+        )
+        # En modo "Imagen multicolor" los colores salen de lo elegido arriba
+        # (colores_asignados_decoracion), no de este selector -- se completa
+        # con "Dorado" si por algún motivo hay menos de 4 colores asignados.
+        _colores_decoracion_final = (
+            (colores_asignados_decoracion + ["Dorado"] * 4)[:4]
+            if origen_decoracion_plano == "Imagen multicolor" and colores_asignados_decoracion
+            else [color_decoracion_plano, "Blanco", "Negro", "Gris Frío"]
         )
         color_conectores_plano = col_c6.selectbox(
             "Conectores", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Transparente/Natural"),
@@ -362,11 +431,16 @@ with col_preview:
                 decoracion_svg=decoracion_svg_ruta, decoracion_imagen=decoracion_imagen_ruta,
                 decoracion_imagen_umbral=decoracion_imagen_umbral_plano,
                 decoracion_imagen_invertir=decoracion_imagen_invertir_plano,
+                decoracion_multicolor_imagen=decoracion_multicolor_imagen_ruta,
+                decoracion_multicolor_max=decoracion_multicolor_max_plano,
                 decoracion_tam_mm=decoracion_tam_plano,
                 decoracion_lado=decoracion_lado_plano, decoracion_sobre_marco=decoracion_sobre_marco_plano,
                 color_texto=colores.hex_de(color_texto_plano), color_borde=colores.hex_de(color_borde_plano),
                 color_marco=colores.hex_de(color_marco_plano), color_palo=colores.hex_de(color_palo_plano),
-                color_decoracion=colores.hex_de(color_decoracion_plano),
+                color_decoracion=colores.hex_de(_colores_decoracion_final[0]),
+                color_decoracion_2=colores.hex_de(_colores_decoracion_final[1]),
+                color_decoracion_3=colores.hex_de(_colores_decoracion_final[2]),
+                color_decoracion_4=colores.hex_de(_colores_decoracion_final[3]),
                 color_conectores=colores.hex_de(color_conectores_plano),
                 color_base=colores.hex_de(color_base_plano),
                 separacion_lineas_mm=separacion_lineas_plano, offset_vertical_mm=offset_vertical_plano,
@@ -469,6 +543,8 @@ with col_preview:
             st.error("Subí un SVG para el marco (o cambiá a otra forma de marco)")
         elif es_plano and marco_plano == "Imagen propia" and not marco_imagen_ruta:
             st.error("Subí una imagen para el marco (o cambiá a otra forma de marco)")
+        elif es_plano and origen_decoracion_plano == "Imagen multicolor" and not decoracion_multicolor_imagen_ruta:
+            st.error("Subí una imagen para la decoración multicolor (o cambiá el origen)")
         elif not es_plano and not texto.strip():
             st.error("Ingresá un texto/diseño")
         else:
@@ -489,6 +565,8 @@ with col_preview:
                             decoracion_imagen=decoracion_imagen_ruta,
                             decoracion_imagen_umbral=decoracion_imagen_umbral_plano,
                             decoracion_imagen_invertir=decoracion_imagen_invertir_plano,
+                            decoracion_multicolor_imagen=decoracion_multicolor_imagen_ruta,
+                            decoracion_multicolor_max=decoracion_multicolor_max_plano,
                             decoracion_tam_mm=decoracion_tam_plano,
                             decoracion_lado=decoracion_lado_plano,
                             decoracion_sobre_marco=decoracion_sobre_marco_plano,
@@ -509,7 +587,10 @@ with col_preview:
                             color_borde=color_borde_plano,
                             color_marco=color_marco_plano,
                             color_palo=color_palo_plano,
-                            color_decoracion=color_decoracion_plano,
+                            color_decoracion=_colores_decoracion_final[0],
+                            color_decoracion_2=_colores_decoracion_final[1],
+                            color_decoracion_3=_colores_decoracion_final[2],
+                            color_decoracion_4=_colores_decoracion_final[3],
                             color_conectores=color_conectores_plano,
                             color_base=color_base_plano,
                         )

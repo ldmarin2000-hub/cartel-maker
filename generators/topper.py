@@ -890,6 +890,56 @@ def _decoracion_desde_imagen(ruta_imagen, tam_mm, umbral=128, invertir=False):
     return saf.scale(forma, xfact=factor, yfact=factor, origin=(0, 0))
 
 
+MAX_COLORES_DECORACION_MULTICOLOR = 4
+
+
+def _decoraciones_multicolor_desde_imagen(ruta_imagen, tam_mm, max_colores=MAX_COLORES_DECORACION_MULTICOLOR):
+    """Como `_decoracion_desde_imagen`, pero separando la imagen en hasta
+    `max_colores` regiones por color real detectado (core/imagen_import.py
+    ::imagen_a_poligonos_por_color) en vez de una silueta de un solo
+    color. Las escala y centra TODAS JUNTAS con el mismo factor/origen
+    (no cada una por separado) para que conserven su posición relativa
+    y sigan formando la imagen reconocible. Devuelve una lista de
+    (polígono, "#rrggbb" detectado) -- puede tener menos de
+    `max_colores` items si la imagen tiene menos colores distintos."""
+    imagen_import = _imagen_import()
+    saf = _affinity()
+    so = _shapely()[1]
+
+    crudos = imagen_import.imagen_a_poligonos_por_color(ruta_imagen, max_colores=max_colores)
+    if not crudos:
+        raise ValueError(f"no se pudo sacar ninguna forma con área de la imagen: {ruta_imagen}")
+
+    todas = so.unary_union([p for p, _ in crudos]) if len(crudos) > 1 else crudos[0][0]
+    minx, miny, maxx, maxy = todas.bounds
+    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
+    lado_actual = max(maxx - minx, maxy - miny)
+    if lado_actual <= 0:
+        raise ValueError("la imagen no tiene área utilizable")
+    factor = tam_mm / lado_actual
+
+    resultado = []
+    for p, color_hex in crudos:
+        p2 = saf.translate(p, xoff=-cx, yoff=-cy)
+        p2 = saf.scale(p2, xfact=factor, yfact=factor, origin=(0, 0))
+        resultado.append((p2, color_hex))
+    return resultado
+
+
+def detectar_colores_imagen(ruta_imagen, max_colores=MAX_COLORES_DECORACION_MULTICOLOR):
+    """Para la UI: detecta los colores dominantes de una imagen (mismo
+    motor que `_decoraciones_multicolor_desde_imagen`, sin armar la
+    geometría 3D completa) -- devuelve una lista de "#rrggbb" ordenada
+    de mayor a menor área, para mostrar como guía al elegir qué color
+    de filamento real asignarle a cada uno. Lista vacía si no se pudo
+    sacar nada (imagen inválida, etc. -- no debe romper la página)."""
+    try:
+        imagen_import = _imagen_import()
+        return [color_hex for _, color_hex in imagen_import.imagen_a_poligonos_por_color(ruta_imagen, max_colores=max_colores)]
+    except Exception:
+        return []
+
+
 def _posicionar_decoracion(forma, lado, minx, miny, maxx, maxy):
     """Traslada `forma` (ya centrada en el origen, ver
     `_decoracion_desde_svg`) a una posición relativa al rectángulo
@@ -923,6 +973,8 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                            marco_imagen_invertir=False, texto_sobre_marco=False,
                            decoracion_svg=None, decoracion_imagen=None, decoracion_imagen_umbral=128,
                            decoracion_imagen_invertir=False,
+                           decoracion_multicolor_imagen=None,
+                           decoracion_multicolor_max=MAX_COLORES_DECORACION_MULTICOLOR,
                            decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                            decoracion_sobre_marco=False,
                            espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
@@ -1040,20 +1092,42 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     if borde is not None and borde.is_empty:
         borde = None
 
-    decoracion = None
-    if decoracion_svg or decoracion_imagen:
+    # `piezas_decoracion`: lista de (polígono, color_hex_detectado_o_None)
+    # -- 1 sola pieza para SVG o imagen de un color (color=None, usa el
+    # que elija el usuario), hasta MAX_COLORES_DECORACION_MULTICOLOR para
+    # una imagen multicolor (cada una con el color real detectado como
+    # sugerencia). Después de acá se tratan todas igual: se posicionan
+    # COMO GRUPO (mismo desplazamiento para todas, así conservan su
+    # posición relativa) y se resuelve marco vs. decoración por pieza.
+    piezas_decoracion = []
+    if decoracion_svg:
+        piezas_decoracion = [(_decoracion_desde_svg(decoracion_svg, decoracion_tam_mm), None)]
+    elif decoracion_multicolor_imagen:
+        piezas_decoracion = _decoraciones_multicolor_desde_imagen(
+            decoracion_multicolor_imagen, decoracion_tam_mm, max_colores=decoracion_multicolor_max)
+    elif decoracion_imagen:
+        piezas_decoracion = [(_decoracion_desde_imagen(
+            decoracion_imagen, decoracion_tam_mm,
+            umbral=decoracion_imagen_umbral, invertir=decoracion_imagen_invertir), None)]
+
+    decoracion_slots = [None] * MAX_COLORES_DECORACION_MULTICOLOR
+    if piezas_decoracion:
         ref_minx, ref_miny, ref_maxx, ref_maxy = (aro.bounds if aro is not None else texto_total.bounds)
-        if decoracion_svg:
-            decoracion = _decoracion_desde_svg(decoracion_svg, decoracion_tam_mm)
-        else:
-            decoracion = _decoracion_desde_imagen(decoracion_imagen, decoracion_tam_mm,
-                                                   umbral=decoracion_imagen_umbral, invertir=decoracion_imagen_invertir)
-        decoracion = _posicionar_decoracion(decoracion, decoracion_lado, ref_minx, ref_miny, ref_maxx, ref_maxy)
-        if aro is not None:
-            if decoracion_sobre_marco:
-                aro = aro.difference(decoracion)
-            else:
-                decoracion = decoracion.difference(aro)
+        grupo = so.unary_union([p for p, _ in piezas_decoracion]) if len(piezas_decoracion) > 1 else piezas_decoracion[0][0]
+        grupo_posicionado = _posicionar_decoracion(grupo, decoracion_lado, ref_minx, ref_miny, ref_maxx, ref_maxy)
+        dx = grupo_posicionado.bounds[0] - grupo.bounds[0]
+        dy = grupo_posicionado.bounds[1] - grupo.bounds[1]
+
+        for i, (p, color_hex) in enumerate(piezas_decoracion[:MAX_COLORES_DECORACION_MULTICOLOR]):
+            p = saf.translate(p, xoff=dx, yoff=dy)
+            if aro is not None:
+                if decoracion_sobre_marco:
+                    aro = aro.difference(p)
+                else:
+                    p = p.difference(aro)
+            decoracion_slots[i] = p
+
+    decoracion, decoracion_2, decoracion_3, decoracion_4 = decoracion_slots
 
     nombradas_principales = [g for g in (texto_total, borde, aro) if g is not None]
     principal = so.unary_union(nombradas_principales) if len(nombradas_principales) > 1 else nombradas_principales[0]
@@ -1092,7 +1166,9 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     # aparte: si una decoración que cuelga (un moño, una cola) termina
     # más cerca del palito que del texto, ahora se suelda directo ahí en
     # lugar de sumar un puente aparte, más largo y más visible.
-    nombradas = nombradas_principales + [g for g in (base, decoracion, palo) if g is not None]
+    nombradas = nombradas_principales + [
+        g for g in (base, decoracion, decoracion_2, decoracion_3, decoracion_4, palo) if g is not None
+    ]
     contenido = so.unary_union(nombradas) if len(nombradas) > 1 else nombradas[0]
     conectado, n_puentes = geo.conectar_componentes(contenido, ancho_puente_mm, 0.4)
 
@@ -1103,7 +1179,8 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
 
     return {
         "texto": texto_total, "borde": borde, "marco": aro, "base": base, "palo": palo,
-        "decoracion": decoracion, "conectores": conectores,
+        "decoracion": decoracion, "decoracion_2": decoracion_2, "decoracion_3": decoracion_3,
+        "decoracion_4": decoracion_4, "conectores": conectores,
     }, n_puentes
 
 
@@ -1144,6 +1221,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
                    texto_sobre_marco=False,
                    decoracion_svg=None, decoracion_imagen=None, decoracion_imagen_umbral=128,
                    decoracion_imagen_invertir=False,
+                   decoracion_multicolor_imagen=None, decoracion_multicolor_max=MAX_COLORES_DECORACION_MULTICOLOR,
                    decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                    decoracion_sobre_marco=False,
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
@@ -1153,6 +1231,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
                    espesor_mm=3.0, raster_px=400,
                    tiene_ams=False, color_texto="Dorado", color_borde="Blanco",
                    color_marco="Dorado", color_palo="Dorado", color_decoracion="Dorado",
+                   color_decoracion_2="Blanco", color_decoracion_3="Negro", color_decoracion_4="Gris Frío",
                    color_conectores="Transparente/Natural", color_base="Dorado"):
     """Generar topper "plano" (recortado, tipo acrílico/madera láser): 1 a
     3 líneas de texto, marco decorativo opcional, borde de texto
@@ -1173,6 +1252,8 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         texto_sobre_marco=texto_sobre_marco,
         decoracion_svg=decoracion_svg, decoracion_imagen=decoracion_imagen,
         decoracion_imagen_umbral=decoracion_imagen_umbral, decoracion_imagen_invertir=decoracion_imagen_invertir,
+        decoracion_multicolor_imagen=decoracion_multicolor_imagen,
+        decoracion_multicolor_max=decoracion_multicolor_max,
         decoracion_tam_mm=decoracion_tam_mm, decoracion_lado=decoracion_lado,
         decoracion_sobre_marco=decoracion_sobre_marco,
         espaciado_relativo=espaciado_relativo, separacion_lineas_mm=separacion_lineas_mm,
@@ -1192,6 +1273,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         "texto": color_texto, "borde": color_borde, "marco": color_marco,
         "palo": color_palo, "decoracion": color_decoracion, "conectores": color_conectores,
         "base": color_base,
+        "decoracion_2": color_decoracion_2, "decoracion_3": color_decoracion_3, "decoracion_4": color_decoracion_4,
     }
     mallas_por_region = {clave: _extrudir_geom(geom, espesor_mm) for clave, geom in regiones.items()}
     claves_presentes = [clave for clave, m in mallas_por_region.items() if m is not None]
@@ -1234,6 +1316,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         "colores": {
             "texto": color_texto, "borde": color_borde, "marco": color_marco, "palo": color_palo,
             "decoracion": color_decoracion, "conectores": color_conectores, "base": color_base,
+            "decoracion_2": color_decoracion_2, "decoracion_3": color_decoracion_3, "decoracion_4": color_decoracion_4,
         },
         "vertices": len(malla.vertices),
         "caras": len(malla.faces),
@@ -1433,7 +1516,9 @@ def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
                         color_texto="#d4af37", color_borde="#f4f4f2",
                         color_marco="#d4af37", color_palo="#d4af37",
                         color_decoracion="#d4af37", color_conectores="#dce8e8",
-                        color_base="#d4af37", **kwargs):
+                        color_base="#d4af37",
+                        color_decoracion_2="#f4f4f2", color_decoracion_3="#1a1a1a",
+                        color_decoracion_4="#8e9089", **kwargs):
     """Preview real (no esquemático) del topper plano: arma las 5
     regiones de verdad (`_armar_regiones_plano`, incluidos los puentes)
     y las dibuja como SVG, cada una de su color -- sirve como guía de
@@ -1455,12 +1540,14 @@ def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
 
     colores_region = {
         "conectores": color_conectores, "base": color_base, "marco": color_marco, "palo": color_palo,
-        "decoracion": color_decoracion, "borde": color_borde, "texto": color_texto,
+        "decoracion": color_decoracion, "decoracion_2": color_decoracion_2, "decoracion_3": color_decoracion_3,
+        "decoracion_4": color_decoracion_4, "borde": color_borde, "texto": color_texto,
     }
     capas = "".join(
         f'<path d="{_shapely_a_svg_path(regiones[clave])}" fill="{colores_region[clave]}" '
         f'fill-rule="evenodd" stroke="#00000055" stroke-width="0.4"/>'
-        for clave in ("conectores", "base", "marco", "palo", "decoracion", "borde", "texto") if regiones.get(clave) is not None
+        for clave in ("conectores", "base", "marco", "palo", "decoracion", "decoracion_2", "decoracion_3",
+                      "decoracion_4", "borde", "texto") if regiones.get(clave) is not None
     )
 
     puentes_txt = f"{n_puentes} puente(s)" if n_puentes else "sin puentes (ya conectado)"
