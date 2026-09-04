@@ -890,25 +890,43 @@ def _decoracion_desde_imagen(ruta_imagen, tam_mm, umbral=128, invertir=False):
     return saf.scale(forma, xfact=factor, yfact=factor, origin=(0, 0))
 
 
-MAX_COLORES_DECORACION_MULTICOLOR = 4
+MAX_COLORES_DECORACION_MULTICOLOR = 4  # cuántos colores como máximo se pueden USAR al final
+COLORES_DETECCION_MULTICOLOR = 12  # cuántos se cuantizan puertas adentro para elegir entre ellos (ver core/imagen_import.py)
 
 
-def _decoraciones_multicolor_desde_imagen(ruta_imagen, tam_mm, max_colores=MAX_COLORES_DECORACION_MULTICOLOR):
-    """Como `_decoracion_desde_imagen`, pero separando la imagen en hasta
-    `max_colores` regiones por color real detectado (core/imagen_import.py
-    ::imagen_a_poligonos_por_color) en vez de una silueta de un solo
-    color. Las escala y centra TODAS JUNTAS con el mismo factor/origen
-    (no cada una por separado) para que conserven su posición relativa
-    y sigan formando la imagen reconocible. Devuelve una lista de
-    (polígono, "#rrggbb" detectado) -- puede tener menos de
-    `max_colores` items si la imagen tiene menos colores distintos."""
+def _decoraciones_multicolor_desde_imagen(ruta_imagen, tam_mm, indices_seleccionados=None,
+                                           colores_deteccion=COLORES_DETECCION_MULTICOLOR):
+    """Como `_decoracion_desde_imagen`, pero separando la imagen en
+    varias regiones por color real detectado (core/imagen_import.py::
+    imagen_a_poligonos_por_color) en vez de una silueta de un solo
+    color. `indices_seleccionados`: lista de índices (sobre el orden
+    detectado, mayor a menor área) de CUÁLES colores usar -- hasta
+    `MAX_COLORES_DECORACION_MULTICOLOR` -- así el que llama (la UI) elige
+    a mano cuáles de los colores detectados son los reales y cuáles son
+    ruido de antialiasing, en vez de que la función adivine "los N más
+    grandes". None = tomar los primeros `MAX_COLORES_DECORACION_MULTICOLOR`
+    tal cual vienen (uso directo sin pasar por la UI).
+
+    Las escala y centra TODAS JUNTAS con el mismo factor/origen (no cada
+    una por separado) para que conserven su posición relativa y sigan
+    formando la imagen reconocible -- el centrado/escalado se calcula
+    sobre las piezas YA FILTRADAS por `indices_seleccionados`, así un
+    color descartado tampoco descuadra el tamaño/centro del resto.
+    Devuelve una lista de (polígono, "#rrggbb" detectado)."""
     imagen_import = _imagen_import()
     saf = _affinity()
     so = _shapely()[1]
 
-    crudos = imagen_import.imagen_a_poligonos_por_color(ruta_imagen, max_colores=max_colores)
+    crudos = imagen_import.imagen_a_poligonos_por_color(ruta_imagen, colores_deteccion=colores_deteccion)
     if not crudos:
         raise ValueError(f"no se pudo sacar ninguna forma con área de la imagen: {ruta_imagen}")
+
+    if indices_seleccionados is not None:
+        crudos = [crudos[i] for i in indices_seleccionados if 0 <= i < len(crudos)]
+        if not crudos:
+            raise ValueError("no se eligió ningún color para usar de la imagen")
+    else:
+        crudos = crudos[:MAX_COLORES_DECORACION_MULTICOLOR]
 
     todas = so.unary_union([p for p, _ in crudos]) if len(crudos) > 1 else crudos[0][0]
     minx, miny, maxx, maxy = todas.bounds
@@ -926,16 +944,20 @@ def _decoraciones_multicolor_desde_imagen(ruta_imagen, tam_mm, max_colores=MAX_C
     return resultado
 
 
-def detectar_colores_imagen(ruta_imagen, max_colores=MAX_COLORES_DECORACION_MULTICOLOR):
+def detectar_colores_imagen(ruta_imagen, colores_deteccion=COLORES_DETECCION_MULTICOLOR):
     """Para la UI: detecta los colores dominantes de una imagen (mismo
     motor que `_decoraciones_multicolor_desde_imagen`, sin armar la
-    geometría 3D completa) -- devuelve una lista de "#rrggbb" ordenada
-    de mayor a menor área, para mostrar como guía al elegir qué color
-    de filamento real asignarle a cada uno. Lista vacía si no se pudo
-    sacar nada (imagen inválida, etc. -- no debe romper la página)."""
+    geometría 3D completa) -- devuelve una lista de ("#rrggbb", fracción_de_área)
+    ordenada de mayor a menor área, para que el usuario elija a mano
+    cuáles de los detectados son colores reales (y les asigne un
+    filamento real) y cuáles son ruido de antialiasing a ignorar. Lista
+    vacía si no se pudo sacar nada (imagen inválida, etc. -- no debe
+    romper la página)."""
     try:
         imagen_import = _imagen_import()
-        return [color_hex for _, color_hex in imagen_import.imagen_a_poligonos_por_color(ruta_imagen, max_colores=max_colores)]
+        candidatos = imagen_import.imagen_a_poligonos_por_color(ruta_imagen, colores_deteccion=colores_deteccion)
+        area_total = sum(p.area for p, _ in candidatos) or 1.0
+        return [(color_hex, p.area / area_total) for p, color_hex in candidatos]
     except Exception:
         return []
 
@@ -973,8 +995,8 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                            marco_imagen_invertir=False, texto_sobre_marco=False,
                            decoracion_svg=None, decoracion_imagen=None, decoracion_imagen_umbral=128,
                            decoracion_imagen_invertir=False,
-                           decoracion_multicolor_imagen=None,
-                           decoracion_multicolor_max=MAX_COLORES_DECORACION_MULTICOLOR,
+                           decoracion_multicolor_imagen=None, decoracion_multicolor_indices=None,
+                           decoracion_multicolor_deteccion=COLORES_DETECCION_MULTICOLOR,
                            decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                            decoracion_sobre_marco=False,
                            espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
@@ -1104,7 +1126,9 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         piezas_decoracion = [(_decoracion_desde_svg(decoracion_svg, decoracion_tam_mm), None)]
     elif decoracion_multicolor_imagen:
         piezas_decoracion = _decoraciones_multicolor_desde_imagen(
-            decoracion_multicolor_imagen, decoracion_tam_mm, max_colores=decoracion_multicolor_max)
+            decoracion_multicolor_imagen, decoracion_tam_mm,
+            indices_seleccionados=decoracion_multicolor_indices,
+            colores_deteccion=decoracion_multicolor_deteccion)
     elif decoracion_imagen:
         piezas_decoracion = [(_decoracion_desde_imagen(
             decoracion_imagen, decoracion_tam_mm,
@@ -1221,7 +1245,8 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
                    texto_sobre_marco=False,
                    decoracion_svg=None, decoracion_imagen=None, decoracion_imagen_umbral=128,
                    decoracion_imagen_invertir=False,
-                   decoracion_multicolor_imagen=None, decoracion_multicolor_max=MAX_COLORES_DECORACION_MULTICOLOR,
+                   decoracion_multicolor_imagen=None, decoracion_multicolor_indices=None,
+                   decoracion_multicolor_deteccion=COLORES_DETECCION_MULTICOLOR,
                    decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                    decoracion_sobre_marco=False,
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
@@ -1253,7 +1278,8 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         decoracion_svg=decoracion_svg, decoracion_imagen=decoracion_imagen,
         decoracion_imagen_umbral=decoracion_imagen_umbral, decoracion_imagen_invertir=decoracion_imagen_invertir,
         decoracion_multicolor_imagen=decoracion_multicolor_imagen,
-        decoracion_multicolor_max=decoracion_multicolor_max,
+        decoracion_multicolor_indices=decoracion_multicolor_indices,
+        decoracion_multicolor_deteccion=decoracion_multicolor_deteccion,
         decoracion_tam_mm=decoracion_tam_mm, decoracion_lado=decoracion_lado,
         decoracion_sobre_marco=decoracion_sobre_marco,
         espaciado_relativo=espaciado_relativo, separacion_lineas_mm=separacion_lineas_mm,

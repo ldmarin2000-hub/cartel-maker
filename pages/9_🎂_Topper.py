@@ -43,7 +43,7 @@ PRESET_KEYS = [
     "tp_plano_base", "tp_plano_base_ancho_extra", "tp_plano_base_alto", "tp_plano_color_base",
     "tp_plano_marco_imagen_umbral", "tp_plano_marco_imagen_invertir",
     "tp_plano_decoracion_imagen_umbral", "tp_plano_decoracion_imagen_invertir",
-    "tp_plano_decoracion_origen", "tp_plano_decoracion_multicolor_max",
+    "tp_plano_decoracion_origen",
 ]
 
 tipo_topper = st.radio("Tipo de topper", TIPOS_TOPPER, horizontal=True, key="tp_tipo")
@@ -219,8 +219,7 @@ with col_form:
         decoracion_imagen_umbral_plano = 128
         decoracion_imagen_invertir_plano = False
         decoracion_multicolor_imagen_ruta = None
-        decoracion_multicolor_max_plano = topper.MAX_COLORES_DECORACION_MULTICOLOR
-        colores_detectados_decoracion = []
+        indices_seleccionados_multicolor = []
         colores_asignados_decoracion = []
 
         if origen_decoracion_plano == "SVG":
@@ -260,8 +259,8 @@ with col_form:
                 "Imagen (PNG/JPG) a separar por color", type=["png", "jpg", "jpeg"],
                 key="tp_plano_decoracion_multicolor_imagen",
                 help="Un logo/escudo con colores bien definidos (no una foto ni degradados) -- "
-                     "cada color detectado sale como su propia región, para pintarla con el "
-                     "filamento real que corresponda."
+                     "cada color que elijas abajo sale como su propia región, para pintarla con "
+                     "el filamento real que corresponda."
             )
             if decoracion_multicolor_subida is not None:
                 os.makedirs("output", exist_ok=True)
@@ -269,36 +268,49 @@ with col_form:
                     "output", f"_subido_tp_decoracion_multicolor_{decoracion_multicolor_subida.name}")
                 with open(decoracion_multicolor_imagen_ruta, "wb") as f:
                     f.write(decoracion_multicolor_subida.getvalue())
-                decoracion_multicolor_max_plano = st.slider(
-                    "Cantidad de colores a separar", 2, topper.MAX_COLORES_DECORACION_MULTICOLOR, topper.MAX_COLORES_DECORACION_MULTICOLOR,
-                    key="tp_plano_decoracion_multicolor_max",
-                )
-                colores_detectados_decoracion = topper.detectar_colores_imagen(
-                    decoracion_multicolor_imagen_ruta, max_colores=decoracion_multicolor_max_plano
-                )
-                if not colores_detectados_decoracion:
+
+                colores_detectados_raw = topper.detectar_colores_imagen(decoracion_multicolor_imagen_ruta)
+                if not colores_detectados_raw:
                     st.warning("No se pudo detectar ningún color con área en esta imagen.")
                 else:
-                    st.caption("Color detectado → color de filamento real a usar:")
-                    cols_detectados = st.columns(len(colores_detectados_decoracion))
-                    for i, hex_detectado in enumerate(colores_detectados_decoracion):
-                        with cols_detectados[i]:
-                            st.color_picker(
-                                f"Detectado {i + 1}", value=hex_detectado, disabled=True,
-                                key=f"tp_plano_decoracion_multicolor_muestra_{i}",
-                            )
-                            sugerido = colores.nombre_mas_cercano(hex_detectado)
-                            elegido = st.selectbox(
-                                f"→ color {i + 1}", list(colores.NOMBRES),
-                                index=list(colores.NOMBRES).index(sugerido),
-                                key=f"tp_plano_decoracion_multicolor_color_{i}",
-                                label_visibility="collapsed",
-                            )
+                    claves_check = [f"tp_plano_decoracion_multicolor_usar_{i}" for i in range(len(colores_detectados_raw))]
+                    for i, key in enumerate(claves_check):
+                        if key not in st.session_state:
+                            st.session_state[key] = i < topper.MAX_COLORES_DECORACION_MULTICOLOR
+                    marcados_actual = sum(1 for key in claves_check if st.session_state.get(key))
+
+                    st.caption(
+                        f"Se detectaron {len(colores_detectados_raw)} colores -- elegí hasta "
+                        f"{topper.MAX_COLORES_DECORACION_MULTICOLOR} para usar (destildá los que "
+                        "sean ruido de antialiasing, no colores reales del dibujo) y asignale un "
+                        "filamento real a cada uno."
+                    )
+                    for i, (hex_detectado, frac) in enumerate(colores_detectados_raw):
+                        col_check, col_swatch, col_sel = st.columns([1, 1, 3])
+                        ya_marcado = st.session_state.get(claves_check[i], False)
+                        deshabilitar = marcados_actual >= topper.MAX_COLORES_DECORACION_MULTICOLOR and not ya_marcado
+                        usar = col_check.checkbox(
+                            f"{frac * 100:.0f}%", key=claves_check[i], disabled=deshabilitar,
+                            help="Destildado = no se usa este color (por ejemplo, si es ruido de "
+                                 "antialiasing en vez de un color real del dibujo)."
+                        )
+                        col_swatch.color_picker(
+                            f"tp_plano_decoracion_multicolor_muestra_{i}", value=hex_detectado, disabled=True,
+                            label_visibility="collapsed", key=f"tp_plano_decoracion_multicolor_muestra_{i}",
+                        )
+                        sugerido = colores.nombre_mas_cercano(hex_detectado)
+                        elegido = col_sel.selectbox(
+                            f"tp_plano_decoracion_multicolor_color_{i}", list(colores.NOMBRES),
+                            index=list(colores.NOMBRES).index(sugerido), disabled=not usar,
+                            key=f"tp_plano_decoracion_multicolor_color_{i}", label_visibility="collapsed",
+                        )
+                        if usar:
+                            indices_seleccionados_multicolor.append(i)
                             colores_asignados_decoracion.append(elegido)
 
         hay_decoracion = (
             decoracion_svg_ruta is not None or decoracion_imagen_ruta is not None
-            or bool(colores_detectados_decoracion)
+            or bool(indices_seleccionados_multicolor)
         )
         col_d1, col_d2 = st.columns(2)
         decoracion_lado_plano = col_d1.selectbox(
@@ -432,7 +444,7 @@ with col_preview:
                 decoracion_imagen_umbral=decoracion_imagen_umbral_plano,
                 decoracion_imagen_invertir=decoracion_imagen_invertir_plano,
                 decoracion_multicolor_imagen=decoracion_multicolor_imagen_ruta,
-                decoracion_multicolor_max=decoracion_multicolor_max_plano,
+                decoracion_multicolor_indices=indices_seleccionados_multicolor,
                 decoracion_tam_mm=decoracion_tam_plano,
                 decoracion_lado=decoracion_lado_plano, decoracion_sobre_marco=decoracion_sobre_marco_plano,
                 color_texto=colores.hex_de(color_texto_plano), color_borde=colores.hex_de(color_borde_plano),
@@ -566,7 +578,7 @@ with col_preview:
                             decoracion_imagen_umbral=decoracion_imagen_umbral_plano,
                             decoracion_imagen_invertir=decoracion_imagen_invertir_plano,
                             decoracion_multicolor_imagen=decoracion_multicolor_imagen_ruta,
-                            decoracion_multicolor_max=decoracion_multicolor_max_plano,
+                            decoracion_multicolor_indices=indices_seleccionados_multicolor,
                             decoracion_tam_mm=decoracion_tam_plano,
                             decoracion_lado=decoracion_lado_plano,
                             decoracion_sobre_marco=decoracion_sobre_marco_plano,
