@@ -800,38 +800,96 @@ def _marco_desde_svg(ruta_svg, cx, cy, radio, grosor_mm):
     return forma.difference(interior)
 
 
+LADOS_DECORACION_PLANO = ["Arriba", "Arriba derecha", "Arriba izquierda", "Derecha", "Izquierda"]
+
+
+def _decoracion_desde_svg(ruta_svg, tam_mm):
+    """Silueta RELLENA (no un aro, a diferencia de `_marco_desde_svg`) a
+    partir de un SVG propio, escalada para que su lado mayor mida
+    `tam_mm` y centrada en el origen -- un dibujo/ícono suelto (una
+    mariposa, un moño, un logo) para pegar sobre el topper."""
+    svg_import = _svg_import()
+    saf = _affinity()
+
+    forma = svg_import.svg_a_poligono(ruta_svg)
+    if forma is None:
+        raise ValueError(f"no se pudo sacar ninguna forma con área del SVG: {ruta_svg}")
+
+    minx, miny, maxx, maxy = forma.bounds
+    lado_actual = max(maxx - minx, maxy - miny)
+    if lado_actual <= 0:
+        raise ValueError("el SVG no tiene área utilizable")
+
+    factor = tam_mm / lado_actual
+    return saf.scale(forma, xfact=factor, yfact=factor, origin=(0, 0))
+
+
+def _posicionar_decoracion(forma, lado, minx, miny, maxx, maxy):
+    """Traslada `forma` (ya centrada en el origen, ver
+    `_decoracion_desde_svg`) a una posición relativa al rectángulo
+    (minx,miny,maxx,maxy) del resto del diseño (texto, o texto+marco si
+    hay) según `lado` (ver LADOS_DECORACION_PLANO) -- metiéndose un
+    poco adentro del diseño (en vez de apenas tocarlo) para que quede
+    bien pegada; si aun así no llega a tocar nada, el paso de
+    conectar_componentes de _armar_regiones_plano la suelda igual."""
+    saf = _affinity()
+    dminx, dminy, dmaxx, dmaxy = forma.bounds
+    dw, dh = dmaxx - dminx, dmaxy - dminy
+    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
+
+    if lado == "Arriba":
+        x_destino, y_destino = cx, maxy + dh * 0.3
+    elif lado == "Arriba derecha":
+        x_destino, y_destino = maxx - dw * 0.15, maxy - dh * 0.15
+    elif lado == "Arriba izquierda":
+        x_destino, y_destino = minx + dw * 0.15, maxy - dh * 0.15
+    elif lado == "Derecha":
+        x_destino, y_destino = maxx + dw * 0.3, cy
+    else:  # "Izquierda"
+        x_destino, y_destino = minx - dw * 0.3, cy
+
+    dcx, dcy = (dminx + dmaxx) / 2, (dminy + dmaxy) / 2
+    return saf.translate(forma, xoff=x_destino - dcx, yoff=y_destino - dcy)
+
+
 def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                            marco_svg=None,
+                           decoracion_svg=None, decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                            espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
                            offset_vertical_mm=0.0, grosor_marco_mm=3.0,
                            margen_marco_mm=6.0, borde_texto_mm=0.0,
                            ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
                            ancho_palo_mm=6.0, raster_px=400):
-    """Arma las 4 regiones del topper plano -- texto / borde del texto /
-    marco / palo -- YA SIN superponerse entre sí, pensadas para pintar o
-    imprimir cada una de un color distinto (AMS). `borde_texto_mm=0`
-    desactiva el borde (queda en None). 1 a 3 líneas de texto real (con
-    huecos, "espaciado_relativo" negativo para que las letras de fuentes
-    script queden más juntas), separadas entre sí por
+    """Arma las 5 regiones del topper plano -- texto / borde del texto /
+    marco / palo / decoración -- YA SIN superponerse entre sí, pensadas
+    para pintar o imprimir cada una de un color distinto (AMS).
+    `borde_texto_mm=0` desactiva el borde (queda en None); sin
+    `decoracion_svg` no hay decoración (queda en None). 1 a 3 líneas de
+    texto real (con huecos, "espaciado_relativo" negativo para que las
+    letras de fuentes script queden más juntas), separadas entre sí por
     `separacion_lineas_mm`; `offset_vertical_mm` corre el texto hacia
     arriba/abajo DENTRO del marco, que se arma con el tamaño y centro
     del texto SIN ese corrimiento -- así se puede descentrar el texto a
-    propósito sin que el marco lo siga.
+    propósito sin que el marco lo siga. `decoracion_svg` (ruta a un SVG
+    propio) agrega un dibujo/ícono suelto (ver `_decoracion_desde_svg` /
+    `_posicionar_decoracion`) en el lado elegido (`decoracion_lado`,
+    ver LADOS_DECORACION_PLANO) respecto del marco si hay, si no del
+    texto.
 
     Lo que quede suelto (letras que ni con el espaciado negativo se
-    tocan, el texto respecto del marco, o el palo si no llega a tocar el
-    diseño) se une con puentes finos vía
+    tocan, el texto respecto del marco, la decoración, o el palo si no
+    llega a tocar el diseño) se une con puentes finos vía
     core/geometry.py::conectar_componentes -- la misma técnica que ya
     usa el generador de Neón -- así el diseño sale como UNA sola pieza
     imprimible pase lo que pase; ese material extra de unión se le suma
     a la región más "de borde" que haya disponible (borde > marco >
-    texto) para que no aparezca una quinta región sin nombre.
+    decoración > texto) para que no aparezca una sexta región sin
+    nombre.
 
     Devuelve (regiones, cantidad_de_puentes), con `regiones` un dict
     {"texto": geom, "borde": geom|None, "marco": geom|None,
-    "palo": geom|None} -- unir todo lo que no sea None da la pieza
-    completa conectada (equivalente a lo que devolvía la vieja
-    _armar_geometria_plano)."""
+    "palo": geom|None, "decoracion": geom|None} -- unir todo lo que no
+    sea None da la pieza completa conectada."""
     sg, so = _shapely()
     saf = _affinity()
     t2d = _texto2d()
@@ -887,7 +945,13 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         if borde.is_empty:
             borde = None
 
-    nombradas = [g for g in (texto_total, borde, aro) if g is not None]
+    decoracion = None
+    if decoracion_svg:
+        ref_minx, ref_miny, ref_maxx, ref_maxy = (aro.bounds if aro is not None else texto_total.bounds)
+        decoracion = _decoracion_desde_svg(decoracion_svg, decoracion_tam_mm)
+        decoracion = _posicionar_decoracion(decoracion, decoracion_lado, ref_minx, ref_miny, ref_maxx, ref_maxy)
+
+    nombradas = [g for g in (texto_total, borde, aro, decoracion) if g is not None]
     contenido = so.unary_union(nombradas) if len(nombradas) > 1 else nombradas[0]
     conectado, n_puentes = geo.conectar_componentes(contenido, ancho_puente_mm, 0.4)
 
@@ -897,6 +961,8 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
             borde = so.unary_union([borde, extra])
         elif aro is not None:
             aro = so.unary_union([aro, extra])
+        elif decoracion is not None:
+            decoracion = so.unary_union([decoracion, extra])
         else:
             texto_total = so.unary_union([texto_total, extra])
 
@@ -915,7 +981,7 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         extra_palo = conectado.difference(antes)
         palo = so.unary_union([pata, extra_palo]) if not extra_palo.is_empty else pata
 
-    return {"texto": texto_total, "borde": borde, "marco": aro, "palo": palo}, n_puentes
+    return {"texto": texto_total, "borde": borde, "marco": aro, "palo": palo, "decoracion": decoracion}, n_puentes
 
 
 def _extrudir_geom(geom, espesor_mm):
@@ -934,26 +1000,28 @@ def _extrudir_geom(geom, espesor_mm):
 
 
 def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_svg=None,
+                   decoracion_svg=None, decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
                    grosor_marco_mm=3.0, margen_marco_mm=6.0, borde_texto_mm=0.0,
                    ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
                    ancho_palo_mm=6.0, espesor_mm=3.0, raster_px=400,
                    tiene_ams=False, color_texto="Dorado", color_borde="Blanco",
-                   color_marco="Dorado", color_palo="Dorado"):
+                   color_marco="Dorado", color_palo="Dorado", color_decoracion="Dorado"):
     """Generar topper "plano" (recortado, tipo acrílico/madera láser): 1 a
     3 líneas de texto, marco decorativo opcional, borde de texto
-    opcional, y palo para clavar en la torta -- ver
-    `_armar_regiones_plano`. Con `tiene_ams=True` exporta ADEMÁS un .3mf
-    y un .stl multicolor con cada región (texto/borde/marco/palo) ya
-    pintada de su color (mismo mecanismo que el Llavero,
-    core/pieza.py::exportar_multicolor*) -- sin AMS, el STL simple sirve
-    igual como guía para pintar a mano (las regiones existen igual,
-    nada más que en un solo color al imprimir). Devuelve un dict con las
-    rutas, medidas y avisos."""
+    opcional, decoración (SVG propio) opcional, y palo para clavar en la
+    torta -- ver `_armar_regiones_plano`. Con `tiene_ams=True` exporta
+    ADEMÁS un .3mf y un .stl multicolor con cada región (texto/borde/
+    marco/palo/decoración) ya pintada de su color (mismo mecanismo que
+    el Llavero, core/pieza.py::exportar_multicolor*) -- sin AMS, el STL
+    simple sirve igual como guía para pintar a mano (las regiones
+    existen igual, nada más que en un solo color al imprimir). Devuelve
+    un dict con las rutas, medidas y avisos."""
     os.makedirs(CARPETA_SALIDA, exist_ok=True)
 
     regiones, n_puentes = _armar_regiones_plano(
         lineas, tamaño_mm=tamaño_mm, fuente=fuente, marco=marco, marco_svg=marco_svg,
+        decoracion_svg=decoracion_svg, decoracion_tam_mm=decoracion_tam_mm, decoracion_lado=decoracion_lado,
         espaciado_relativo=espaciado_relativo, separacion_lineas_mm=separacion_lineas_mm,
         offset_vertical_mm=offset_vertical_mm, grosor_marco_mm=grosor_marco_mm,
         margen_marco_mm=margen_marco_mm, borde_texto_mm=borde_texto_mm,
@@ -991,7 +1059,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         "ruta_stl": ruta_stl,
         "ruta_3mf_multicolor": ruta_3mf_multicolor,
         "ruta_stl_multicolor": ruta_stl_multicolor,
-        "colores": {"texto": color_texto, "borde": color_borde, "marco": color_marco, "palo": color_palo},
+        "colores": {"texto": color_texto, "borde": color_borde, "marco": color_marco, "palo": color_palo, "decoracion": color_decoracion},
         "vertices": len(malla.vertices),
         "caras": len(malla.faces),
         "watertight": malla.is_watertight,
@@ -1188,8 +1256,9 @@ def _shapely_a_svg_path(geom):
 
 def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
                         color_texto="#d4af37", color_borde="#f4f4f2",
-                        color_marco="#d4af37", color_palo="#d4af37", **kwargs):
-    """Preview real (no esquemático) del topper plano: arma las 4
+                        color_marco="#d4af37", color_palo="#d4af37",
+                        color_decoracion="#d4af37", **kwargs):
+    """Preview real (no esquemático) del topper plano: arma las 5
     regiones de verdad (`_armar_regiones_plano`, incluidos los puentes)
     y las dibuja como SVG, cada una de su color -- sirve como guía de
     pintado incluso para quien imprima en un solo color. Devuelve None
@@ -1208,11 +1277,14 @@ def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
     vb_w, vb_h = ancho + pad * 2, alto + pad * 2
     tx, ty = -minx + pad, maxy + pad  # ty: ya negamos Y en _shapely_a_svg_path
 
-    colores_region = {"marco": color_marco, "palo": color_palo, "borde": color_borde, "texto": color_texto}
+    colores_region = {
+        "marco": color_marco, "palo": color_palo, "decoracion": color_decoracion,
+        "borde": color_borde, "texto": color_texto,
+    }
     capas = "".join(
         f'<path d="{_shapely_a_svg_path(regiones[clave])}" fill="{colores_region[clave]}" '
         f'fill-rule="evenodd" stroke="#00000055" stroke-width="0.4"/>'
-        for clave in ("marco", "palo", "borde", "texto") if regiones.get(clave) is not None
+        for clave in ("marco", "palo", "decoracion", "borde", "texto") if regiones.get(clave) is not None
     )
 
     puentes_txt = f"{n_puentes} puente(s)" if n_puentes else "sin puentes (ya conectado)"

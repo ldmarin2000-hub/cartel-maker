@@ -37,6 +37,7 @@ PRESET_KEYS = [
     "tp_plano_offset_y", "tp_plano_borde", "tp_plano_color_texto", "tp_plano_color_borde",
     "tp_plano_color_marco", "tp_plano_color_palo", "tp_plano_ams",
     "tp_plano_margen_marco", "tp_plano_grosor_marco",
+    "tp_plano_decoracion_lado", "tp_plano_decoracion_tam", "tp_plano_color_decoracion",
 ]
 
 tipo_topper = st.radio("Tipo de topper", TIPOS_TOPPER, horizontal=True, key="tp_tipo")
@@ -151,24 +152,50 @@ with col_form:
             "puentes finos para que todo salga como una sola pieza rígida."
         )
 
+        st.markdown("**Decoración** (opcional, un dibujo/ícono propio pegado al topper)")
+        decoracion_svg_subido = st.file_uploader(
+            "SVG para la decoración", type=["svg"], key="tp_plano_decoracion_svg",
+            help="Un dibujo suelto (una mariposa, un moño, un logo) que se pega al costado o "
+                 "arriba del diseño -- funciona mejor con una silueta cerrada simple."
+        )
+        decoracion_svg_ruta = None
+        if decoracion_svg_subido is not None:
+            os.makedirs("output", exist_ok=True)
+            decoracion_svg_ruta = os.path.join("output", f"_subido_tp_decoracion_{decoracion_svg_subido.name}")
+            with open(decoracion_svg_ruta, "wb") as f:
+                f.write(decoracion_svg_subido.getvalue())
+        col_d1, col_d2 = st.columns(2)
+        decoracion_lado_plano = col_d1.selectbox(
+            "Lado", topper.LADOS_DECORACION_PLANO, key="tp_plano_decoracion_lado",
+            disabled=decoracion_svg_ruta is None,
+        )
+        decoracion_tam_plano = col_d2.slider(
+            "Tamaño (mm)", 8.0, 60.0, 25.0, step=1.0, key="tp_plano_decoracion_tam",
+            disabled=decoracion_svg_ruta is None,
+        )
+
         st.markdown("**Colores** (para imprimir con AMS multicolor, o de guía para pintar a mano)")
         borde_texto_plano = st.slider(
             "Borde del texto (mm)", 0.0, 3.0, 0.0, step=0.25, key="tp_plano_borde",
             help="Un contorno fino alrededor de cada letra, de un color distinto al del texto. 0 = sin borde."
         )
-        col_c1, col_c2, col_c3, col_c4 = st.columns(4)
-        color_texto_plano = col_c1.selectbox("Texto", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"), key="tp_plano_color_texto")
-        color_borde_plano = col_c2.selectbox(
+        col_c0, col_c1, col_c2, col_c3, col_c4 = st.columns(5)
+        color_texto_plano = col_c0.selectbox("Texto", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"), key="tp_plano_color_texto")
+        color_borde_plano = col_c1.selectbox(
             "Borde", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Negro"),
             disabled=borde_texto_plano <= 0, key="tp_plano_color_borde",
         )
-        color_marco_plano = col_c3.selectbox(
+        color_marco_plano = col_c2.selectbox(
             "Marco", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
             disabled=marco_plano == "Ninguno", key="tp_plano_color_marco",
         )
-        color_palo_plano = col_c4.selectbox(
+        color_palo_plano = col_c3.selectbox(
             "Palo", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
             disabled=not con_palo_plano, key="tp_plano_color_palo",
+        )
+        color_decoracion_plano = col_c4.selectbox(
+            "Decoración", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
+            disabled=decoracion_svg_ruta is None, key="tp_plano_color_decoracion",
         )
         tiene_ams_plano = st.checkbox(
             "Imprimir con AMS (multicolor)", value=False, key="tp_plano_ams",
@@ -228,8 +255,11 @@ with col_preview:
         else:
             html_preview = topper.preview_html_plano(
                 lineas_plano, tamaño_mm, marco_plano, ruta_fuente, marco_svg=marco_svg_ruta,
+                decoracion_svg=decoracion_svg_ruta, decoracion_tam_mm=decoracion_tam_plano,
+                decoracion_lado=decoracion_lado_plano,
                 color_texto=colores.hex_de(color_texto_plano), color_borde=colores.hex_de(color_borde_plano),
                 color_marco=colores.hex_de(color_marco_plano), color_palo=colores.hex_de(color_palo_plano),
+                color_decoracion=colores.hex_de(color_decoracion_plano),
                 separacion_lineas_mm=separacion_lineas_plano, offset_vertical_mm=offset_vertical_plano,
                 borde_texto_mm=borde_texto_plano,
                 margen_marco_mm=margen_marco_plano, grosor_marco_mm=grosor_marco_plano,
@@ -338,6 +368,9 @@ with col_preview:
                             fuente=ruta_fuente,
                             marco=marco_plano,
                             marco_svg=marco_svg_ruta,
+                            decoracion_svg=decoracion_svg_ruta,
+                            decoracion_tam_mm=decoracion_tam_plano,
+                            decoracion_lado=decoracion_lado_plano,
                             margen_marco_mm=margen_marco_plano,
                             grosor_marco_mm=grosor_marco_plano,
                             separacion_lineas_mm=separacion_lineas_plano,
@@ -352,6 +385,7 @@ with col_preview:
                             color_borde=color_borde_plano,
                             color_marco=color_marco_plano,
                             color_palo=color_palo_plano,
+                            color_decoracion=color_decoracion_plano,
                         )
 
                         if "ruta_stl" in resultado and os.path.exists(resultado["ruta_stl"]):
