@@ -785,12 +785,20 @@ def _marco_desde_svg(ruta_svg, cx, cy, radio, grosor_mm):
     """Aro a partir de la silueta de un SVG propio (core/svg_import.py,
     el mismo importador que usa Neón SVG y las decoraciones del
     Llavero): se escala la silueta rellena para que su lado/diámetro
-    mayor mida `2*radio`, se centra en (cx, cy) y se hueca con el mismo
-    criterio que los marcos de la lista (copia interior escalada +
-    difference) -- funciona bien para un SVG de silueta cerrada simple
-    (una estrella, un corazón, un logo); un SVG que YA es un aro/corona
-    (con sus propios huecos) puede salir con una forma rara al
-    volverlo a huecar."""
+    mayor mida `2*radio`, se centra en (cx, cy) y se hueca erosionando
+    hacia adentro un ancho constante (`buffer(-grosor_mm)`) -- NO con
+    una copia escalada hacia el centro (eso solo da un aro limpio si la
+    silueta es convexa/"en forma de estrella" respecto de su centro,
+    como un círculo o un hexágono; con una silueta cóncava o con varias
+    partes sueltas -- un escudo con estrellas y cintas, letras, un logo
+    real -- la copia escalada se sale de la silueta original en las
+    partes angostas/cóncavas y el resultado queda hecho pedazos en vez
+    de un contorno continuo). La erosión de ancho constante sigue el
+    borde real de la silueta sea cual sea su forma -- funciona con
+    cualquier SVG de silueta cerrada (una estrella, un corazón, un
+    logo/escudo complejo); un SVG que YA es un aro/corona (con sus
+    propios huecos) puede salir con una forma rara al volverlo a
+    huecar."""
     svg_import = _svg_import()
     saf = _affinity()
 
@@ -807,8 +815,7 @@ def _marco_desde_svg(ruta_svg, cx, cy, radio, grosor_mm):
     forma = saf.scale(forma, xfact=factor, yfact=factor, origin=(0, 0))
     forma = saf.translate(forma, xoff=cx, yoff=cy)
 
-    radio_int = max(radio - grosor_mm, 0.1)
-    interior = saf.scale(forma, xfact=radio_int / radio, yfact=radio_int / radio, origin=(cx, cy))
+    interior = forma.buffer(-grosor_mm)
     return forma.difference(interior)
 
 
@@ -829,11 +836,15 @@ def _poligono_desde_imagen_centrado(ruta_imagen, umbral, invertir):
 
 
 def _marco_desde_imagen(ruta_imagen, cx, cy, radio, grosor_mm, umbral=128, invertir=False):
-    """Aro a partir de la silueta de una imagen propia (PNG/JPG, logo o
-    ícono simple sobre fondo liso/transparente) -- mismo criterio que
-    `_marco_desde_svg`, ver ahí para las limitaciones (mejor con una
-    silueta cerrada simple que con un dibujo que ya es un aro/corona).
-    `umbral`/`invertir`: ver core/imagen_import.py."""
+    """Aro a partir de la silueta de una imagen propia (PNG/JPG, un logo
+    o escudo cualquiera) -- mismo criterio que `_marco_desde_svg` (ver
+    ahí el porqué de la erosión de ancho constante en vez de una copia
+    escalada hacia el centro): funciona bien incluso con una silueta
+    cóncava o con varias partes sueltas, como un escudo de fútbol real
+    (estrellas, cintas, letras) -- antes, con la copia escalada, esos
+    casos salían fragmentados en un montón de pedacitos sueltos en vez
+    de un contorno continuo reconocible. `umbral`/`invertir`: ver
+    core/imagen_import.py."""
     saf = _affinity()
     forma = _poligono_desde_imagen_centrado(ruta_imagen, umbral, invertir)
 
@@ -846,8 +857,7 @@ def _marco_desde_imagen(ruta_imagen, cx, cy, radio, grosor_mm, umbral=128, inver
     forma = saf.scale(forma, xfact=factor, yfact=factor, origin=(0, 0))
     forma = saf.translate(forma, xoff=cx, yoff=cy)
 
-    radio_int = max(radio - grosor_mm, 0.1)
-    interior = saf.scale(forma, xfact=radio_int / radio, yfact=radio_int / radio, origin=(cx, cy))
+    interior = forma.buffer(-grosor_mm)
     return forma.difference(interior)
 
 
