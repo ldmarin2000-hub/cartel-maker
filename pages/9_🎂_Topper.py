@@ -201,8 +201,10 @@ with col_form:
             "Imprimir con AMS (multicolor)", value=False, key="tp_plano_ams",
             help="Sin esto, el STL sale en una sola pieza para imprimir de un solo color (podés "
                  "pintarlo a mano después usando la vista previa de colores como guía). Con "
-                 "esto, además se genera un .3mf ya pintado por región que abre directo en "
-                 "Bambu Studio con los colores puestos."
+                 "esto, además se genera un STL multicolor (piezas sueltas por región, para "
+                 "'Partir en objetos' en Bambu Studio y asignarles color ahí) y un .3mf con los "
+                 "colores pre-asignados -- este último es experimental, a veces Bambu Studio no "
+                 "lo carga bien."
         )
 
     elif "3D" in tipo_topper:
@@ -414,23 +416,34 @@ with col_preview:
                                     mime="application/octet-stream"
                                 )
 
-                        if resultado.get("ruta_3mf_multicolor"):
-                            st.caption("Con AMS: el .3mf ya viene con los colores puestos, abre directo en Bambu Studio.")
-                            with open(resultado["ruta_3mf_multicolor"], "rb") as f:
-                                st.download_button(
-                                    "📥 Descargar 3MF multicolor (recomendado con AMS)",
-                                    f.read(),
-                                    file_name=os.path.basename(resultado["ruta_3mf_multicolor"]),
-                                    mime="model/3mf",
-                                )
                         if resultado.get("ruta_stl_multicolor"):
+                            st.caption(
+                                "Para AMS (recomendado): abrí este STL en Bambu Studio, clic derecho sobre "
+                                "la pieza → **\"Partir en objetos\"** → asignale el color real a cada parte "
+                                "(quedan en el mismo orden que elegiste acá arriba). Un paso extra, pero anda seguro."
+                            )
                             with open(resultado["ruta_stl_multicolor"], "rb") as f:
                                 st.download_button(
-                                    "📥 Descargar STL multicolor (respaldo para otro slicer)",
+                                    "📥 Descargar STL multicolor (para AMS, partir en objetos)",
                                     f.read(),
                                     file_name=os.path.basename(resultado["ruta_stl_multicolor"]),
                                     mime="application/octet-stream",
                                 )
+                        if resultado.get("ruta_3mf_multicolor"):
+                            with st.expander("3MF con colores pre-asignados (experimental, puede no cargar bien)"):
+                                st.caption(
+                                    "Debería abrir con los colores ya puestos sin el paso de \"Partir en "
+                                    "objetos\", pero Bambu Studio a veces lo rechaza parcialmente "
+                                    "(\"configuración no válida\") y termina con los colores del proyecto "
+                                    "actual en vez de los elegidos acá. Si te pasa eso, usá el STL de arriba."
+                                )
+                                with open(resultado["ruta_3mf_multicolor"], "rb") as f:
+                                    st.download_button(
+                                        "📥 Descargar 3MF multicolor (experimental)",
+                                        f.read(),
+                                        file_name=os.path.basename(resultado["ruta_3mf_multicolor"]),
+                                        mime="model/3mf",
+                                    )
 
                     elif "3D" in tipo_topper:
                         resultado = topper.generar_3d(
