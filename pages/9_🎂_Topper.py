@@ -38,6 +38,7 @@ PRESET_KEYS = [
     "tp_plano_color_marco", "tp_plano_color_palo", "tp_plano_ams",
     "tp_plano_margen_marco", "tp_plano_grosor_marco", "tp_plano_texto_sobre_marco",
     "tp_plano_decoracion_lado", "tp_plano_decoracion_tam", "tp_plano_color_decoracion",
+    "tp_plano_decoracion_sobre_marco",
     "tp_plano_color_conectores",
 ]
 
@@ -181,6 +182,14 @@ with col_form:
             "Tamaño (mm)", 8.0, 60.0, 25.0, step=1.0, key="tp_plano_decoracion_tam",
             disabled=decoracion_svg_ruta is None,
         )
+        decoracion_sobre_marco_plano = st.checkbox(
+            "Decoración sobre el marco", value=False,
+            disabled=decoracion_svg_ruta is None or marco_plano == "Ninguno",
+            key="tp_plano_decoracion_sobre_marco",
+            help="Igual que 'Texto sobre el marco' pero para la decoración. Solo importa si "
+                 "llega a tocar el marco (lado/tamaño grande). Destildado (de siempre): el "
+                 "marco tapa a la decoración donde se crucen. Tildado: al revés."
+        )
 
         st.markdown("**Colores** (para imprimir con AMS multicolor, o de guía para pintar a mano)")
         borde_texto_plano = st.slider(
@@ -272,7 +281,7 @@ with col_preview:
             html_preview = topper.preview_html_plano(
                 lineas_plano, tamaño_mm, marco_plano, ruta_fuente, marco_svg=marco_svg_ruta,
                 decoracion_svg=decoracion_svg_ruta, decoracion_tam_mm=decoracion_tam_plano,
-                decoracion_lado=decoracion_lado_plano,
+                decoracion_lado=decoracion_lado_plano, decoracion_sobre_marco=decoracion_sobre_marco_plano,
                 color_texto=colores.hex_de(color_texto_plano), color_borde=colores.hex_de(color_borde_plano),
                 color_marco=colores.hex_de(color_marco_plano), color_palo=colores.hex_de(color_palo_plano),
                 color_decoracion=colores.hex_de(color_decoracion_plano),
@@ -390,6 +399,7 @@ with col_preview:
                             decoracion_svg=decoracion_svg_ruta,
                             decoracion_tam_mm=decoracion_tam_plano,
                             decoracion_lado=decoracion_lado_plano,
+                            decoracion_sobre_marco=decoracion_sobre_marco_plano,
                             margen_marco_mm=margen_marco_plano,
                             grosor_marco_mm=grosor_marco_plano,
                             separacion_lineas_mm=separacion_lineas_plano,

@@ -855,6 +855,7 @@ def _posicionar_decoracion(forma, lado, minx, miny, maxx, maxy):
 def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                            marco_svg=None, texto_sobre_marco=False,
                            decoracion_svg=None, decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
+                           decoracion_sobre_marco=False,
                            espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
                            offset_vertical_mm=0.0, grosor_marco_mm=3.0,
                            margen_marco_mm=6.0, borde_texto_mm=0.0,
@@ -877,7 +878,9 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     propio) agrega un dibujo/ícono suelto (ver `_decoracion_desde_svg` /
     `_posicionar_decoracion`) en el lado elegido (`decoracion_lado`,
     ver LADOS_DECORACION_PLANO) respecto del marco si hay, si no del
-    texto.
+    texto; `decoracion_sobre_marco` es el mismo criterio que
+    `texto_sobre_marco` pero para la decoración -- en False (de
+    siempre) el marco tapa a la decoración, en True es al revés.
 
     Lo que quede suelto (letras que ni con el espaciado negativo se
     tocan, el texto respecto del marco, la decoración, o el palo si no
@@ -964,6 +967,11 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         ref_minx, ref_miny, ref_maxx, ref_maxy = (aro.bounds if aro is not None else texto_total.bounds)
         decoracion = _decoracion_desde_svg(decoracion_svg, decoracion_tam_mm)
         decoracion = _posicionar_decoracion(decoracion, decoracion_lado, ref_minx, ref_miny, ref_maxx, ref_maxy)
+        if aro is not None:
+            if decoracion_sobre_marco:
+                aro = aro.difference(decoracion)
+            else:
+                decoracion = decoracion.difference(aro)
 
     nombradas = [g for g in (texto_total, borde, aro, decoracion) if g is not None]
     contenido = so.unary_union(nombradas) if len(nombradas) > 1 else nombradas[0]
@@ -1015,6 +1023,7 @@ def _extrudir_geom(geom, espesor_mm):
 def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_svg=None,
                    texto_sobre_marco=False,
                    decoracion_svg=None, decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
+                   decoracion_sobre_marco=False,
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
                    grosor_marco_mm=3.0, margen_marco_mm=6.0, borde_texto_mm=0.0,
                    ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
@@ -1038,6 +1047,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         lineas, tamaño_mm=tamaño_mm, fuente=fuente, marco=marco, marco_svg=marco_svg,
         texto_sobre_marco=texto_sobre_marco,
         decoracion_svg=decoracion_svg, decoracion_tam_mm=decoracion_tam_mm, decoracion_lado=decoracion_lado,
+        decoracion_sobre_marco=decoracion_sobre_marco,
         espaciado_relativo=espaciado_relativo, separacion_lineas_mm=separacion_lineas_mm,
         offset_vertical_mm=offset_vertical_mm, grosor_marco_mm=grosor_marco_mm,
         margen_marco_mm=margen_marco_mm, borde_texto_mm=borde_texto_mm,
