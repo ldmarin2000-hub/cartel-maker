@@ -86,6 +86,18 @@ def _svg_import():
         _svg_import_mod = svg_import
     return _svg_import_mod
 
+
+_imagen_import_mod = None
+
+
+def _imagen_import():
+    # core.imagen_import también importa shapely a nivel de módulo -- ídem.
+    global _imagen_import_mod
+    if _imagen_import_mod is None:
+        from core import imagen_import
+        _imagen_import_mod = imagen_import
+    return _imagen_import_mod
+
 NOMBRE = "Topper (decoración para tortas)"
 DESCRIPCION = "Toppers 3D, Neón, LED, Acrílico para tortas, cupcakes, postres."
 
@@ -140,7 +152,7 @@ OBJETOS_DECORATIVOS = [
 
 # Marcos decorativos para el topper "Plano" — un aro fino alrededor del
 # texto (ver _forma_marco). "Ninguno" deja el texto suelto.
-FORMAS_MARCO = ["Ninguno", "Círculo", "Hexágono", "Pentágono", "SVG propio"]
+FORMAS_MARCO = ["Ninguno", "Círculo", "Hexágono", "Pentágono", "SVG propio", "Imagen propia"]
 
 
 def _parsear_base(base_tipo):
@@ -800,6 +812,45 @@ def _marco_desde_svg(ruta_svg, cx, cy, radio, grosor_mm):
     return forma.difference(interior)
 
 
+def _poligono_desde_imagen_centrado(ruta_imagen, umbral, invertir):
+    """Como `svg_import.svg_a_poligono()` pero para una imagen rasterizada
+    (PNG/JPG, core/imagen_import.py no centra el resultado por su
+    cuenta) -- vectoriza y centra en el origen, para poder reusar el
+    mismo código de escalado/posicionamiento que ya vale para SVG."""
+    saf = _affinity()
+    imagen_import = _imagen_import()
+
+    forma = imagen_import.imagen_a_poligono_crudo(ruta_imagen, umbral=umbral, invertir=invertir)
+    if forma is None:
+        raise ValueError(f"no se pudo sacar ninguna forma con área de la imagen: {ruta_imagen}")
+    minx, miny, maxx, maxy = forma.bounds
+    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
+    return saf.translate(forma, xoff=-cx, yoff=-cy)
+
+
+def _marco_desde_imagen(ruta_imagen, cx, cy, radio, grosor_mm, umbral=128, invertir=False):
+    """Aro a partir de la silueta de una imagen propia (PNG/JPG, logo o
+    ícono simple sobre fondo liso/transparente) -- mismo criterio que
+    `_marco_desde_svg`, ver ahí para las limitaciones (mejor con una
+    silueta cerrada simple que con un dibujo que ya es un aro/corona).
+    `umbral`/`invertir`: ver core/imagen_import.py."""
+    saf = _affinity()
+    forma = _poligono_desde_imagen_centrado(ruta_imagen, umbral, invertir)
+
+    minx, miny, maxx, maxy = forma.bounds
+    radio_actual = max(maxx - minx, maxy - miny) / 2
+    if radio_actual <= 0:
+        raise ValueError("la imagen no tiene área utilizable")
+
+    factor = radio / radio_actual
+    forma = saf.scale(forma, xfact=factor, yfact=factor, origin=(0, 0))
+    forma = saf.translate(forma, xoff=cx, yoff=cy)
+
+    radio_int = max(radio - grosor_mm, 0.1)
+    interior = saf.scale(forma, xfact=radio_int / radio, yfact=radio_int / radio, origin=(cx, cy))
+    return forma.difference(interior)
+
+
 LADOS_DECORACION_PLANO = ["Arriba", "Arriba derecha", "Arriba izquierda", "Derecha", "Izquierda"]
 
 
@@ -819,6 +870,21 @@ def _decoracion_desde_svg(ruta_svg, tam_mm):
     lado_actual = max(maxx - minx, maxy - miny)
     if lado_actual <= 0:
         raise ValueError("el SVG no tiene área utilizable")
+
+    factor = tam_mm / lado_actual
+    return saf.scale(forma, xfact=factor, yfact=factor, origin=(0, 0))
+
+
+def _decoracion_desde_imagen(ruta_imagen, tam_mm, umbral=128, invertir=False):
+    """Como `_decoracion_desde_svg` pero a partir de una imagen propia
+    (PNG/JPG). `umbral`/`invertir`: ver core/imagen_import.py."""
+    saf = _affinity()
+    forma = _poligono_desde_imagen_centrado(ruta_imagen, umbral, invertir)
+
+    minx, miny, maxx, maxy = forma.bounds
+    lado_actual = max(maxx - minx, maxy - miny)
+    if lado_actual <= 0:
+        raise ValueError("la imagen no tiene área utilizable")
 
     factor = tam_mm / lado_actual
     return saf.scale(forma, xfact=factor, yfact=factor, origin=(0, 0))
@@ -853,8 +919,11 @@ def _posicionar_decoracion(forma, lado, minx, miny, maxx, maxy):
 
 
 def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
-                           marco_svg=None, texto_sobre_marco=False,
-                           decoracion_svg=None, decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
+                           marco_svg=None, marco_imagen=None, marco_imagen_umbral=128,
+                           marco_imagen_invertir=False, texto_sobre_marco=False,
+                           decoracion_svg=None, decoracion_imagen=None, decoracion_imagen_umbral=128,
+                           decoracion_imagen_invertir=False,
+                           decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                            decoracion_sobre_marco=False,
                            espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
                            offset_vertical_mm=0.0, grosor_marco_mm=3.0,
@@ -935,7 +1004,11 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     if marco == "SVG propio" and marco_svg:
         radio = max(maxx - minx, maxy - miny) / 2 + margen_marco_mm
         aro = _marco_desde_svg(marco_svg, cx, cy, radio, grosor_marco_mm)
-    elif marco != "Ninguno" and marco != "SVG propio":
+    elif marco == "Imagen propia" and marco_imagen:
+        radio = max(maxx - minx, maxy - miny) / 2 + margen_marco_mm
+        aro = _marco_desde_imagen(marco_imagen, cx, cy, radio, grosor_marco_mm,
+                                   umbral=marco_imagen_umbral, invertir=marco_imagen_invertir)
+    elif marco not in ("Ninguno", "SVG propio", "Imagen propia"):
         radio = max(maxx - minx, maxy - miny) / 2 + margen_marco_mm
         aro = _forma_marco(marco, cx, cy, radio, grosor_marco_mm)
 
@@ -963,9 +1036,13 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         borde = None
 
     decoracion = None
-    if decoracion_svg:
+    if decoracion_svg or decoracion_imagen:
         ref_minx, ref_miny, ref_maxx, ref_maxy = (aro.bounds if aro is not None else texto_total.bounds)
-        decoracion = _decoracion_desde_svg(decoracion_svg, decoracion_tam_mm)
+        if decoracion_svg:
+            decoracion = _decoracion_desde_svg(decoracion_svg, decoracion_tam_mm)
+        else:
+            decoracion = _decoracion_desde_imagen(decoracion_imagen, decoracion_tam_mm,
+                                                   umbral=decoracion_imagen_umbral, invertir=decoracion_imagen_invertir)
         decoracion = _posicionar_decoracion(decoracion, decoracion_lado, ref_minx, ref_miny, ref_maxx, ref_maxy)
         if aro is not None:
             if decoracion_sobre_marco:
@@ -1046,8 +1123,11 @@ def _extrudir_geom(geom, espesor_mm):
 
 
 def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_svg=None,
+                   marco_imagen=None, marco_imagen_umbral=128, marco_imagen_invertir=False,
                    texto_sobre_marco=False,
-                   decoracion_svg=None, decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
+                   decoracion_svg=None, decoracion_imagen=None, decoracion_imagen_umbral=128,
+                   decoracion_imagen_invertir=False,
+                   decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                    decoracion_sobre_marco=False,
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
                    grosor_marco_mm=3.0, margen_marco_mm=6.0, borde_texto_mm=0.0,
@@ -1070,8 +1150,12 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
 
     regiones, n_puentes = _armar_regiones_plano(
         lineas, tamaño_mm=tamaño_mm, fuente=fuente, marco=marco, marco_svg=marco_svg,
+        marco_imagen=marco_imagen, marco_imagen_umbral=marco_imagen_umbral,
+        marco_imagen_invertir=marco_imagen_invertir,
         texto_sobre_marco=texto_sobre_marco,
-        decoracion_svg=decoracion_svg, decoracion_tam_mm=decoracion_tam_mm, decoracion_lado=decoracion_lado,
+        decoracion_svg=decoracion_svg, decoracion_imagen=decoracion_imagen,
+        decoracion_imagen_umbral=decoracion_imagen_umbral, decoracion_imagen_invertir=decoracion_imagen_invertir,
+        decoracion_tam_mm=decoracion_tam_mm, decoracion_lado=decoracion_lado,
         decoracion_sobre_marco=decoracion_sobre_marco,
         espaciado_relativo=espaciado_relativo, separacion_lineas_mm=separacion_lineas_mm,
         offset_vertical_mm=offset_vertical_mm, grosor_marco_mm=grosor_marco_mm,

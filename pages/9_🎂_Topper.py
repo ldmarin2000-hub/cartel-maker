@@ -40,6 +40,8 @@ PRESET_KEYS = [
     "tp_plano_decoracion_lado", "tp_plano_decoracion_tam", "tp_plano_color_decoracion",
     "tp_plano_decoracion_sobre_marco",
     "tp_plano_color_conectores",
+    "tp_plano_marco_imagen_umbral", "tp_plano_marco_imagen_invertir",
+    "tp_plano_decoracion_imagen_umbral", "tp_plano_decoracion_imagen_invertir",
 ]
 
 tipo_topper = st.radio("Tipo de topper", TIPOS_TOPPER, horizontal=True, key="tp_tipo")
@@ -101,9 +103,13 @@ with col_form:
             marco_plano = st.selectbox(
                 "Marco decorativo", topper.FORMAS_MARCO, key="tp_plano_marco",
                 help="Un aro fino alrededor del texto (Círculo/Hexágono/Pentágono/tu propio "
-                     "SVG). 'Ninguno' deja el texto suelto, unido solo por los puentes finos."
+                     "SVG o imagen). 'Ninguno' deja el texto suelto, unido solo por los "
+                     "puentes finos."
             )
             marco_svg_ruta = None
+            marco_imagen_ruta = None
+            marco_imagen_umbral_plano = 128
+            marco_imagen_invertir_plano = False
             if marco_plano == "SVG propio":
                 marco_svg_subido = st.file_uploader(
                     "SVG para el marco", type=["svg"], key="tp_plano_marco_svg",
@@ -116,6 +122,28 @@ with col_form:
                     marco_svg_ruta = os.path.join("output", f"_subido_tp_marco_{marco_svg_subido.name}")
                     with open(marco_svg_ruta, "wb") as f:
                         f.write(marco_svg_subido.getvalue())
+            elif marco_plano == "Imagen propia":
+                marco_imagen_subida = st.file_uploader(
+                    "Imagen (PNG/JPG) para el marco", type=["png", "jpg", "jpeg"], key="tp_plano_marco_imagen",
+                    help="Un logo/ícono simple (silueta clara sobre fondo liso o transparente, "
+                         "no una foto) -- se usa su silueta como aro, igual que con un SVG."
+                )
+                if marco_imagen_subida is not None:
+                    os.makedirs("output", exist_ok=True)
+                    marco_imagen_ruta = os.path.join("output", f"_subido_tp_marco_{marco_imagen_subida.name}")
+                    with open(marco_imagen_ruta, "wb") as f:
+                        f.write(marco_imagen_subida.getvalue())
+                    marco_imagen_invertir_plano = st.checkbox(
+                        "Imagen clara sobre fondo oscuro", value=False, key="tp_plano_marco_imagen_invertir",
+                        help="Tildá esto si el logo es claro y el fondo oscuro (al revés del caso "
+                             "típico). No hace falta si el PNG ya tiene fondo transparente."
+                    )
+                    marco_imagen_umbral_plano = st.slider(
+                        "Sensibilidad del contorno", 0, 255, 128, key="tp_plano_marco_imagen_umbral",
+                        help="Si la imagen no tiene fondo transparente: qué tan oscuro tiene que "
+                             "ser un píxel para contar como parte del logo. Subilo si falta parte "
+                             "del dibujo, bajalo si trae de más el fondo."
+                    )
             margen_marco_plano = st.slider(
                 "Distancia del marco al texto (mm)", 2.0, 30.0, 6.0, step=1.0,
                 disabled=marco_plano == "Ninguno", key="tp_plano_margen_marco",
@@ -173,18 +201,44 @@ with col_form:
             decoracion_svg_ruta = os.path.join("output", f"_subido_tp_decoracion_{decoracion_svg_subido.name}")
             with open(decoracion_svg_ruta, "wb") as f:
                 f.write(decoracion_svg_subido.getvalue())
+
+        decoracion_imagen_ruta = None
+        decoracion_imagen_umbral_plano = 128
+        decoracion_imagen_invertir_plano = False
+        if decoracion_svg_ruta is None:
+            decoracion_imagen_subida = st.file_uploader(
+                "...o una imagen (PNG/JPG) para la decoración", type=["png", "jpg", "jpeg"],
+                key="tp_plano_decoracion_imagen",
+                help="Un logo/ícono simple (silueta clara sobre fondo liso o transparente, no "
+                     "una foto). Si subís las dos cosas, el SVG tiene prioridad."
+            )
+            if decoracion_imagen_subida is not None:
+                os.makedirs("output", exist_ok=True)
+                decoracion_imagen_ruta = os.path.join("output", f"_subido_tp_decoracion_{decoracion_imagen_subida.name}")
+                with open(decoracion_imagen_ruta, "wb") as f:
+                    f.write(decoracion_imagen_subida.getvalue())
+                decoracion_imagen_invertir_plano = st.checkbox(
+                    "Imagen clara sobre fondo oscuro", value=False, key="tp_plano_decoracion_imagen_invertir",
+                )
+                decoracion_imagen_umbral_plano = st.slider(
+                    "Sensibilidad del contorno", 0, 255, 128, key="tp_plano_decoracion_imagen_umbral",
+                    help="Si la imagen no tiene fondo transparente: qué tan oscuro tiene que ser "
+                         "un píxel para contar como parte del dibujo."
+                )
+
+        hay_decoracion = decoracion_svg_ruta is not None or decoracion_imagen_ruta is not None
         col_d1, col_d2 = st.columns(2)
         decoracion_lado_plano = col_d1.selectbox(
             "Lado", topper.LADOS_DECORACION_PLANO, key="tp_plano_decoracion_lado",
-            disabled=decoracion_svg_ruta is None,
+            disabled=not hay_decoracion,
         )
         decoracion_tam_plano = col_d2.slider(
             "Tamaño (mm)", 8.0, 60.0, 25.0, step=1.0, key="tp_plano_decoracion_tam",
-            disabled=decoracion_svg_ruta is None,
+            disabled=not hay_decoracion,
         )
         decoracion_sobre_marco_plano = st.checkbox(
             "Decoración sobre el marco", value=False,
-            disabled=decoracion_svg_ruta is None or marco_plano == "Ninguno",
+            disabled=not hay_decoracion or marco_plano == "Ninguno",
             key="tp_plano_decoracion_sobre_marco",
             help="Igual que 'Texto sobre el marco' pero para la decoración. Solo importa si "
                  "llega a tocar el marco (lado/tamaño grande). Destildado (de siempre): el "
@@ -212,7 +266,7 @@ with col_form:
         )
         color_decoracion_plano = col_c4.selectbox(
             "Decoración", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
-            disabled=decoracion_svg_ruta is None, key="tp_plano_color_decoracion",
+            disabled=not hay_decoracion, key="tp_plano_color_decoracion",
         )
         color_conectores_plano = col_c5.selectbox(
             "Conectores", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Transparente/Natural"),
@@ -277,10 +331,17 @@ with col_preview:
     if es_plano:
         if marco_plano == "SVG propio" and not marco_svg_ruta:
             st.info("Subí un SVG para el marco para ver la vista previa.")
+        elif marco_plano == "Imagen propia" and not marco_imagen_ruta:
+            st.info("Subí una imagen para el marco para ver la vista previa.")
         else:
             html_preview = topper.preview_html_plano(
                 lineas_plano, tamaño_mm, marco_plano, ruta_fuente, marco_svg=marco_svg_ruta,
-                decoracion_svg=decoracion_svg_ruta, decoracion_tam_mm=decoracion_tam_plano,
+                marco_imagen=marco_imagen_ruta, marco_imagen_umbral=marco_imagen_umbral_plano,
+                marco_imagen_invertir=marco_imagen_invertir_plano,
+                decoracion_svg=decoracion_svg_ruta, decoracion_imagen=decoracion_imagen_ruta,
+                decoracion_imagen_umbral=decoracion_imagen_umbral_plano,
+                decoracion_imagen_invertir=decoracion_imagen_invertir_plano,
+                decoracion_tam_mm=decoracion_tam_plano,
                 decoracion_lado=decoracion_lado_plano, decoracion_sobre_marco=decoracion_sobre_marco_plano,
                 color_texto=colores.hex_de(color_texto_plano), color_borde=colores.hex_de(color_borde_plano),
                 color_marco=colores.hex_de(color_marco_plano), color_palo=colores.hex_de(color_palo_plano),
@@ -383,6 +444,8 @@ with col_preview:
             st.error("Escribí al menos una línea de texto")
         elif es_plano and marco_plano == "SVG propio" and not marco_svg_ruta:
             st.error("Subí un SVG para el marco (o cambiá a otra forma de marco)")
+        elif es_plano and marco_plano == "Imagen propia" and not marco_imagen_ruta:
+            st.error("Subí una imagen para el marco (o cambiá a otra forma de marco)")
         elif not es_plano and not texto.strip():
             st.error("Ingresá un texto/diseño")
         else:
@@ -395,8 +458,14 @@ with col_preview:
                             fuente=ruta_fuente,
                             marco=marco_plano,
                             marco_svg=marco_svg_ruta,
+                            marco_imagen=marco_imagen_ruta,
+                            marco_imagen_umbral=marco_imagen_umbral_plano,
+                            marco_imagen_invertir=marco_imagen_invertir_plano,
                             texto_sobre_marco=texto_sobre_marco_plano,
                             decoracion_svg=decoracion_svg_ruta,
+                            decoracion_imagen=decoracion_imagen_ruta,
+                            decoracion_imagen_umbral=decoracion_imagen_umbral_plano,
+                            decoracion_imagen_invertir=decoracion_imagen_invertir_plano,
                             decoracion_tam_mm=decoracion_tam_plano,
                             decoracion_lado=decoracion_lado_plano,
                             decoracion_sobre_marco=decoracion_sobre_marco_plano,
