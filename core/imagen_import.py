@@ -20,6 +20,7 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 from shapely.geometry import Polygon
+from shapely.ops import unary_union
 from skimage import measure
 
 from core.poligonos import combinar_con_huecos
@@ -28,6 +29,60 @@ TAMANO_TRABAJO_PX = 500  # se reescala a esto (lado mayor) antes de vectorizar
 AREA_MINIMA_PX = 4  # contornos más chicos que esto se descartan como ruido (antialiasing, JPG)
 COLORES_DETECCION_DEFAULT = 12  # cuántos colores se cuantizan puertas adentro (más que los 4 que se van a usar)
 AREA_MINIMA_FRACCION = 0.003  # candidatos con menos de esta fracción del área total se descartan (motitas de antialiasing)
+TOLERANCIA_FONDO = 24  # distancia RGB para considerar un píxel del borde "del color de fondo"
+TOLERANCIA_FUSION_COLOR = 40  # distancia RGB para fusionar dos colores detectados que en la práctica son el mismo
+
+
+def _detectar_fondo_solido(arr_rgb, tolerancia=TOLERANCIA_FONDO):
+    """Para imágenes SIN transparencia (típico: un logo bajado de la web
+    con fondo blanco sólido en vez de recortado): arma una máscara de
+    "es fondo" mirando qué color predomina en el borde de la imagen y
+    marcando esos píxeles -- pero SOLO los que están conectados al
+    borde (`scipy.ndimage.label`), no cualquier píxel de ese color en
+    cualquier lado. Así un detalle real del mismo color que el fondo
+    pero ENCERRADO adentro del dibujo (ej. una franja blanca dentro de
+    un escudo) no se confunde con fondo y se sigue pudiendo usar como
+    su propio color."""
+    borde = np.concatenate([arr_rgb[0, :], arr_rgb[-1, :], arr_rgb[:, 0], arr_rgb[:, -1]]).astype(float)
+    color_fondo = np.median(borde, axis=0)
+    distancia = np.sqrt(((arr_rgb.astype(float) - color_fondo) ** 2).sum(axis=2))
+    es_color_fondo = distancia < tolerancia
+
+    etiquetas, _ = ndimage.label(es_color_fondo)
+    etiquetas_borde = set(etiquetas[0, :].tolist()) | set(etiquetas[-1, :].tolist()) \
+        | set(etiquetas[:, 0].tolist()) | set(etiquetas[:, -1].tolist())
+    etiquetas_borde.discard(0)
+    if not etiquetas_borde:
+        return np.zeros(arr_rgb.shape[:2], dtype=bool)
+    return np.isin(etiquetas, list(etiquetas_borde))
+
+
+def _fusionar_colores_cercanos(candidatos, tolerancia=TOLERANCIA_FUSION_COLOR):
+    """`candidatos`: lista de (area_px, polígono, "#rrggbb"). Antialiasing
+    o compresión JPG/PNG a veces hacen que un mismo color visual (ej. el
+    blanco de un escudo) caiga en dos baldes de cuantización casi
+    iguales ("#fefefe" y "#ffffff") en vez de uno -- se fusionan los que
+    estén a menos de `tolerancia` de distancia RGB entre sí, sumando su
+    área y uniendo su geometría, y quedándose con el color del más
+    grande del grupo. Devuelve la lista ya fusionada, ordenada de mayor
+    a menor área."""
+    grupos = []
+    for area_px, poligono, color_hex in candidatos:
+        rgb = tuple(int(color_hex[i:i + 2], 16) for i in (1, 3, 5))
+        grupo_encontrado = None
+        for grupo in grupos:
+            dist = sum((a - b) ** 2 for a, b in zip(rgb, grupo["rgb"])) ** 0.5
+            if dist < tolerancia:
+                grupo_encontrado = grupo
+                break
+        if grupo_encontrado is not None:
+            grupo_encontrado["area_px"] += area_px
+            grupo_encontrado["poligono"] = unary_union([grupo_encontrado["poligono"], poligono])
+        else:
+            grupos.append({"area_px": area_px, "poligono": poligono, "color_hex": color_hex, "rgb": rgb})
+
+    grupos.sort(key=lambda g: g["area_px"], reverse=True)
+    return [(g["area_px"], g["poligono"], g["color_hex"]) for g in grupos]
 
 
 def _mascara_desde_imagen(ruta_imagen, umbral, invertir):
@@ -116,14 +171,16 @@ def imagen_a_poligonos_por_color(ruta_imagen, colores_deteccion=COLORES_DETECCIO
     ruido de antialiasing que si no queda como un borde en zigzag).
 
     Usa el canal alfa para ignorar el fondo transparente si la imagen lo
-    tiene; si no, cuantiza la imagen completa (el fondo sólido puede
-    salir como uno de los colores detectados -- normal, el que llama
-    puede optar por no usarlo). Sin escalar (unidades de píxel), en el
-    MISMO sistema de coordenadas entre sí (a diferencia de vectorizar
-    cada color por separado con `imagen_a_poligono_crudo`, que perdería
-    la posición relativa entre colores). Descarta candidatos con menos
-    de `AREA_MINIMA_FRACCION` del área total (motitas de antialiasing
-    que quedaron como su propio balde de color).
+    tiene; si NO tiene transparencia, intenta detectar un fondo sólido
+    liso mirando los bordes de la imagen (`_detectar_fondo_solido`) y lo
+    ignora igual -- muy común bajar un logo de la web con fondo blanco
+    en vez de recortado. Sin escalar (unidades de píxel), en el MISMO
+    sistema de coordenadas entre sí (a diferencia de vectorizar cada
+    color por separado con `imagen_a_poligono_crudo`, que perdería la
+    posición relativa entre colores). Descarta candidatos con menos de
+    `AREA_MINIMA_FRACCION` del área total (motitas de antialiasing que
+    quedaron como su propio balde de color), y fusiona los que salgan
+    con un color casi idéntico entre sí (`_fusionar_colores_cercanos`).
 
     Devuelve una lista de (polígono, "#rrggbb") ordenada de mayor a
     menor área, o lista vacía si no se pudo sacar nada."""
@@ -135,8 +192,11 @@ def imagen_a_poligonos_por_color(ruta_imagen, colores_deteccion=COLORES_DETECCIO
 
     tiene_alfa = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
     img_rgba = img.convert("RGBA")
-    alfa = np.array(img_rgba)[:, :, 3]
-    mascara_valida = alfa > 16 if tiene_alfa else np.ones(alfa.shape, dtype=bool)
+    arr_rgba = np.array(img_rgba)
+    if tiene_alfa:
+        mascara_valida = arr_rgba[:, :, 3] > 16
+    else:
+        mascara_valida = ~_detectar_fondo_solido(arr_rgba[:, :, :3])
     area_total = int(mascara_valida.sum())
     if area_total == 0:
         return []
@@ -159,5 +219,5 @@ def imagen_a_poligonos_por_color(ruta_imagen, colores_deteccion=COLORES_DETECCIO
         r, g, b = paleta[idx * 3], paleta[idx * 3 + 1], paleta[idx * 3 + 2]
         candidatos.append((area_px, poligono, f"#{r:02x}{g:02x}{b:02x}"))
 
-    candidatos.sort(key=lambda t: t[0], reverse=True)
+    candidatos = _fusionar_colores_cercanos(candidatos)
     return [(poligono, color_hex) for _, poligono, color_hex in candidatos]
