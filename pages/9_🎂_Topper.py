@@ -208,10 +208,12 @@ with col_form:
 
         st.markdown("**Decoración** (opcional, un dibujo/ícono propio pegado al topper)")
         origen_decoracion_plano = st.radio(
-            "Origen", ["Ninguna", "SVG", "Imagen (un color)", "Imagen multicolor"],
+            "Origen", ["Ninguna", "SVG", "Imagen (un color)", "Imagen multicolor", "Múltiples decoraciones"],
             horizontal=True, key="tp_plano_decoracion_origen",
-            help="Imagen multicolor: separa automáticamente hasta 4 colores reales de la "
-                 "imagen (un logo, un escudo) en vez de una silueta de un solo color."
+            help="Imagen multicolor: separa automáticamente hasta 4 colores reales de UNA "
+                 "imagen (un logo, un escudo) en vez de una silueta de un solo color. "
+                 "Múltiples decoraciones: hasta 4 dibujos DISTINTOS a la vez (ej. un corazón a "
+                 "la derecha y una pata a la izquierda), cada uno con su propio lado y tamaño."
         )
 
         decoracion_svg_ruta = None
@@ -221,6 +223,8 @@ with col_form:
         decoracion_multicolor_imagen_ruta = None
         indices_seleccionados_multicolor = []
         colores_asignados_decoracion = []
+        decoraciones_multi = []
+        colores_decoraciones_multi = []
 
         if origen_decoracion_plano == "SVG":
             decoracion_svg_subido = st.file_uploader(
@@ -308,18 +312,82 @@ with col_form:
                             indices_seleccionados_multicolor.append(i)
                             colores_asignados_decoracion.append(elegido)
 
+        elif origen_decoracion_plano == "Múltiples decoraciones":
+            st.caption(
+                "Hasta 4 dibujos independientes, cada uno con su propio origen, lado y tamaño "
+                "-- por ejemplo un corazón a la derecha y una pata a la izquierda."
+            )
+            for i in range(topper.MAX_COLORES_DECORACION_MULTICOLOR):
+                with st.expander(f"Decoración {i + 1}", expanded=(i == 0)):
+                    usar_slot = st.checkbox(
+                        "Usar esta decoración", value=False, key=f"tp_plano_multi_dec_{i}_usar",
+                    )
+                    if not usar_slot:
+                        continue
+                    tipo_slot = st.radio(
+                        "Tipo", ["SVG", "Imagen"], horizontal=True,
+                        key=f"tp_plano_multi_dec_{i}_tipo",
+                    )
+                    item = {}
+                    if tipo_slot == "SVG":
+                        subido = st.file_uploader(
+                            "SVG", type=["svg"], key=f"tp_plano_multi_dec_{i}_svg",
+                        )
+                        if subido is not None:
+                            os.makedirs("output", exist_ok=True)
+                            ruta = os.path.join("output", f"_subido_tp_multidec_{i}_{subido.name}")
+                            with open(ruta, "wb") as f:
+                                f.write(subido.getvalue())
+                            item["svg"] = ruta
+                    else:
+                        subido = st.file_uploader(
+                            "Imagen (PNG/JPG)", type=["png", "jpg", "jpeg"],
+                            key=f"tp_plano_multi_dec_{i}_imagen",
+                        )
+                        if subido is not None:
+                            os.makedirs("output", exist_ok=True)
+                            ruta = os.path.join("output", f"_subido_tp_multidec_{i}_{subido.name}")
+                            with open(ruta, "wb") as f:
+                                f.write(subido.getvalue())
+                            item["imagen"] = ruta
+                            item["invertir"] = st.checkbox(
+                                "Imagen clara sobre fondo oscuro", value=False,
+                                key=f"tp_plano_multi_dec_{i}_invertir",
+                            )
+                            item["umbral"] = st.slider(
+                                "Sensibilidad del contorno", 0, 255, 128,
+                                key=f"tp_plano_multi_dec_{i}_umbral",
+                            )
+                    col_ld, col_tm = st.columns(2)
+                    item["lado"] = col_ld.selectbox(
+                        "Lado", topper.LADOS_DECORACION_PLANO, key=f"tp_plano_multi_dec_{i}_lado",
+                    )
+                    item["tam_mm"] = col_tm.slider(
+                        "Tamaño (mm)", 8.0, 150.0, 25.0, step=1.0, key=f"tp_plano_multi_dec_{i}_tam",
+                    )
+                    color_slot = st.selectbox(
+                        "Color", list(colores.NOMBRES),
+                        index=list(colores.NOMBRES).index("Dorado"),
+                        key=f"tp_plano_multi_dec_{i}_color",
+                    )
+                    if item.get("svg") or item.get("imagen"):
+                        decoraciones_multi.append(item)
+                        colores_decoraciones_multi.append(color_slot)
+
         hay_decoracion = (
             decoracion_svg_ruta is not None or decoracion_imagen_ruta is not None
-            or bool(indices_seleccionados_multicolor)
+            or bool(indices_seleccionados_multicolor) or bool(decoraciones_multi)
         )
         col_d1, col_d2 = st.columns(2)
         decoracion_lado_plano = col_d1.selectbox(
             "Lado", topper.LADOS_DECORACION_PLANO, key="tp_plano_decoracion_lado",
-            disabled=not hay_decoracion,
+            disabled=not hay_decoracion or origen_decoracion_plano == "Múltiples decoraciones",
+            help="Con 'Múltiples decoraciones' cada una tiene su propio lado, elegido arriba."
+                 if origen_decoracion_plano == "Múltiples decoraciones" else None,
         )
         decoracion_tam_plano = col_d2.slider(
             "Tamaño (mm)", 8.0, 150.0, 25.0, step=1.0, key="tp_plano_decoracion_tam",
-            disabled=not hay_decoracion,
+            disabled=not hay_decoracion or origen_decoracion_plano == "Múltiples decoraciones",
         )
         decoracion_sobre_marco_plano = st.checkbox(
             "Decoración sobre el marco", value=False,
@@ -356,20 +424,22 @@ with col_form:
         )
         color_decoracion_plano = col_c5.selectbox(
             "Decoración", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
-            disabled=not hay_decoracion or origen_decoracion_plano == "Imagen multicolor",
+            disabled=not hay_decoracion or origen_decoracion_plano in ("Imagen multicolor", "Múltiples decoraciones"),
             key="tp_plano_color_decoracion",
-            help="Con 'Imagen multicolor' no se usa este selector -- el color de cada región "
-                 "sale de lo que elegiste arriba, en 'Color detectado → color de filamento real'."
-                 if origen_decoracion_plano == "Imagen multicolor" else None,
+            help="Con 'Imagen multicolor'/'Múltiples decoraciones' no se usa este selector -- "
+                 "el color de cada región sale de lo elegido arriba, en cada dibujo."
+                 if origen_decoracion_plano in ("Imagen multicolor", "Múltiples decoraciones") else None,
         )
-        # En modo "Imagen multicolor" los colores salen de lo elegido arriba
-        # (colores_asignados_decoracion), no de este selector -- se completa
-        # con "Dorado" si por algún motivo hay menos de 4 colores asignados.
-        _colores_decoracion_final = (
-            (colores_asignados_decoracion + ["Dorado"] * 4)[:4]
-            if origen_decoracion_plano == "Imagen multicolor" and colores_asignados_decoracion
-            else [color_decoracion_plano, "Blanco", "Negro", "Gris Frío"]
-        )
+        # En modo "Imagen multicolor"/"Múltiples decoraciones" los colores
+        # salen de lo elegido arriba (uno por color detectado, o uno por
+        # decoración), no de este selector -- se completa con "Dorado" si
+        # por algún motivo hay menos de 4 colores asignados.
+        if origen_decoracion_plano == "Imagen multicolor" and colores_asignados_decoracion:
+            _colores_decoracion_final = (colores_asignados_decoracion + ["Dorado"] * 4)[:4]
+        elif origen_decoracion_plano == "Múltiples decoraciones" and colores_decoraciones_multi:
+            _colores_decoracion_final = (colores_decoraciones_multi + ["Dorado"] * 4)[:4]
+        else:
+            _colores_decoracion_final = [color_decoracion_plano, "Blanco", "Negro", "Gris Frío"]
         color_conectores_plano = col_c6.selectbox(
             "Conectores", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Transparente/Natural"),
             key="tp_plano_color_conectores",
@@ -445,6 +515,7 @@ with col_preview:
                 decoracion_imagen_invertir=decoracion_imagen_invertir_plano,
                 decoracion_multicolor_imagen=decoracion_multicolor_imagen_ruta,
                 decoracion_multicolor_indices=indices_seleccionados_multicolor,
+                decoraciones=decoraciones_multi if origen_decoracion_plano == "Múltiples decoraciones" else None,
                 decoracion_tam_mm=decoracion_tam_plano,
                 decoracion_lado=decoracion_lado_plano, decoracion_sobre_marco=decoracion_sobre_marco_plano,
                 color_texto=colores.hex_de(color_texto_plano), color_borde=colores.hex_de(color_borde_plano),
@@ -557,6 +628,8 @@ with col_preview:
             st.error("Subí una imagen para el marco (o cambiá a otra forma de marco)")
         elif es_plano and origen_decoracion_plano == "Imagen multicolor" and not decoracion_multicolor_imagen_ruta:
             st.error("Subí una imagen para la decoración multicolor (o cambiá el origen)")
+        elif es_plano and origen_decoracion_plano == "Múltiples decoraciones" and not decoraciones_multi:
+            st.error("Activá y subí al menos una decoración (o cambiá el origen)")
         elif not es_plano and not texto.strip():
             st.error("Ingresá un texto/diseño")
         else:
@@ -579,6 +652,7 @@ with col_preview:
                             decoracion_imagen_invertir=decoracion_imagen_invertir_plano,
                             decoracion_multicolor_imagen=decoracion_multicolor_imagen_ruta,
                             decoracion_multicolor_indices=indices_seleccionados_multicolor,
+                            decoraciones=decoraciones_multi if origen_decoracion_plano == "Múltiples decoraciones" else None,
                             decoracion_tam_mm=decoracion_tam_plano,
                             decoracion_lado=decoracion_lado_plano,
                             decoracion_sobre_marco=decoracion_sobre_marco_plano,

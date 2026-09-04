@@ -997,6 +997,7 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                            decoracion_imagen_invertir=False,
                            decoracion_multicolor_imagen=None, decoracion_multicolor_indices=None,
                            decoracion_multicolor_deteccion=COLORES_DETECCION_MULTICOLOR,
+                           decoraciones=None,
                            decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                            decoracion_sobre_marco=False,
                            espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
@@ -1029,6 +1030,23 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     texto; `decoracion_sobre_marco` es el mismo criterio que
     `texto_sobre_marco` pero para la decoración -- en False (de
     siempre) el marco tapa a la decoración, en True es al revés.
+
+    `decoraciones`: alternativa a `decoracion_svg`/`decoracion_imagen`/
+    `decoracion_multicolor_imagen` para varios dibujos INDEPENDIENTES a
+    la vez (ej. un corazón a la derecha, una pata a la izquierda, un
+    moño arriba -- cada uno su propio origen, tamaño y lado), en vez de
+    un solo dibujo o los colores de UNA sola imagen. Lista de hasta
+    `MAX_COLORES_DECORACION_MULTICOLOR` dicts, cada uno
+    `{"svg": ruta}` o `{"imagen": ruta, "umbral":, "invertir":}` más
+    `"tam_mm"` y `"lado"` propios (si falta alguno, cae a
+    `decoracion_tam_mm`/`decoracion_lado`) y opcionalmente
+    `"sobre_marco"` (si falta, cae a `decoracion_sobre_marco`). A
+    diferencia del modo de una sola imagen multicolor (donde las piezas
+    se posicionan TODAS JUNTAS para conservar su alineación relativa),
+    acá cada dibujo se posiciona por separado en su propio lado --
+    son dibujos sueltos sin relación entre sí. Tiene prioridad sobre
+    `decoracion_svg`/`decoracion_imagen`/`decoracion_multicolor_imagen`
+    si se pasan los dos.
 
     Lo que quede suelto (letras que ni con el espaciado negativo se
     tocan, el texto respecto del marco, la decoración, o el palo si no
@@ -1122,7 +1140,25 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     # COMO GRUPO (mismo desplazamiento para todas, así conservan su
     # posición relativa) y se resuelve marco vs. decoración por pieza.
     piezas_decoracion = []
-    if decoracion_svg:
+    modo_independiente = bool(decoraciones)
+    sobre_marco_por_pieza = []
+    if modo_independiente:
+        ref_minx, ref_miny, ref_maxx, ref_maxy = (aro.bounds if aro is not None else texto_total.bounds)
+        for item in decoraciones[:MAX_COLORES_DECORACION_MULTICOLOR]:
+            tam_item = item.get("tam_mm") or decoracion_tam_mm
+            lado_item = item.get("lado") or decoracion_lado
+            if item.get("svg"):
+                forma = _decoracion_desde_svg(item["svg"], tam_item)
+            elif item.get("imagen"):
+                forma = _decoracion_desde_imagen(
+                    item["imagen"], tam_item,
+                    umbral=item.get("umbral", 128), invertir=item.get("invertir", False))
+            else:
+                continue
+            forma = _posicionar_decoracion(forma, lado_item, ref_minx, ref_miny, ref_maxx, ref_maxy)
+            piezas_decoracion.append((forma, None))
+            sobre_marco_por_pieza.append(item.get("sobre_marco", decoracion_sobre_marco))
+    elif decoracion_svg:
         piezas_decoracion = [(_decoracion_desde_svg(decoracion_svg, decoracion_tam_mm), None)]
     elif decoracion_multicolor_imagen:
         piezas_decoracion = _decoraciones_multicolor_desde_imagen(
@@ -1136,16 +1172,22 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
 
     decoracion_slots = [None] * MAX_COLORES_DECORACION_MULTICOLOR
     if piezas_decoracion:
-        ref_minx, ref_miny, ref_maxx, ref_maxy = (aro.bounds if aro is not None else texto_total.bounds)
-        grupo = so.unary_union([p for p, _ in piezas_decoracion]) if len(piezas_decoracion) > 1 else piezas_decoracion[0][0]
-        grupo_posicionado = _posicionar_decoracion(grupo, decoracion_lado, ref_minx, ref_miny, ref_maxx, ref_maxy)
-        dx = grupo_posicionado.bounds[0] - grupo.bounds[0]
-        dy = grupo_posicionado.bounds[1] - grupo.bounds[1]
+        if not modo_independiente:
+            # Un solo SVG/imagen (1 pieza) o los colores de UNA imagen
+            # multicolor (varias piezas que tienen que conservar su
+            # posición relativa) -- se posicionan TODAS JUNTAS como un
+            # solo grupo rígido, en el lado único `decoracion_lado`.
+            ref_minx, ref_miny, ref_maxx, ref_maxy = (aro.bounds if aro is not None else texto_total.bounds)
+            grupo = so.unary_union([p for p, _ in piezas_decoracion]) if len(piezas_decoracion) > 1 else piezas_decoracion[0][0]
+            grupo_posicionado = _posicionar_decoracion(grupo, decoracion_lado, ref_minx, ref_miny, ref_maxx, ref_maxy)
+            dx = grupo_posicionado.bounds[0] - grupo.bounds[0]
+            dy = grupo_posicionado.bounds[1] - grupo.bounds[1]
+            piezas_decoracion = [(saf.translate(p, xoff=dx, yoff=dy), c) for p, c in piezas_decoracion]
+            sobre_marco_por_pieza = [decoracion_sobre_marco] * len(piezas_decoracion)
 
         for i, (p, color_hex) in enumerate(piezas_decoracion[:MAX_COLORES_DECORACION_MULTICOLOR]):
-            p = saf.translate(p, xoff=dx, yoff=dy)
             if aro is not None:
-                if decoracion_sobre_marco:
+                if sobre_marco_por_pieza[i]:
                     aro = aro.difference(p)
                 else:
                     p = p.difference(aro)
@@ -1247,6 +1289,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
                    decoracion_imagen_invertir=False,
                    decoracion_multicolor_imagen=None, decoracion_multicolor_indices=None,
                    decoracion_multicolor_deteccion=COLORES_DETECCION_MULTICOLOR,
+                   decoraciones=None,
                    decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                    decoracion_sobre_marco=False,
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
@@ -1280,6 +1323,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         decoracion_multicolor_imagen=decoracion_multicolor_imagen,
         decoracion_multicolor_indices=decoracion_multicolor_indices,
         decoracion_multicolor_deteccion=decoracion_multicolor_deteccion,
+        decoraciones=decoraciones,
         decoracion_tam_mm=decoracion_tam_mm, decoracion_lado=decoracion_lado,
         decoracion_sobre_marco=decoracion_sobre_marco,
         espaciado_relativo=espaciado_relativo, separacion_lineas_mm=separacion_lineas_mm,
