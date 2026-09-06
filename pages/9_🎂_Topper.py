@@ -39,6 +39,7 @@ PRESET_KEYS = [
     "tp_plano_margen_marco", "tp_plano_grosor_marco", "tp_plano_texto_sobre_marco",
     "tp_plano_decoracion_lado", "tp_plano_decoracion_tam", "tp_plano_color_decoracion",
     "tp_plano_decoracion_sobre_marco",
+    "tp_plano_decoracion_offset_x", "tp_plano_decoracion_offset_y",
     "tp_plano_color_conectores",
     "tp_plano_base", "tp_plano_base_ancho_extra", "tp_plano_base_alto", "tp_plano_color_base",
     "tp_plano_marco_imagen_umbral", "tp_plano_marco_imagen_invertir",
@@ -395,6 +396,22 @@ with col_form:
             "Tamaño (mm)", 8.0, 150.0, 25.0, step=1.0, key="tp_plano_decoracion_tam",
             disabled=not hay_decoracion or origen_decoracion_plano == "Múltiples decoraciones",
         )
+        _offset_dec_max = float(max(50.0, round(tamaño_mm * 1.0)))
+        col_d3, col_d4 = st.columns(2)
+        decoracion_offset_x_plano = col_d3.slider(
+            "Correr horizontal (mm)", -_offset_dec_max, _offset_dec_max, 0.0, step=1.0,
+            key="tp_plano_decoracion_offset_x",
+            disabled=not hay_decoracion or origen_decoracion_plano == "Múltiples decoraciones",
+            help="Ajusta fino la posición que ya da 'Lado', sin cambiarlo -- positivo hacia la "
+                 "derecha. Útil para acercar una decoración separada hasta que toque el texto "
+                 "sin tener que agrandarla.",
+        )
+        decoracion_offset_y_plano = col_d4.slider(
+            "Correr vertical (mm)", -_offset_dec_max, _offset_dec_max, 0.0, step=1.0,
+            key="tp_plano_decoracion_offset_y",
+            disabled=not hay_decoracion or origen_decoracion_plano == "Múltiples decoraciones",
+            help="Ídem, positivo hacia arriba.",
+        )
         decoracion_sobre_marco_plano = st.checkbox(
             "Decoración sobre el marco", value=False,
             disabled=not hay_decoracion or marco_plano == "Ninguno",
@@ -524,6 +541,7 @@ with col_preview:
                 decoraciones=decoraciones_multi if origen_decoracion_plano == "Múltiples decoraciones" else None,
                 decoracion_tam_mm=decoracion_tam_plano,
                 decoracion_lado=decoracion_lado_plano, decoracion_sobre_marco=decoracion_sobre_marco_plano,
+                decoracion_offset_x_mm=decoracion_offset_x_plano, decoracion_offset_y_mm=decoracion_offset_y_plano,
                 color_texto=colores.hex_de(color_texto_plano), color_borde=colores.hex_de(color_borde_plano),
                 color_marco=colores.hex_de(color_marco_plano), color_palo=colores.hex_de(color_palo_plano),
                 color_decoracion=colores.hex_de(_colores_decoracion_final[0]),
@@ -662,6 +680,8 @@ with col_preview:
                             decoracion_tam_mm=decoracion_tam_plano,
                             decoracion_lado=decoracion_lado_plano,
                             decoracion_sobre_marco=decoracion_sobre_marco_plano,
+                            decoracion_offset_x_mm=decoracion_offset_x_plano,
+                            decoracion_offset_y_mm=decoracion_offset_y_plano,
                             margen_marco_mm=margen_marco_plano,
                             grosor_marco_mm=grosor_marco_plano,
                             separacion_lineas_mm=separacion_lineas_plano,

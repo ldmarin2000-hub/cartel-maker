@@ -1010,6 +1010,7 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                            decoraciones=None,
                            decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                            decoracion_sobre_marco=False,
+                           decoracion_offset_x_mm=0.0, decoracion_offset_y_mm=0.0,
                            espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
                            offset_vertical_mm=0.0, grosor_marco_mm=3.0,
                            margen_marco_mm=6.0, borde_texto_mm=0.0,
@@ -1040,6 +1041,15 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     texto; `decoracion_sobre_marco` es el mismo criterio que
     `texto_sobre_marco` pero para la decoración -- en False (de
     siempre) el marco tapa a la decoración, en True es al revés.
+    `decoracion_offset_x_mm`/`decoracion_offset_y_mm` ajustan fino la
+    posición que ya da `decoracion_lado` -- NO lo reemplazan, se suman
+    al desplazamiento que ya calcula `_posicionar_decoracion` (positivo
+    X = derecha, positivo Y = arriba, mismo criterio que
+    `offset_vertical_mm`). En (0, 0) -- el default -- el resultado es
+    idéntico a no tener estos parámetros. Solo aplica a la decoración
+    "simple" (`decoracion_svg`/`decoracion_imagen`/
+    `decoracion_multicolor_imagen`); el modo `decoraciones` (varias
+    independientes) no los usa.
 
     `decoraciones`: alternativa a `decoracion_svg`/`decoracion_imagen`/
     `decoracion_multicolor_imagen` para varios dibujos INDEPENDIENTES a
@@ -1201,8 +1211,8 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
             ref_minx, ref_miny, ref_maxx, ref_maxy = (aro.bounds if aro is not None else texto_total.bounds)
             grupo = so.unary_union([p for p, _ in piezas_decoracion]) if len(piezas_decoracion) > 1 else piezas_decoracion[0][0]
             grupo_posicionado = _posicionar_decoracion(grupo, decoracion_lado, ref_minx, ref_miny, ref_maxx, ref_maxy)
-            dx = grupo_posicionado.bounds[0] - grupo.bounds[0]
-            dy = grupo_posicionado.bounds[1] - grupo.bounds[1]
+            dx = grupo_posicionado.bounds[0] - grupo.bounds[0] + decoracion_offset_x_mm
+            dy = grupo_posicionado.bounds[1] - grupo.bounds[1] + decoracion_offset_y_mm
             piezas_decoracion = [(saf.translate(p, xoff=dx, yoff=dy), c) for p, c in piezas_decoracion]
             sobre_marco_por_pieza = [decoracion_sobre_marco] * len(piezas_decoracion)
 
@@ -1313,6 +1323,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
                    decoraciones=None,
                    decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                    decoracion_sobre_marco=False,
+                   decoracion_offset_x_mm=0.0, decoracion_offset_y_mm=0.0,
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
                    grosor_marco_mm=3.0, margen_marco_mm=6.0, borde_texto_mm=0.0,
                    ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
@@ -1347,6 +1358,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         decoraciones=decoraciones,
         decoracion_tam_mm=decoracion_tam_mm, decoracion_lado=decoracion_lado,
         decoracion_sobre_marco=decoracion_sobre_marco,
+        decoracion_offset_x_mm=decoracion_offset_x_mm, decoracion_offset_y_mm=decoracion_offset_y_mm,
         espaciado_relativo=espaciado_relativo, separacion_lineas_mm=separacion_lineas_mm,
         offset_vertical_mm=offset_vertical_mm, grosor_marco_mm=grosor_marco_mm,
         margen_marco_mm=margen_marco_mm, borde_texto_mm=borde_texto_mm,
