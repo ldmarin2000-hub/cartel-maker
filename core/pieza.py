@@ -46,20 +46,31 @@ def exportar_multicolor(piezas, ruta_stl):
     return malla
 
 
-def exportar_multicolor_3mf(piezas, ruta_3mf, colores_hex=None):
+def exportar_multicolor_3mf(piezas, ruta_3mf, colores_hex=None, nombres_colores=None):
     """`piezas`: lista de trimesh.Trimesh ya en su posición real
     ensamblada, cada una de un color/pieza distinta (mismo contrato que
     exportar_multicolor). Exporta un .3mf con la malla ya PINTADA por
-    triángulo según la pieza de origen (core/exportar_3mf.py) — abre
-    directo en Bambu Studio con los colores puestos, sin que el usuario
-    tenga que dividir el objeto (lo que resultó frágil con el STL
-    combinado: a veces Bambu Studio ni lo dividía bien).
+    triángulo según el COLOR ÚNICO de la pieza de origen
+    (core/exportar_3mf.py -- piezas que comparten color quedan en el
+    mismo slot/extrusor) — abre directo en Bambu Studio con los colores
+    puestos, sin que el usuario tenga que dividir el objeto (lo que
+    resultó frágil con el STL combinado: a veces Bambu Studio ni lo
+    dividía bien).
 
     `colores_hex`: opcional, un "#RRGGBB" por pieza (mismo orden que
-    `piezas`) -- sin esto, Bambu Studio muestra cada slot con el color
-    que ya tuviera configurado el proyecto, no necesariamente el que se
-    buscaba. Devuelve la cantidad de triángulos escritos."""
-    return exportar_3mf.exportar_pintado(piezas, ruta_3mf, colores_hex=colores_hex)
+    `piezas`, puede repetirse) -- sin esto, Bambu Studio muestra cada
+    slot con el color que ya tuviera configurado el proyecto, no
+    necesariamente el que se buscaba. `nombres_colores`: opcional,
+    nombre legible por pieza (mismo orden) para el aviso de límite de
+    colores, en vez de mostrar hex crudo.
+
+    Devuelve el dict de `exportar_pintado`:
+    `{"triangulos", "colores_unicos", "aviso"}` -- `aviso` es el
+    mensaje de límite de AMS lite (4 filamentos) si el diseño usa más
+    colores únicos que eso, o `None` si entra bien; el archivo se
+    genera igual en ambos casos."""
+    return exportar_3mf.exportar_pintado(
+        piezas, ruta_3mf, colores_hex=colores_hex, nombres_colores=nombres_colores)
 
 
 def exportar_piezas_sueltas(piezas_con_nombre, carpeta_salida, prefijo):

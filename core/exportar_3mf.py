@@ -88,7 +88,7 @@ _RELS = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 _MODEL_HEADER = """<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">
  <metadata name="Application">BambuStudio-01.09.05.51</metadata>
  <metadata name="BambuStudio:3mfVersion">1</metadata>
  <resources>
@@ -130,45 +130,116 @@ def _paint_color_code(numero_extruder):
     return f"{resto:X}{relleno}C"
 
 
-def _project_config_json(colores_hex):
+def _normalizar_hex(hex_color):
+    """"#C9A94F", "c9a94f", " #C9A94F " -> todos "#c9a94f" -- así dos
+    regiones que llegan con el mismo color pero distinta may/minúscula
+    (o sin el "#") no cuentan como colores distintos al deduplicar."""
+    h = hex_color.strip().lower()
+    if not h.startswith("#"):
+        h = "#" + h
+    return h
+
+
+def _project_config_json(colores_hex_unicos):
     """`Metadata/project_settings.config` mínimo (mismo formato JSON
     plano que escribe ConfigBase::save_to_json) -- alcanza con
-    `filament_colour`/`filament_type`, un valor por extruder/slot, en
-    el mismo orden que las `piezas` de `exportar_pintado` (slot 1 =
-    piezas[0], etc.). Sin esto el color de cada slot queda librado a lo
-    que ya tuviera configurado el proyecto donde se abra el archivo."""
-    n = len(colores_hex)
+    `filament_colour`/`filament_type`, UN valor por extrusor/slot REAL
+    (ya deduplicado -- ver `exportar_pintado`), en el mismo orden que
+    `indice_por_color` le asignó a cada uno (slot 1 = primer color
+    único visto, etc.). Sin esto el color de cada slot queda librado a
+    lo que ya tuviera configurado el proyecto donde se abra el
+    archivo. Declarar más slots que colores únicos reales es lo que
+    hacía que la A1 (AMS lite, 4 filamentos) rechazara el archivo con
+    "configuración no válida" ante un diseño de pocos colores repetidos
+    en muchas regiones."""
+    n = len(colores_hex_unicos)
     return json.dumps({
         "version": "01.09.05.51",
         "name": "project_settings",
         "from": "project",
-        "filament_colour": list(colores_hex),
+        "filament_colour": list(colores_hex_unicos),
         "filament_type": ["PLA"] * n,
         "filament_settings_id": [""] * n,
     }, ensure_ascii=False, indent=1)
 
 
-def exportar_pintado(piezas, ruta_3mf, colores_hex=None):
+LIMITE_FILAMENTOS_A1_AMS_LITE = 4
+
+
+def _aviso_limite_colores(etiquetas):
+    """Aviso para la UI si `etiquetas` (nombres o hex, uno por color
+    ÚNICO) supera lo que soporta un AMS lite de 4 filamentos -- el
+    archivo se genera igual (no se recorta nada acá), es solo
+    informativo. None si entra sin problema."""
+    n = len(etiquetas)
+    if n <= LIMITE_FILAMENTOS_A1_AMS_LITE:
+        return None
+    return (
+        f"Este diseño usa {n} colores ({', '.join(etiquetas)}). "
+        f"La A1 con AMS lite soporta {LIMITE_FILAMENTOS_A1_AMS_LITE}. "
+        "Unificá regiones al mismo color hasta llegar a "
+        f"{LIMITE_FILAMENTOS_A1_AMS_LITE} o menos."
+    )
+
+
+def exportar_pintado(piezas, ruta_3mf, colores_hex=None, nombres_colores=None):
     """`piezas`: lista de trimesh.Trimesh ya en su posición real
-    ensamblada, cada una de un color/extruder distinto (mismo contrato
-    que core/pieza.py::exportar_multicolor). Escribe un único .3mf con
-    UNA sola malla combinada, cada triángulo pintado según de qué pieza
-    vino (`_paint_color_code`) — así Bambu Studio lo abre con los
-    colores ya puestos, sin dividir nada.
+    ensamblada (mismo contrato que core/pieza.py::exportar_multicolor).
+    Escribe un único .3mf con UNA sola malla combinada, cada triángulo
+    pintado según a qué COLOR ÚNICO pertenece su pieza de origen
+    (`_paint_color_code`) — así Bambu Studio lo abre con los colores ya
+    puestos, sin dividir nada.
 
     `colores_hex`: opcional, un "#RRGGBB" por pieza (mismo orden y
-    misma cantidad que `piezas`) -- si se pasa, se agrega
-    `Metadata/project_settings.config` con esos colores
-    (`_project_config_json`) para que cada slot muestre el color
-    elegido de verdad, en vez de heredar el que ya tuviera configurado
-    el proyecto donde se abra el archivo.
+    misma cantidad que `piezas` -- puede repetirse: varias piezas/
+    regiones distintas con el mismo color real). Antes de armar nada,
+    se normaliza cada hex (minúscula, con "#") y se deduplica -- dos
+    regiones "Dorado"/"#C9A94F" y "#c9a94f" cuentan como UN solo color,
+    y todas las piezas que compartan color quedan pintadas con el MISMO
+    índice de extrusor (`indice_por_color`). Esto es lo que evita
+    declarar más filamentos que colores reales en
+    `Metadata/project_settings.config` (la causa de que la A1 con AMS
+    lite -- 4 filamentos -- rechazara como "configuración no válida"
+    un diseño con, por ejemplo, 8 regiones pero solo 5 colores reales
+    repetidos entre ellas). Sin `colores_hex` (llavero/letras, que no
+    pasan colores a esta función) no hay forma de saber qué piezas
+    comparten color -- se sigue pintando una por su propio índice, como
+    antes.
 
-    Devuelve la cantidad total de triángulos escritos."""
+    `nombres_colores`: opcional, un nombre legible (`core/colores.py`)
+    por pieza, mismo orden que `colores_hex` -- solo se usa para armar
+    el aviso de límite de filamentos con nombres en vez de hex crudo
+    (ej. "Dorado" en vez de "#c9a94f"); si falta o no calza en longitud,
+    el aviso cae a mostrar el hex.
+
+    Devuelve SIEMPRE un dict `{"triangulos", "colores_unicos", "aviso"}`
+    -- `colores_unicos` es la cantidad de colores reales distintos (o
+    la cantidad de piezas si no se pasó `colores_hex`); `aviso` es el
+    mensaje de límite de AMS lite si superan 4, si no `None`. El
+    archivo se genera igual en cualquier caso -- este dict es solo
+    informativo, no recorta nada."""
+    if colores_hex:
+        colores_hex_norm = [_normalizar_hex(h) for h in colores_hex]
+        colores_unicos_hex = list(dict.fromkeys(colores_hex_norm))
+        indice_por_color = {hex_: i + 1 for i, hex_ in enumerate(colores_unicos_hex)}
+
+        nombre_por_hex = {}
+        if nombres_colores and len(nombres_colores) == len(colores_hex_norm):
+            for hex_, nombre in zip(colores_hex_norm, nombres_colores):
+                nombre_por_hex.setdefault(hex_, nombre)
+        etiquetas = [nombre_por_hex.get(hex_, hex_) for hex_ in colores_unicos_hex]
+    else:
+        colores_hex_norm = None
+        colores_unicos_hex = None
+        indice_por_color = None
+        etiquetas = [f"pieza {i + 1}" for i in range(len(piezas))]
+
     partes_vertices = []
     lineas_triangulos = []
     offset = 0
     for i, malla in enumerate(piezas):
-        paint_color = _paint_color_code(i + 1)
+        indice_extrusor = indice_por_color[colores_hex_norm[i]] if colores_hex_norm else i + 1
+        paint_color = _paint_color_code(indice_extrusor)
         verts = malla.vertices
         partes_vertices.append(verts)
         for f in malla.faces:
@@ -195,7 +266,11 @@ def exportar_pintado(piezas, ruta_3mf, colores_hex=None):
         z.writestr("[Content_Types].xml", _CONTENT_TYPES)
         z.writestr("_rels/.rels", _RELS)
         z.writestr("3D/3dmodel.model", modelo_xml)
-        if colores_hex:
-            z.writestr("Metadata/project_settings.config", _project_config_json(colores_hex))
+        if colores_unicos_hex:
+            z.writestr("Metadata/project_settings.config", _project_config_json(colores_unicos_hex))
 
-    return len(lineas_triangulos)
+    return {
+        "triangulos": len(lineas_triangulos),
+        "colores_unicos": len(colores_unicos_hex) if colores_unicos_hex else len(piezas),
+        "aviso": _aviso_limite_colores(etiquetas),
+    }
