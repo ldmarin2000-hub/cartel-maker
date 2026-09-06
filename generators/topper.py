@@ -904,18 +904,44 @@ MAX_COLORES_DECORACION_MULTICOLOR = 4  # cuántos colores como máximo se pueden
 COLORES_DETECCION_MULTICOLOR = 12  # cuántos se cuantizan puertas adentro para elegir entre ellos (ver core/imagen_import.py)
 
 
+def _es_svg(ruta):
+    """True si `ruta` es un archivo .svg (por extensión) -- usado para
+    elegir el motor de separación por color: `core.svg_import` (colores
+    ya declarados en el archivo) para SVG, `core.imagen_import`
+    (cuantización de píxeles) para todo lo demás (PNG/JPG)."""
+    return ruta.lower().endswith(".svg")
+
+
+def _colores_desde_archivo(ruta, colores_deteccion=COLORES_DETECCION_MULTICOLOR):
+    """Separa `ruta` (SVG o imagen rasterizada) en regiones por color --
+    delega en `core.svg_import.svg_a_poligonos_por_color` o
+    `core.imagen_import.imagen_a_poligonos_por_color` según la
+    extensión (ver `_es_svg`); `colores_deteccion` (cuántos colores
+    cuantizar puertas adentro) no aplica al SVG, que usa los colores ya
+    declarados en el archivo -- se ignora en ese caso. Mismo contrato de
+    salida en los dos casos: lista de (polígono, "#rrggbb"), sin
+    centrar ni escalar, ordenada de mayor a menor área."""
+    if _es_svg(ruta):
+        svg_import = _svg_import()
+        return svg_import.svg_a_poligonos_por_color(ruta)
+    imagen_import = _imagen_import()
+    return imagen_import.imagen_a_poligonos_por_color(ruta, colores_deteccion=colores_deteccion)
+
+
 def _decoraciones_multicolor_desde_imagen(ruta_imagen, tam_mm, indices_seleccionados=None,
                                            colores_deteccion=COLORES_DETECCION_MULTICOLOR):
-    """Como `_decoracion_desde_imagen`, pero separando la imagen en
-    varias regiones por color real detectado (core/imagen_import.py::
-    imagen_a_poligonos_por_color) en vez de una silueta de un solo
-    color. `indices_seleccionados`: lista de índices (sobre el orden
-    detectado, mayor a menor área) de CUÁLES colores usar -- hasta
-    `MAX_COLORES_DECORACION_MULTICOLOR` -- así el que llama (la UI) elige
-    a mano cuáles de los colores detectados son los reales y cuáles son
-    ruido de antialiasing, en vez de que la función adivine "los N más
-    grandes". None = tomar los primeros `MAX_COLORES_DECORACION_MULTICOLOR`
-    tal cual vienen (uso directo sin pasar por la UI).
+    """Como `_decoracion_desde_imagen`, pero separando la imagen (o SVG,
+    ver `_colores_desde_archivo`) en varias regiones por color real en
+    vez de una silueta de un solo color. `indices_seleccionados`: lista
+    de índices (sobre el orden detectado, mayor a menor área) de
+    CUÁLES colores usar -- hasta `MAX_COLORES_DECORACION_MULTICOLOR` --
+    así el que llama (la UI) elige a mano cuáles de los detectados son
+    los reales y cuáles son ruido (de antialiasing en una imagen; en un
+    SVG normalmente no hay ruido, pero igual puede haber un color de
+    fondo o un detalle que no se quiera usar), en vez de que la función
+    adivine "los N más grandes". None = tomar los primeros
+    `MAX_COLORES_DECORACION_MULTICOLOR` tal cual vienen (uso directo sin
+    pasar por la UI).
 
     Las escala y centra TODAS JUNTAS con el mismo factor/origen (no cada
     una por separado) para que conserven su posición relativa y sigan
@@ -923,11 +949,10 @@ def _decoraciones_multicolor_desde_imagen(ruta_imagen, tam_mm, indices_seleccion
     sobre las piezas YA FILTRADAS por `indices_seleccionados`, así un
     color descartado tampoco descuadra el tamaño/centro del resto.
     Devuelve una lista de (polígono, "#rrggbb" detectado)."""
-    imagen_import = _imagen_import()
     saf = _affinity()
     so = _shapely()[1]
 
-    crudos = imagen_import.imagen_a_poligonos_por_color(ruta_imagen, colores_deteccion=colores_deteccion)
+    crudos = _colores_desde_archivo(ruta_imagen, colores_deteccion=colores_deteccion)
     if not crudos:
         raise ValueError(f"no se pudo sacar ninguna forma con área de la imagen: {ruta_imagen}")
 
@@ -955,17 +980,16 @@ def _decoraciones_multicolor_desde_imagen(ruta_imagen, tam_mm, indices_seleccion
 
 
 def detectar_colores_imagen(ruta_imagen, colores_deteccion=COLORES_DETECCION_MULTICOLOR):
-    """Para la UI: detecta los colores dominantes de una imagen (mismo
-    motor que `_decoraciones_multicolor_desde_imagen`, sin armar la
-    geometría 3D completa) -- devuelve una lista de ("#rrggbb", fracción_de_área)
-    ordenada de mayor a menor área, para que el usuario elija a mano
-    cuáles de los detectados son colores reales (y les asigne un
-    filamento real) y cuáles son ruido de antialiasing a ignorar. Lista
-    vacía si no se pudo sacar nada (imagen inválida, etc. -- no debe
-    romper la página)."""
+    """Para la UI: detecta los colores dominantes de una imagen o SVG
+    (mismo motor que `_decoraciones_multicolor_desde_imagen`, ver
+    `_colores_desde_archivo`, sin armar la geometría 3D completa) --
+    devuelve una lista de ("#rrggbb", fracción_de_área) ordenada de
+    mayor a menor área, para que el usuario elija a mano cuáles de los
+    detectados son colores reales (y les asigne un filamento real) y
+    cuáles no usar. Lista vacía si no se pudo sacar nada (archivo
+    inválido, etc. -- no debe romper la página)."""
     try:
-        imagen_import = _imagen_import()
-        candidatos = imagen_import.imagen_a_poligonos_por_color(ruta_imagen, colores_deteccion=colores_deteccion)
+        candidatos = _colores_desde_archivo(ruta_imagen, colores_deteccion=colores_deteccion)
         area_total = sum(p.area for p, _ in candidatos) or 1.0
         return [(color_hex, p.area / area_total) for p, color_hex in candidatos]
     except Exception:

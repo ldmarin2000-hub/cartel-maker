@@ -20,9 +20,9 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 from shapely.geometry import Polygon
-from shapely.ops import unary_union
 from skimage import measure
 
+from core.colores import fusionar_colores_cercanos
 from core.poligonos import combinar_con_huecos
 
 TAMANO_TRABAJO_PX = 500  # se reescala a esto (lado mayor) antes de vectorizar
@@ -30,7 +30,6 @@ AREA_MINIMA_PX = 4  # contornos más chicos que esto se descartan como ruido (an
 COLORES_DETECCION_DEFAULT = 12  # cuántos colores se cuantizan puertas adentro (más que los 4 que se van a usar)
 AREA_MINIMA_FRACCION = 0.003  # candidatos con menos de esta fracción del área total se descartan (motitas de antialiasing)
 TOLERANCIA_FONDO = 24  # distancia RGB para considerar un píxel del borde "del color de fondo"
-TOLERANCIA_FUSION_COLOR = 40  # distancia RGB para fusionar dos colores detectados que en la práctica son el mismo
 
 
 def _detectar_fondo_solido(arr_rgb, tolerancia=TOLERANCIA_FONDO):
@@ -55,34 +54,6 @@ def _detectar_fondo_solido(arr_rgb, tolerancia=TOLERANCIA_FONDO):
     if not etiquetas_borde:
         return np.zeros(arr_rgb.shape[:2], dtype=bool)
     return np.isin(etiquetas, list(etiquetas_borde))
-
-
-def _fusionar_colores_cercanos(candidatos, tolerancia=TOLERANCIA_FUSION_COLOR):
-    """`candidatos`: lista de (area_px, polígono, "#rrggbb"). Antialiasing
-    o compresión JPG/PNG a veces hacen que un mismo color visual (ej. el
-    blanco de un escudo) caiga en dos baldes de cuantización casi
-    iguales ("#fefefe" y "#ffffff") en vez de uno -- se fusionan los que
-    estén a menos de `tolerancia` de distancia RGB entre sí, sumando su
-    área y uniendo su geometría, y quedándose con el color del más
-    grande del grupo. Devuelve la lista ya fusionada, ordenada de mayor
-    a menor área."""
-    grupos = []
-    for area_px, poligono, color_hex in candidatos:
-        rgb = tuple(int(color_hex[i:i + 2], 16) for i in (1, 3, 5))
-        grupo_encontrado = None
-        for grupo in grupos:
-            dist = sum((a - b) ** 2 for a, b in zip(rgb, grupo["rgb"])) ** 0.5
-            if dist < tolerancia:
-                grupo_encontrado = grupo
-                break
-        if grupo_encontrado is not None:
-            grupo_encontrado["area_px"] += area_px
-            grupo_encontrado["poligono"] = unary_union([grupo_encontrado["poligono"], poligono])
-        else:
-            grupos.append({"area_px": area_px, "poligono": poligono, "color_hex": color_hex, "rgb": rgb})
-
-    grupos.sort(key=lambda g: g["area_px"], reverse=True)
-    return [(g["area_px"], g["poligono"], g["color_hex"]) for g in grupos]
 
 
 def _mascara_desde_imagen(ruta_imagen, umbral, invertir):
@@ -180,7 +151,9 @@ def imagen_a_poligonos_por_color(ruta_imagen, colores_deteccion=COLORES_DETECCIO
     posición relativa entre colores). Descarta candidatos con menos de
     `AREA_MINIMA_FRACCION` del área total (motitas de antialiasing que
     quedaron como su propio balde de color), y fusiona los que salgan
-    con un color casi idéntico entre sí (`_fusionar_colores_cercanos`).
+    con un color casi idéntico entre sí (`core.colores.fusionar_colores_cercanos`,
+    misma función que usa `core/svg_import.py` para el equivalente
+    vectorial de esta separación por color).
 
     Devuelve una lista de (polígono, "#rrggbb") ordenada de mayor a
     menor área, o lista vacía si no se pudo sacar nada."""
@@ -219,5 +192,5 @@ def imagen_a_poligonos_por_color(ruta_imagen, colores_deteccion=COLORES_DETECCIO
         r, g, b = paleta[idx * 3], paleta[idx * 3 + 1], paleta[idx * 3 + 2]
         candidatos.append((area_px, poligono, f"#{r:02x}{g:02x}{b:02x}"))
 
-    candidatos = _fusionar_colores_cercanos(candidatos)
+    candidatos = fusionar_colores_cercanos(candidatos)
     return [(poligono, color_hex) for _, poligono, color_hex in candidatos]

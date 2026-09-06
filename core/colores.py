@@ -13,6 +13,8 @@ los generadores la usa como referencia de color en el visor 3D
 se parezca a lo que vas a imprimir.
 """
 
+TOLERANCIA_FUSION_COLOR = 40  # distancia RGB para fusionar dos colores detectados que en la práctica son el mismo
+
 PALETA = [
     ("Blanco", "#F4F4F2"),
     ("Negro", "#1A1A1A"),
@@ -78,3 +80,44 @@ def nombre_mas_cercano(hex_color):
         if dist < mejor_dist:
             mejor_nombre, mejor_dist = nombre, dist
     return mejor_nombre
+
+
+def fusionar_colores_cercanos(candidatos, tolerancia=TOLERANCIA_FUSION_COLOR):
+    """`candidatos`: lista de (area, polígono, "#rrggbb") -- el área en
+    cualquier unidad consistente entre sí (píxeles para una imagen,
+    unidades del SVG para un vector), no hace falta que sea real. Dos
+    fuentes de color detectado automáticamente (cuantizar una imagen
+    por píxel, o leer el `fill` de las formas de un SVG) pueden dar
+    colores que en la práctica son "el mismo" pero no coinciden exacto
+    -- antialiasing/compresión en una imagen ("#fefefe" vs "#ffffff"),
+    o simplemente dos objetos con el mismo color nominal pero un
+    redondeo distinto en el archivo original. Se fusionan los que estén
+    a menos de `tolerancia` de distancia RGB entre sí, sumando su área
+    y uniendo su geometría, y quedándose con el color del más grande
+    del grupo. Devuelve la lista ya fusionada, ordenada de mayor a
+    menor área.
+
+    Importa shapely recién acá adentro (no al nivel del módulo) --
+    core/colores.py lo usan casi todas las páginas solo para nombres/hex
+    de la paleta, sin necesitar geometría; si shapely llegara a romperse
+    en el entorno (pasó una vez en Streamlit Cloud), no hace falta que
+    se caigan esas páginas por una función que ni siquiera llaman."""
+    from shapely.ops import unary_union
+
+    grupos = []
+    for area, poligono, color_hex in candidatos:
+        rgb = _rgb(color_hex)
+        grupo_encontrado = None
+        for grupo in grupos:
+            dist = sum((a - b) ** 2 for a, b in zip(rgb, grupo["rgb"])) ** 0.5
+            if dist < tolerancia:
+                grupo_encontrado = grupo
+                break
+        if grupo_encontrado is not None:
+            grupo_encontrado["area"] += area
+            grupo_encontrado["poligono"] = unary_union([grupo_encontrado["poligono"], poligono])
+        else:
+            grupos.append({"area": area, "poligono": poligono, "color_hex": color_hex, "rgb": rgb})
+
+    grupos.sort(key=lambda g: g["area"], reverse=True)
+    return [(g["area"], g["poligono"], g["color_hex"]) for g in grupos]

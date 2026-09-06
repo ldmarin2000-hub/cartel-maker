@@ -267,11 +267,13 @@ with col_form:
 
         elif origen_decoracion_plano == "Imagen multicolor":
             decoracion_multicolor_subida = st.file_uploader(
-                "Imagen (PNG/JPG) a separar por color", type=["png", "jpg", "jpeg"],
+                "Imagen (PNG/JPG) o SVG a separar por color", type=["png", "jpg", "jpeg", "svg"],
                 key="tp_plano_decoracion_multicolor_imagen",
                 help="Un logo/escudo con colores bien definidos (no una foto ni degradados) -- "
                      "cada color que elijas abajo sale como su propia región, para pintarla con "
-                     "el filamento real que corresponda."
+                     "el filamento real que corresponda. Si tenés el archivo en SVG (vectorial) "
+                     "usá ese en vez del PNG/JPG: los colores ya vienen declarados en el archivo, "
+                     "en vez de tener que adivinarlos analizando píxeles."
             )
             if decoracion_multicolor_subida is not None:
                 os.makedirs("output", exist_ok=True)
