@@ -165,9 +165,15 @@ with col_form:
                      "crucen. Tildado: al revés, el texto queda encima y le hace un hueco al marco."
             )
             espesor_plano = st.slider("Espesor (mm)", 1.5, 6.0, 3.0, step=0.5, key="tp_plano_espesor")
+            _n_lineas_activas = sum(1 for l in lineas_plano if l.strip()) or 1
+            _alto_linea_base_estimado = tamaño_mm / _n_lineas_activas
+            _min_separacion_lineas = float(-round(_alto_linea_base_estimado * 0.6))
             separacion_lineas_plano = st.slider(
-                "Separación entre líneas (mm)", 0.0, 30.0, 10.0, step=1.0, key="tp_plano_separacion",
-                help="Espacio entre los renglones cuando hay 2 o 3 líneas de texto."
+                "Separación entre líneas (mm)", _min_separacion_lineas, 30.0, 10.0, step=1.0, key="tp_plano_separacion",
+                help="Espacio entre los renglones cuando hay 2 o 3 líneas de texto. Negativo: "
+                     "las líneas se acercan/superponen a propósito, sin agrandar las letras -- "
+                     "se tocan y se sueldan solas (menos o ningún puente), pero el bloque de "
+                     "texto completo queda más bajo que el tamaño elegido."
             )
         with col_b:
             con_palo_plano = st.checkbox("Palo para clavar en la torta", value=True, key="tp_plano_palo")
@@ -728,6 +734,8 @@ with col_preview:
                                     "(\"configuración no válida\") y termina con los colores del proyecto "
                                     "actual en vez de los elegidos acá. Si te pasa eso, usá el STL de arriba."
                                 )
+                                if resultado.get("aviso_colores_3mf"):
+                                    st.warning(resultado["aviso_colores_3mf"])
                                 with open(resultado["ruta_3mf_multicolor"], "rb") as f:
                                     st.download_button(
                                         "📥 Descargar 3MF multicolor (experimental)",

@@ -1083,7 +1083,16 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         raise ValueError("Escribí al menos una línea de texto")
 
     n = len(lineas_validas)
-    alto_linea_mm = (tamaño_mm - (n - 1) * separacion_lineas_mm) / n
+    # El alto de línea se calcula con la separación "sin superposición"
+    # (nunca menos que 0) -- así una separación NEGATIVA (líneas que se
+    # acercan/superponen a propósito, para tocarse y soldarse solas sin
+    # necesitar tantos puentes) mueve las líneas más cerca sin agrandar
+    # las letras. El alto total real del bloque (envolvente de la
+    # primera a la última línea) sí se achica en ese caso -- es el
+    # efecto esperado de acercar líneas del mismo tamaño, ya no se
+    # fuerza a que quede pegado a `tamaño_mm` como con separación >= 0.
+    separacion_para_alto = max(separacion_lineas_mm, 0.0)
+    alto_linea_mm = (tamaño_mm - (n - 1) * separacion_para_alto) / n
     if alto_linea_mm < 5:
         raise ValueError("el tamaño es muy chico para esa separación entre líneas -- subí el tamaño o bajá la separación")
 
@@ -1098,6 +1107,8 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         cx_linea = (minx + maxx) / 2
         poli = saf.translate(poli, xoff=-cx_linea, yoff=y_cursor - miny)
         piezas_texto.append(poli)
+        # acá SÍ se usa la separación real (puede ser negativa) -- es lo
+        # único que corre las líneas más cerca/superpuestas.
         y_cursor -= (alto_linea_mm + separacion_lineas_mm)
 
     if not piezas_texto:
@@ -1375,10 +1386,16 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
 
     ruta_3mf_multicolor = None
     ruta_stl_multicolor = None
+    colores_unicos_3mf = None
+    aviso_colores_3mf = None
     if tiene_ams:
         colores_hex = [colores.hex_de(colores_por_region[clave]) for clave in claves_presentes]
+        nombres_colores = [colores_por_region[clave] for clave in claves_presentes]
         ruta_3mf_multicolor = os.path.join(CARPETA_SALIDA, f"topper_plano_{base_nombre}_{marco_slug}_multicolor.3mf")
-        pieza.exportar_multicolor_3mf(mallas_presentes, ruta_3mf_multicolor, colores_hex=colores_hex)
+        info_3mf = pieza.exportar_multicolor_3mf(
+            mallas_presentes, ruta_3mf_multicolor, colores_hex=colores_hex, nombres_colores=nombres_colores)
+        colores_unicos_3mf = info_3mf["colores_unicos"]
+        aviso_colores_3mf = info_3mf["aviso"]
         ruta_stl_multicolor = os.path.join(CARPETA_SALIDA, f"topper_plano_{base_nombre}_{marco_slug}_multicolor.stl")
         pieza.exportar_multicolor(mallas_presentes, ruta_stl_multicolor)
 
@@ -1393,6 +1410,8 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         "piezas_color": piezas_color,
         "ruta_3mf_multicolor": ruta_3mf_multicolor,
         "ruta_stl_multicolor": ruta_stl_multicolor,
+        "colores_unicos_3mf": colores_unicos_3mf,
+        "aviso_colores_3mf": aviso_colores_3mf,
         "colores": {
             "texto": color_texto, "borde": color_borde, "marco": color_marco, "palo": color_palo,
             "decoracion": color_decoracion, "conectores": color_conectores, "base": color_base,
