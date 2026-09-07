@@ -1035,20 +1035,39 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                            decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                            decoracion_sobre_marco=False,
                            decoracion_offset_x_mm=0.0, decoracion_offset_y_mm=0.0,
+                           multiplicadores_linea=None, ancho_texto_factor=1.0,
                            espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
                            offset_vertical_mm=0.0, grosor_marco_mm=3.0,
                            margen_marco_mm=6.0, borde_texto_mm=0.0,
                            ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
                            ancho_palo_mm=6.0, con_base=False, ancho_base_extra_mm=10.0,
                            alto_base_mm=6.0, raster_px=400):
-    """Arma las 5 regiones del topper plano -- texto / borde del texto /
-    marco / palo / decoración -- YA SIN superponerse entre sí, pensadas
-    para pintar o imprimir cada una de un color distinto (AMS).
+    """Arma las regiones del topper plano -- texto (hasta 3 líneas, cada
+    una su propia región) / borde del texto / marco / palo / decoración
+    -- YA SIN superponerse entre sí, pensadas para pintar o imprimir
+    cada una de un color distinto (AMS).
     `borde_texto_mm=0` desactiva el borde (queda en None); sin
     `decoracion_svg` no hay decoración (queda en None). 1 a 3 líneas de
     texto real (con huecos, "espaciado_relativo" negativo para que las
     letras de fuentes script queden más juntas), separadas entre sí por
-    `separacion_lineas_mm`; `offset_vertical_mm` corre el texto hacia
+    `separacion_lineas_mm`.
+
+    `multiplicadores_linea`: lista de hasta 3 números (uno por línea,
+    en el mismo orden que `lineas`) que agranda/achica ESA línea
+    respecto de las demás -- 1.0 (default si falta) es el tamaño
+    "normal" que le tocaría por `tamaño_mm`/cantidad de líneas, igual
+    que hoy; un valor mayor la agranda MÁS ALLÁ de eso, sin achicar las
+    otras para compensar -- `tamaño_mm` deja de ser un techo duro del
+    bloque completo apenas hay algún multiplicador distinto de 1.0 (ya
+    dejaba de serlo parcialmente con `separacion_lineas_mm` negativa),
+    pasa a ser la referencia de "una línea normal". `ancho_texto_factor`
+    estira (>1.0) o comprime (<1.0) TODO el texto en horizontal por
+    igual (letras más pegadas entre sí y con el renglón de arriba/abajo
+    -- menos puentes) -- se aplica por línea, después de escalar al alto
+    que le toque y antes de recentrarla, así el recentrado de siempre
+    sigue funcionando igual sobre la forma ya estirada.
+
+    `offset_vertical_mm` corre el texto hacia
     arriba/abajo DENTRO del marco, que se arma con el tamaño y centro
     del texto SIN ese corrimiento -- así se puede descentrar el texto a
     propósito sin que el marco lo siga. `texto_sobre_marco` decide quién
@@ -1109,10 +1128,14 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     para que casi no se noten).
 
     Devuelve (regiones, cantidad_de_puentes), con `regiones` un dict
-    {"texto": geom, "borde": geom|None, "marco": geom|None,
-    "palo": geom|None, "decoracion": geom|None, "conectores": geom|None}
-    -- unir todo lo que no
-    sea None da la pieza completa conectada."""
+    {"texto": geom, "texto_2": geom|None, "texto_3": geom|None,
+    "borde": geom|None, "marco": geom|None, "palo": geom|None,
+    "decoracion": geom|None, "conectores": geom|None} -- "texto"/
+    "texto_2"/"texto_3" son SIEMPRE una región por línea presente
+    (nunca se fusionan acá, aunque el que llama vaya a pintarlas todas
+    igual -- ver generar_plano, que las vuelve a fusionar en una sola
+    "texto" si el color termina siendo el mismo en las tres). Unir todo
+    lo que no sea None da la pieza completa conectada."""
     sg, so = _shapely()
     saf = _affinity()
     t2d = _texto2d()
@@ -1136,20 +1159,31 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     if alto_linea_mm < 5:
         raise ValueError("el tamaño es muy chico para esa separación entre líneas -- subí el tamaño o bajá la separación")
 
+    # multiplicador por línea (mismo orden que `lineas_validas`) -- falta
+    # o de más se completa/recorta a 1.0, así una línea sin multiplicador
+    # propio sale del tamaño "normal" de siempre.
+    multiplicadores = (list(multiplicadores_linea or []) + [1.0] * n)[:n]
+
     piezas_texto = []
     y_cursor = 0.0
-    for linea in lineas_validas:
+    for linea, mult in zip(lineas_validas, multiplicadores):
         crudo = t2d.texto_a_poligono_crudo(linea, fuente, raster_px, espaciado_relativo=espaciado_relativo)
         if crudo is None or crudo.is_empty:
             continue
-        poli, _ = t2d.escalar_a_alto(crudo, alto_linea_mm)
+        alto_efectivo = alto_linea_mm * (mult or 1.0)
+        poli, _ = t2d.escalar_a_alto(crudo, alto_efectivo)
+        if ancho_texto_factor != 1.0:
+            poli = saf.scale(poli, xfact=ancho_texto_factor, yfact=1.0, origin=(0, 0))
         minx, miny, maxx, maxy = poli.bounds
         cx_linea = (minx + maxx) / 2
         poli = saf.translate(poli, xoff=-cx_linea, yoff=y_cursor - miny)
         piezas_texto.append(poli)
         # acá SÍ se usa la separación real (puede ser negativa) -- es lo
-        # único que corre las líneas más cerca/superpuestas.
-        y_cursor -= (alto_linea_mm + separacion_lineas_mm)
+        # único que corre las líneas más cerca/superpuestas -- y el alto
+        # EFECTIVO de esta línea (no el "normal" compartido), para que el
+        # espacio hasta la siguiente sea consistente aunque esta haya
+        # salido más grande o más chica que las demás.
+        y_cursor -= (alto_efectivo + separacion_lineas_mm)
 
     if not piezas_texto:
         raise ValueError("no se pudo extraer ninguna línea de texto (probá otra fuente)")
@@ -1171,7 +1205,12 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         aro = _forma_marco(marco, cx, cy, radio, grosor_marco_mm)
 
     if offset_vertical_mm:
-        texto_total = saf.translate(texto_total, yoff=offset_vertical_mm)
+        # se traslada cada línea por separado (no solo la unión) para
+        # que sigan siendo piezas independientes después -- trasladar
+        # todas por igual y volver a unir da exactamente lo mismo que
+        # trasladar la unión entera.
+        piezas_texto = [saf.translate(p, yoff=offset_vertical_mm) for p in piezas_texto]
+        texto_total = so.unary_union(piezas_texto) if len(piezas_texto) > 1 else piezas_texto[0]
 
     borde = None
     if borde_texto_mm > 0:
@@ -1185,8 +1224,12 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
             aro = aro.difference(tapado)
         else:
             # comportamiento de siempre: el marco gana, tapa lo que se
-            # cruce del texto/borde.
-            texto_total = texto_total.difference(aro)
+            # cruce del texto/borde -- (A∪B∪C).difference(aro) ==
+            # A.difference(aro) ∪ B.difference(aro) ∪ C.difference(aro),
+            # así que aplicarlo línea por línea da la misma unión final,
+            # solo que las líneas siguen siendo piezas separadas.
+            piezas_texto = [p.difference(aro) for p in piezas_texto]
+            texto_total = so.unary_union(piezas_texto) if len(piezas_texto) > 1 else piezas_texto[0]
             if borde is not None:
                 borde = borde.difference(aro)
 
@@ -1260,7 +1303,7 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
 
     decoracion, decoracion_2, decoracion_3, decoracion_4 = decoracion_slots
 
-    nombradas_principales = [g for g in (texto_total, borde, aro) if g is not None]
+    nombradas_principales = list(piezas_texto) + [g for g in (borde, aro) if g is not None]
     principal = so.unary_union(nombradas_principales) if len(nombradas_principales) > 1 else nombradas_principales[0]
 
     base = None
@@ -1308,8 +1351,11 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     if not extra.is_empty:
         conectores = extra
 
+    texto_l1, texto_l2, texto_l3 = (list(piezas_texto) + [None, None, None])[:3]
+
     return {
-        "texto": texto_total, "borde": borde, "marco": aro, "base": base, "palo": palo,
+        "texto": texto_l1, "texto_2": texto_l2, "texto_3": texto_l3,
+        "borde": borde, "marco": aro, "base": base, "palo": palo,
         "decoracion": decoracion, "decoracion_2": decoracion_2, "decoracion_3": decoracion_3,
         "decoracion_4": decoracion_4, "conectores": conectores,
     }, n_puentes
@@ -1358,12 +1404,14 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
                    decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                    decoracion_sobre_marco=False,
                    decoracion_offset_x_mm=0.0, decoracion_offset_y_mm=0.0,
+                   multiplicadores_linea=None, ancho_texto_factor=1.0,
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
                    grosor_marco_mm=3.0, margen_marco_mm=6.0, borde_texto_mm=0.0,
                    ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
                    ancho_palo_mm=6.0, con_base=False, ancho_base_extra_mm=10.0, alto_base_mm=6.0,
                    espesor_mm=3.0, raster_px=400,
-                   tiene_ams=False, color_texto="Dorado", color_borde="Blanco",
+                   tiene_ams=False, color_texto="Dorado", color_texto_2="Dorado", color_texto_3="Dorado",
+                   color_borde="Blanco",
                    color_marco="Dorado", color_palo="Dorado", color_decoracion="Dorado",
                    color_decoracion_2="Blanco", color_decoracion_3="Negro", color_decoracion_4="Gris Frío",
                    color_conectores="Transparente/Natural", color_base="Dorado"):
@@ -1375,8 +1423,19 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
     marco/palo/decoración) ya pintada de su color (mismo mecanismo que
     el Llavero, core/pieza.py::exportar_multicolor*) -- sin AMS, el STL
     simple sirve igual como guía para pintar a mano (las regiones
-    existen igual, nada más que en un solo color al imprimir). Devuelve
-    un dict con las rutas, medidas y avisos."""
+    existen igual, nada más que en un solo color al imprimir).
+
+    `color_texto`/`color_texto_2`/`color_texto_3`: un color de filamento
+    por línea de texto (2 y 3 solo importan si hay esa línea). Si las
+    que están presentes terminan en el MISMO color (el caso por
+    default, las 3 arrancan iguales a `color_texto`), se fusionan de
+    nuevo en una sola región "texto" antes de exportar -- así el caso
+    más común (todo el texto de un color) sigue dando un solo
+    `..._texto.stl` como siempre, en vez de un archivo por línea sin
+    necesidad. Solo quedan como regiones separadas ("texto"/"texto_2"/
+    "texto_3") cuando de verdad se pidieron colores distintos.
+
+    Devuelve un dict con las rutas, medidas y avisos."""
     os.makedirs(CARPETA_SALIDA, exist_ok=True)
 
     regiones, n_puentes = _armar_regiones_plano(
@@ -1393,6 +1452,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         decoracion_tam_mm=decoracion_tam_mm, decoracion_lado=decoracion_lado,
         decoracion_sobre_marco=decoracion_sobre_marco,
         decoracion_offset_x_mm=decoracion_offset_x_mm, decoracion_offset_y_mm=decoracion_offset_y_mm,
+        multiplicadores_linea=multiplicadores_linea, ancho_texto_factor=ancho_texto_factor,
         espaciado_relativo=espaciado_relativo, separacion_lineas_mm=separacion_lineas_mm,
         offset_vertical_mm=offset_vertical_mm, grosor_marco_mm=grosor_marco_mm,
         margen_marco_mm=margen_marco_mm, borde_texto_mm=borde_texto_mm,
@@ -1401,13 +1461,27 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         alto_base_mm=alto_base_mm, raster_px=raster_px,
     )
 
+    # `_armar_regiones_plano` siempre separa el texto en "texto"/"texto_2"/
+    # "texto_3" (una región por línea presente) -- si terminan pintadas del
+    # MISMO color (el caso por default, ver docstring de más arriba) las
+    # volvemos a fusionar en una sola "texto" para no exportar de más.
+    colores_texto_por_clave = {"texto": color_texto, "texto_2": color_texto_2, "texto_3": color_texto_3}
+    claves_texto_presentes = [c for c in ("texto", "texto_2", "texto_3") if regiones.get(c) is not None]
+    if len(claves_texto_presentes) > 1 and len({colores_texto_por_clave[c] for c in claves_texto_presentes}) == 1:
+        sg, so = _shapely()
+        piezas = [regiones[c] for c in claves_texto_presentes]
+        regiones["texto"] = so.unary_union(piezas) if len(piezas) > 1 else piezas[0]
+        regiones["texto_2"] = None
+        regiones["texto_3"] = None
+
     lineas_validas = [l.strip() for l in lineas if l and l.strip()][:3]
     base_nombre = pieza.nombre_archivo(" ".join(lineas_validas), default="topper")
     marco_slug = "".join(c if c.isalnum() else "_" for c in marco).strip("_")
     ruta_stl = os.path.join(CARPETA_SALIDA, f"topper_plano_{base_nombre}_{marco_slug}.stl")
 
     colores_por_region = {
-        "texto": color_texto, "borde": color_borde, "marco": color_marco,
+        "texto": color_texto, "texto_2": color_texto_2, "texto_3": color_texto_3,
+        "borde": color_borde, "marco": color_marco,
         "palo": color_palo, "decoracion": color_decoracion, "conectores": color_conectores,
         "base": color_base,
         "decoracion_2": color_decoracion_2, "decoracion_3": color_decoracion_3, "decoracion_4": color_decoracion_4,
@@ -1459,7 +1533,8 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         "colores_unicos_3mf": colores_unicos_3mf,
         "aviso_colores_3mf": aviso_colores_3mf,
         "colores": {
-            "texto": color_texto, "borde": color_borde, "marco": color_marco, "palo": color_palo,
+            "texto": color_texto, "texto_2": color_texto_2, "texto_3": color_texto_3,
+            "borde": color_borde, "marco": color_marco, "palo": color_palo,
             "decoracion": color_decoracion, "conectores": color_conectores, "base": color_base,
             "decoracion_2": color_decoracion_2, "decoracion_3": color_decoracion_3, "decoracion_4": color_decoracion_4,
         },
@@ -1658,7 +1733,8 @@ def _shapely_a_svg_path(geom):
 
 
 def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
-                        color_texto="#d4af37", color_borde="#f4f4f2",
+                        color_texto="#d4af37", color_texto_2=None, color_texto_3=None,
+                        color_borde="#f4f4f2",
                         color_marco="#d4af37", color_palo="#d4af37",
                         color_decoracion="#d4af37", color_conectores="#dce8e8",
                         color_base="#d4af37",
@@ -1687,12 +1763,13 @@ def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
         "conectores": color_conectores, "base": color_base, "marco": color_marco, "palo": color_palo,
         "decoracion": color_decoracion, "decoracion_2": color_decoracion_2, "decoracion_3": color_decoracion_3,
         "decoracion_4": color_decoracion_4, "borde": color_borde, "texto": color_texto,
+        "texto_2": color_texto_2 or color_texto, "texto_3": color_texto_3 or color_texto,
     }
     capas = "".join(
         f'<path d="{_shapely_a_svg_path(regiones[clave])}" fill="{colores_region[clave]}" '
         f'fill-rule="evenodd" stroke="#00000055" stroke-width="0.4"/>'
         for clave in ("conectores", "base", "marco", "palo", "decoracion", "decoracion_2", "decoracion_3",
-                      "decoracion_4", "borde", "texto") if regiones.get(clave) is not None
+                      "decoracion_4", "borde", "texto", "texto_2", "texto_3") if regiones.get(clave) is not None
     )
 
     puentes_txt = f"{n_puentes} puente(s)" if n_puentes else "sin puentes (ya conectado)"

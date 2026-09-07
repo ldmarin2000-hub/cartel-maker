@@ -33,8 +33,10 @@ PRESET_KEYS = [
     "tp_tipo", "tp_texto", "tp_tamaño_mm", "tp_estilo", "tp_material", "tp_color",
     "tp_base_tipo", "tp_tema", "tp_objeto",
     "tp_plano_l1", "tp_plano_l2", "tp_plano_l3", "tp_plano_marco", "tp_plano_palo",
+    "tp_plano_tam_l1", "tp_plano_tam_l2", "tp_plano_tam_l3", "tp_plano_ancho_texto",
     "tp_plano_espesor", "tp_plano_separacion", "tp_plano_palo_largo", "tp_plano_palo_ancho",
-    "tp_plano_offset_y", "tp_plano_borde", "tp_plano_color_texto", "tp_plano_color_borde",
+    "tp_plano_offset_y", "tp_plano_borde", "tp_plano_color_texto",
+    "tp_plano_color_texto_2", "tp_plano_color_texto_3", "tp_plano_color_borde",
     "tp_plano_color_marco", "tp_plano_color_palo", "tp_plano_ams",
     "tp_plano_margen_marco", "tp_plano_grosor_marco", "tp_plano_texto_sobre_marco",
     "tp_plano_decoracion_lado", "tp_plano_decoracion_tam", "tp_plano_color_decoracion",
@@ -64,6 +66,24 @@ with col_form:
         linea3 = col_l3.text_input("Línea 3", "", key="tp_plano_l3")
         lineas_plano = [linea1, linea2, linea3]
         texto = " ".join(l.strip() for l in lineas_plano if l.strip()) or "Topper"
+
+        col_m1, col_m2, col_m3 = st.columns(3)
+        mult_l1_plano = col_m1.slider(
+            "Tamaño línea 1", 0.5, 2.0, 1.0, step=0.1, key="tp_plano_tam_l1",
+            disabled=not linea1.strip(),
+            help="Multiplica el tamaño de ESTA línea respecto de las demás -- 1.0 es el tamaño "
+                 "normal (el que le toca según 'Tamaño' y la cantidad de líneas). Más alto la "
+                 "agranda MÁS ALLÁ de eso (el bloque completo puede crecer), no achica las otras.",
+        )
+        mult_l2_plano = col_m2.slider(
+            "Tamaño línea 2", 0.5, 2.0, 1.0, step=0.1, key="tp_plano_tam_l2",
+            disabled=not linea2.strip(),
+        )
+        mult_l3_plano = col_m3.slider(
+            "Tamaño línea 3", 0.5, 2.0, 1.0, step=0.1, key="tp_plano_tam_l3",
+            disabled=not linea3.strip(),
+        )
+        multiplicadores_lineas_plano = [mult_l1_plano, mult_l2_plano, mult_l3_plano]
     else:
         texto = st.text_input("Texto/Diseño", "Topper", key="tp_texto",
                              help="Texto o nombre a grabar/mostrar en el topper")
@@ -175,6 +195,12 @@ with col_form:
                      "las líneas se acercan/superponen a propósito, sin agrandar las letras -- "
                      "se tocan y se sueldan solas (menos o ningún puente), pero el bloque de "
                      "texto completo queda más bajo que el tamaño elegido."
+            )
+            ancho_texto_plano = st.slider(
+                "Ancho de las letras (%)", 80, 150, 100, step=5, key="tp_plano_ancho_texto",
+                help="Estira (>100%) o comprime (<100%) todo el texto en horizontal -- al "
+                     "ensanchar, las letras se tocan más entre sí y con las líneas de arriba/"
+                     "abajo, así hacen falta menos conectores.",
             )
         with col_b:
             con_palo_plano = st.checkbox("Palo para clavar en la torta", value=True, key="tp_plano_palo")
@@ -443,8 +469,22 @@ with col_form:
             "Borde del texto (mm)", 0.0, 3.0, 0.0, step=0.25, key="tp_plano_borde",
             help="Un contorno fino alrededor de cada letra, de un color distinto al del texto. 0 = sin borde."
         )
-        col_c0, col_c1, col_c2, col_c3 = st.columns(4)
-        color_texto_plano = col_c0.selectbox("Texto", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"), key="tp_plano_color_texto")
+        col_t1, col_t2, col_t3 = st.columns(3)
+        color_texto_plano = col_t1.selectbox(
+            "Texto línea 1", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
+            key="tp_plano_color_texto",
+        )
+        color_texto_2_plano = col_t2.selectbox(
+            "Texto línea 2", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
+            disabled=not linea2.strip(), key="tp_plano_color_texto_2",
+            help="Si coincide con la línea 1 (y la 3, si hay), las tres se exportan como una "
+                 "sola región de texto -- distinto solo si de verdad querés colores por línea.",
+        )
+        color_texto_3_plano = col_t3.selectbox(
+            "Texto línea 3", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
+            disabled=not linea3.strip(), key="tp_plano_color_texto_3",
+        )
+        col_c1, col_c2, col_c3 = st.columns(3)
         color_borde_plano = col_c1.selectbox(
             "Borde", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Negro"),
             disabled=borde_texto_plano <= 0, key="tp_plano_color_borde",
@@ -559,7 +599,10 @@ with col_preview:
                 decoracion_tam_mm=decoracion_tam_plano,
                 decoracion_lado=decoracion_lado_plano, decoracion_sobre_marco=decoracion_sobre_marco_plano,
                 decoracion_offset_x_mm=decoracion_offset_x_plano, decoracion_offset_y_mm=decoracion_offset_y_plano,
-                color_texto=colores.hex_de(color_texto_plano), color_borde=colores.hex_de(color_borde_plano),
+                multiplicadores_linea=multiplicadores_lineas_plano, ancho_texto_factor=ancho_texto_plano / 100.0,
+                color_texto=colores.hex_de(color_texto_plano), color_texto_2=colores.hex_de(color_texto_2_plano),
+                color_texto_3=colores.hex_de(color_texto_3_plano),
+                color_borde=colores.hex_de(color_borde_plano),
                 color_marco=colores.hex_de(color_marco_plano), color_palo=colores.hex_de(color_palo_plano),
                 color_decoracion=colores.hex_de(_colores_decoracion_final[0]),
                 color_decoracion_2=colores.hex_de(_colores_decoracion_final[1]),
@@ -699,6 +742,8 @@ with col_preview:
                             decoracion_sobre_marco=decoracion_sobre_marco_plano,
                             decoracion_offset_x_mm=decoracion_offset_x_plano,
                             decoracion_offset_y_mm=decoracion_offset_y_plano,
+                            multiplicadores_linea=multiplicadores_lineas_plano,
+                            ancho_texto_factor=ancho_texto_plano / 100.0,
                             margen_marco_mm=margen_marco_plano,
                             grosor_marco_mm=grosor_marco_plano,
                             separacion_lineas_mm=separacion_lineas_plano,
@@ -713,6 +758,8 @@ with col_preview:
                             espesor_mm=espesor_plano,
                             tiene_ams=tiene_ams_plano,
                             color_texto=color_texto_plano,
+                            color_texto_2=color_texto_2_plano,
+                            color_texto_3=color_texto_3_plano,
                             color_borde=color_borde_plano,
                             color_marco=color_marco_plano,
                             color_palo=color_palo_plano,
