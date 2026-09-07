@@ -1083,8 +1083,14 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     `MAX_COLORES_DECORACION_MULTICOLOR` dicts, cada uno
     `{"svg": ruta}` o `{"imagen": ruta, "umbral":, "invertir":}` más
     `"tam_mm"` y `"lado"` propios (si falta alguno, cae a
-    `decoracion_tam_mm`/`decoracion_lado`) y opcionalmente
-    `"sobre_marco"` (si falta, cae a `decoracion_sobre_marco`). A
+    `decoracion_tam_mm`/`decoracion_lado`), opcionalmente
+    `"sobre_marco"` (si falta, cae a `decoracion_sobre_marco`), y
+    opcionalmente `"offset_x_mm"`/`"offset_y_mm"` -- mismo criterio que
+    `decoracion_offset_x_mm`/`decoracion_offset_y_mm` de la decoración
+    simple (ajuste fino sumado a la posición que ya da su propio
+    "lado", positivo X = derecha, positivo Y = arriba), pero acá cada
+    decoración tiene el suyo, independiente del resto -- si falta,
+    default (0, 0), sin efecto. A
     diferencia del modo de una sola imagen multicolor (donde las piezas
     se posicionan TODAS JUNTAS para conservar su alineación relativa),
     acá cada dibujo se posiciona por separado en su propio lado --
@@ -1211,6 +1217,10 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
             else:
                 continue
             forma = _posicionar_decoracion(forma, lado_item, ref_minx, ref_miny, ref_maxx, ref_maxy)
+            off_x_item = item.get("offset_x_mm", 0.0)
+            off_y_item = item.get("offset_y_mm", 0.0)
+            if off_x_item or off_y_item:
+                forma = saf.translate(forma, xoff=off_x_item, yoff=off_y_item)
             piezas_decoracion.append((forma, None))
             sobre_marco_por_pieza.append(item.get("sobre_marco", decoracion_sobre_marco))
     elif decoracion_svg:

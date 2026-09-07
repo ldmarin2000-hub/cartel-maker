@@ -214,6 +214,10 @@ with col_form:
         )
 
         st.markdown("**Decoración** (opcional, un dibujo/ícono propio pegado al topper)")
+        # Rango del ajuste fino de posición (offset X/Y) -- relativo al tamaño del
+        # diseño, compartido por la decoración simple y por cada casillero de
+        # "Múltiples decoraciones" (se define acá, antes de las dos, para no duplicarlo).
+        _offset_dec_max = float(max(50.0, round(tamaño_mm * 1.0)))
         origen_decoracion_plano = st.radio(
             "Origen", ["Ninguna", "SVG", "Imagen (un color)", "Imagen multicolor", "Múltiples decoraciones"],
             horizontal=True, key="tp_plano_decoracion_origen",
@@ -374,6 +378,18 @@ with col_form:
                     item["tam_mm"] = col_tm.slider(
                         "Tamaño (mm)", 8.0, 150.0, 25.0, step=1.0, key=f"tp_plano_multi_dec_{i}_tam",
                     )
+                    col_ox, col_oy = st.columns(2)
+                    item["offset_x_mm"] = col_ox.slider(
+                        "Correr horizontal (mm)", -_offset_dec_max, _offset_dec_max, 0.0, step=1.0,
+                        key=f"tp_plano_multi_dec_{i}_offset_x",
+                        help="Ajusta fino la posición que ya da 'Lado', sin cambiarlo -- positivo "
+                             "hacia la derecha.",
+                    )
+                    item["offset_y_mm"] = col_oy.slider(
+                        "Correr vertical (mm)", -_offset_dec_max, _offset_dec_max, 0.0, step=1.0,
+                        key=f"tp_plano_multi_dec_{i}_offset_y",
+                        help="Ídem, positivo hacia arriba.",
+                    )
                     color_slot = st.selectbox(
                         "Color", list(colores.NOMBRES),
                         index=list(colores.NOMBRES).index("Dorado"),
@@ -398,7 +414,6 @@ with col_form:
             "Tamaño (mm)", 8.0, 150.0, 25.0, step=1.0, key="tp_plano_decoracion_tam",
             disabled=not hay_decoracion or origen_decoracion_plano == "Múltiples decoraciones",
         )
-        _offset_dec_max = float(max(50.0, round(tamaño_mm * 1.0)))
         col_d3, col_d4 = st.columns(2)
         decoracion_offset_x_plano = col_d3.slider(
             "Correr horizontal (mm)", -_offset_dec_max, _offset_dec_max, 0.0, step=1.0,
