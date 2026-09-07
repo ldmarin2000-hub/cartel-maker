@@ -35,7 +35,7 @@ PRESET_KEYS = [
     "tp_plano_l1", "tp_plano_l2", "tp_plano_l3", "tp_plano_marco", "tp_plano_palo",
     "tp_plano_tam_l1", "tp_plano_tam_l2", "tp_plano_tam_l3", "tp_plano_ancho_texto",
     "tp_plano_espesor", "tp_plano_separacion", "tp_plano_palo_largo", "tp_plano_palo_ancho",
-    "tp_plano_palo_solape",
+    "tp_plano_palo_solape", "tp_plano_palo_offset_x",
     "tp_plano_offset_y", "tp_plano_borde", "tp_plano_color_texto",
     "tp_plano_color_texto_2", "tp_plano_color_texto_3", "tp_plano_color_borde",
     "tp_plano_color_marco", "tp_plano_color_palo", "tp_plano_ams",
@@ -256,6 +256,14 @@ with col_form:
                 help="Cuánto se mete el palo dentro del material real del marco/texto donde se "
                      "ancla, para soldar firme y derecho sin necesitar un puente. Si el diseño "
                      "queda flojo, subilo; si el palo se nota demasiado metido, bajalo.",
+            )
+            _palo_offset_max = float(max(20.0, round(tamaño_mm * 0.5)))
+            palo_offset_x_plano = st.slider(
+                "Ajuste horizontal del palo (mm)", -_palo_offset_max, _palo_offset_max, 0.0, step=1.0,
+                disabled=not con_palo_plano, key="tp_plano_palo_offset_x",
+                help="Corre el palo desde donde lo ancló automáticamente (el marco, la base, o el "
+                     "mejor trazo de la última línea) -- por si preferís otro lugar a mano. 0 = "
+                     "respeta el automático tal cual.",
             )
             con_base_plano = st.checkbox(
                 "Con base ancha (tipo barra en T, más firme)", value=False, key="tp_plano_base",
@@ -696,7 +704,7 @@ with col_preview:
                 marco_tam_automatico=marco_tam_automatico_plano, marco_tam_mm=marco_tam_manual_plano,
                 marco_relleno=marco_relleno_plano,
                 con_palo=con_palo_plano, largo_palo_mm=largo_palo_plano, ancho_palo_mm=ancho_palo_plano,
-                solape_palo_mm=solape_palo_plano,
+                solape_palo_mm=solape_palo_plano, palo_offset_x_mm=palo_offset_x_plano,
                 con_base=con_base_plano, ancho_base_extra_mm=ancho_base_extra_plano, alto_base_mm=alto_base_plano,
             )
             if html_preview:
@@ -839,6 +847,7 @@ with col_preview:
                             largo_palo_mm=largo_palo_plano,
                             ancho_palo_mm=ancho_palo_plano,
                             solape_palo_mm=solape_palo_plano,
+                            palo_offset_x_mm=palo_offset_x_plano,
                             con_base=con_base_plano,
                             ancho_base_extra_mm=ancho_base_extra_plano,
                             alto_base_mm=alto_base_plano,
@@ -875,6 +884,9 @@ with col_preview:
                         - **Vértices:** {resultado['vertices']} | **Caras:** {resultado['caras']}
                         - **Watertight:** {"✓ Sí" if resultado['watertight'] else "✗ No"}
                         """)
+
+                        if resultado.get("avisos_conectores"):
+                            st.warning(resultado["avisos_conectores"])
 
                         if "ruta_stl" in resultado:
                             with open(resultado["ruta_stl"], "rb") as f:

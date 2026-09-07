@@ -89,16 +89,27 @@ def construir_canal_y_placa(lineas, led_ancho_mm, holgura_mm, pared_mm, fondo, f
     return canal, placa, paredes
 
 
-def conectar_componentes(placa, ancho_mm, pared_mm):
+def conectar_componentes(placa, ancho_mm, pared_mm, devolver_detalle=False):
     """Si `placa` quedó con piezas sueltas (p.ej. letras separadas en modo
     "contorno"), las une con puentes finos — solo estructurales, para que
     imprima como una sola pieza. (El cable entre letras se resuelve aparte,
     con agujeros hacia atrás en cada punta — ver agregar_agujeros_cable().)
     Conecta todas las piezas con el mínimo largo total de puentes posible
-    (árbol de expansión mínima). Devuelve (placa, cantidad_de_puentes)."""
+    (árbol de expansión mínima). Devuelve (placa, cantidad_de_puentes).
+
+    `devolver_detalle=True` (default False, para no romper a quien ya
+    llama esperando la tupla de siempre -- neon_pipeline.py,
+    generators/caja_luz.py) devuelve además `(piezas, puentes_info)`:
+    `piezas` son los componentes conexos de `placa` ANTES de conectar
+    (para que quien llama pueda ver de qué región nombrada viene cada
+    uno, algo que esta función no sabe -- solo ve geometría anónima) y
+    `puentes_info` una lista de `{"i", "j", "distancia_mm"}` por cada
+    puente realmente usado (índices sobre `piezas`) -- pensado para
+    armar un aviso de "qué quedó separado de qué" sin cambiar en nada
+    cómo se arman los puentes en sí."""
     piezas = list(placa.geoms) if placa.geom_type == "MultiPolygon" else [placa]
     if len(piezas) <= 1:
-        return placa, 0
+        return (placa, 0, piezas, []) if devolver_detalle else (placa, 0)
 
     grafo = nx.Graph()
     grafo.add_nodes_from(range(len(piezas)))
@@ -111,10 +122,18 @@ def conectar_componentes(placa, ancho_mm, pared_mm):
             segmentos_por_arista[(i, j)] = LineString([p1, p2])
 
     arbol = nx.minimum_spanning_tree(grafo)
-    puentes = [segmentos_por_arista[tuple(sorted(arista))] for arista in arbol.edges()]
+    aristas = [tuple(sorted(arista)) for arista in arbol.edges()]
+    puentes = [segmentos_por_arista[arista] for arista in aristas]
 
     placa2 = unary_union([placa] + [p.buffer(ancho_mm / 2 + pared_mm, cap_style=1, join_style=1) for p in puentes])
-    return placa2, len(puentes)
+    if not devolver_detalle:
+        return placa2, len(puentes)
+
+    puentes_info = [
+        {"i": i, "j": j, "distancia_mm": segmentos_por_arista[(i, j)].length}
+        for i, j in aristas
+    ]
+    return placa2, len(puentes), piezas, puentes_info
 
 
 def _agrupar_puntos_cercanos(puntos, distancia_min_mm):

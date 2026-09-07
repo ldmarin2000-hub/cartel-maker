@@ -1079,6 +1079,144 @@ def _acercar_a_centro(forma, acercar_mm, cx_ref, cy_ref):
     return _affinity().translate(forma, xoff=dx, yoff=dy)
 
 
+UMBRAL_TRAZO_RELATIVO = 0.3  # fracción del alto de la línea -- ver _mejor_trazo_vertical
+PASO_TRAZO_MM = 0.5  # resolución del barrido de columnas
+
+
+def _mejor_trazo_vertical(poligono, ancho_mm, umbral_relativo=UMBRAL_TRAZO_RELATIVO, paso_mm=PASO_TRAZO_MM):
+    """Busca, dentro de `poligono` (pensado para ser la ÚLTIMA línea de
+    texto), la posición X horizontal donde hay un "trazo vertical" firme
+    para anclar el palo -- el asta de una letra, la pata de una "p",
+    etc. -- en vez del centro pelado del bbox, que a veces cae justo en
+    un hueco entre letras.
+
+    Barre columnas del ancho del palo (`ancho_mm`) a lo largo de todo
+    el ancho de `poligono` y en cada una mide cuánto material CONTINUO
+    hay arrancando desde el punto más bajo de esa columna (la
+    "profundidad" -- desde ahí es de donde soldaría el palo, mismo
+    criterio que ya usa el sondeo de 6A). Elige la columna más CENTRADA
+    entre las que llegan a un umbral de profundidad -- `umbral_relativo`
+    × el alto de `poligono`, NO un mm fijo: un umbral fijo (probado con
+    8mm) queda imposible de alcanzar en una línea de texto chica (una
+    letra de 8mm de alto no puede tener 8mm de trazo continuo), dejando
+    SIEMPRE el criterio de "más centrado" sin candidatos y cayendo
+    siempre al de emergencia. Si ninguna columna llega al umbral (línea
+    muy despareja), se usa igual el criterio 2: la de MAYOR profundidad
+    -- nunca deja de elegir algo. Devuelve el X elegido, o el centro del
+    bbox si `poligono` no tiene ancho/alto (caso degenerado)."""
+    sg, _ = _shapely()
+    minx, miny, maxx, maxy = poligono.bounds
+    cx_bbox = (minx + maxx) / 2
+    alto = maxy - miny
+    if alto <= 0 or maxx <= minx:
+        return cx_bbox
+    umbral = alto * umbral_relativo
+
+    candidatos = []
+    x = minx
+    while x <= maxx:
+        franja = sg.box(x - ancho_mm / 2, miny - 1, x + ancho_mm / 2, maxy + 1)
+        inter = poligono.intersection(franja)
+        if not inter.is_empty:
+            piezas = inter.geoms if hasattr(inter, "geoms") else [inter]
+            pieza_baja = min(piezas, key=lambda p: p.bounds[1])
+            candidatos.append((x, pieza_baja.bounds[3] - pieza_baja.bounds[1]))
+        x += paso_mm
+
+    if not candidatos:
+        return cx_bbox
+
+    buenos = [c for c in candidatos if c[1] >= umbral]
+    if buenos:
+        return min(buenos, key=lambda c: abs(c[0] - cx_bbox))[0]
+    return max(candidatos, key=lambda c: c[1])[0]
+
+
+# Etiqueta humana y sugerencia por región, para el aviso de conectores
+# (ver _armar_aviso_conectores) -- una región sin sugerencia (None) no
+# agrega nada después del punto, para no inventar un consejo que no
+# corresponde (ej. "el borde" no tiene ningún control propio de
+# posición para acercarlo).
+_ETIQUETA_REGION_CONECTOR = {
+    "texto": "el texto", "texto_2": "el texto", "texto_3": "el texto",
+    "borde": "el borde del texto",
+    "marco": "el marco", "marco_borde": "el borde del marco",
+    "base": "la base",
+    "palo": "el palo",
+    "decoracion": "la decoración", "decoracion_2": "la decoración",
+    "decoracion_3": "la decoración", "decoracion_4": "la decoración",
+}
+_SUGERENCIA_REGION_CONECTOR = {
+    "decoracion": "Probá acercarla con 'Acercar al texto' o los sliders de posición X/Y",
+    "decoracion_2": "Probá acercarla con 'Acercar al texto' o los sliders de posición X/Y",
+    "decoracion_3": "Probá acercarla con 'Acercar al texto' o los sliders de posición X/Y",
+    "decoracion_4": "Probá acercarla con 'Acercar al texto' o los sliders de posición X/Y",
+    "palo": "Revisá el anclaje o subí 'Solape del palo'",
+    "texto": "Probá una separación entre líneas más chica (o negativa) o un ancho de letras mayor",
+    "texto_2": "Probá una separación entre líneas más chica (o negativa) o un ancho de letras mayor",
+    "texto_3": "Probá una separación entre líneas más chica (o negativa) o un ancho de letras mayor",
+    "marco": "Revisá 'Distancia del marco al texto' o el tamaño del marco",
+    "marco_borde": "Revisá 'Distancia del marco al texto' o el tamaño del marco",
+}
+# Orden de preferencia para elegir DE CUÁL de las dos regiones de un par
+# sacar la sugerencia -- la más específica/accionable primero.
+_PRIORIDAD_SUGERENCIA_CONECTOR = (
+    "decoracion", "decoracion_2", "decoracion_3", "decoracion_4",
+    "palo", "marco", "marco_borde", "texto", "texto_2", "texto_3", "borde", "base",
+)
+
+
+def _armar_aviso_conectores(piezas_conexas, puentes_info, piezas_nombradas):
+    """A partir del detalle que devuelve `conectar_componentes(...,
+    devolver_detalle=True)`, arma UN string en tono de consejo (no de
+    error -- el puente ya está armado y funciona, esto solo dice cómo
+    evitarlo) listo para mostrar con `st.warning`, o None si no hizo
+    falta ningún puente entre regiones DISTINTAS (puentes dentro de una
+    misma región -- p.ej. dos letras del texto que no se tocan -- no
+    generan aviso, no hay ningún control puntual para "acercarlas").
+
+    Agrupa por PAR de regiones (un aviso por par, no uno por cada
+    puente individual si hay varios entre las mismas dos) y, dentro de
+    cada par, usa la sugerencia de la región más específica (ver
+    _PRIORIDAD_SUGERENCIA_CONECTOR) -- decoración/palo antes que
+    texto/marco genérico."""
+    nombres_por_indice = []
+    for comp in piezas_conexas:
+        nombres = [nombre for geom, nombre in piezas_nombradas if geom.intersects(comp)]
+        nombres_por_indice.append(nombres)
+
+    grupos = {}
+    for info in puentes_info:
+        for na in nombres_por_indice[info["i"]]:
+            for nb in nombres_por_indice[info["j"]]:
+                if na == nb:
+                    continue
+                clave = tuple(sorted((na, nb)))
+                actual = grupos.get(clave)
+                if actual is None or info["distancia_mm"] < actual:
+                    grupos[clave] = info["distancia_mm"]
+
+    if not grupos:
+        return None
+
+    lineas_aviso = []
+    for (na, nb), distancia_mm in grupos.items():
+        etiqueta_a = _ETIQUETA_REGION_CONECTOR.get(na, na)
+        etiqueta_b = _ETIQUETA_REGION_CONECTOR.get(nb, nb)
+        elegido = next((r for r in _PRIORIDAD_SUGERENCIA_CONECTOR if r in (na, nb)
+                        and r in _SUGERENCIA_REGION_CONECTOR), None)
+        sugerencia = _SUGERENCIA_REGION_CONECTOR.get(elegido)
+        frase = f"{etiqueta_a[0].upper()}{etiqueta_a[1:]} no llega a tocar {etiqueta_b} ({distancia_mm:.1f}mm)."
+        if sugerencia:
+            frase += f" {sugerencia}."
+        lineas_aviso.append(f"- {frase}")
+
+    intro = f"Se agregaron {len(grupos)} conector(es) para unir piezas sueltas. Para evitarlo:"
+    if len(grupos) == 1:
+        intro = "Se agregó 1 conector para unir piezas sueltas. Para evitarlo:"
+    return intro + "\n" + "\n".join(lineas_aviso)
+
+
 def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                            marco_svg=None, marco_imagen=None, marco_imagen_umbral=128,
                            marco_imagen_invertir=False, texto_sobre_marco=False,
@@ -1096,7 +1234,8 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                            offset_vertical_mm=0.0, grosor_marco_mm=3.0,
                            margen_marco_mm=6.0, borde_texto_mm=0.0,
                            ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
-                           ancho_palo_mm=6.0, solape_palo_mm=2.5, con_base=False, ancho_base_extra_mm=10.0,
+                           ancho_palo_mm=6.0, solape_palo_mm=2.5, palo_offset_x_mm=0.0,
+                           con_base=False, ancho_base_extra_mm=10.0,
                            alto_base_mm=6.0, raster_px=400):
     """Arma las regiones del topper plano -- texto (hasta 3 líneas, cada
     una su propia región) / borde del texto / marco / palo / decoración
@@ -1146,15 +1285,26 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     `con_base`), si no el marco (si hay), si no la ÚLTIMA línea de texto
     (no todas -- una línea de arriba no debe correr el centro del palo
     hacia un lugar sin material en la línea de abajo, que es la que
-    realmente lo sostiene). En vez de asumir que hay material justo en
-    el borde del bbox del ancla (un empujón fijo, ciego), sondea una
-    franja del ancho de `ancho_palo_mm` centrada en ese punto para
-    encontrar el material real más bajo ahí, y mete el palo
-    `solape_palo_mm` por ENCIMA de ese punto -- una soldadura real y
-    derecha en vez de depender de que `conectar_componentes` le arme un
-    puente torcido para llegar. Si la franja no encuentra nada (cayó en
-    un hueco real, p.ej. el centro de un aro fino) cae al criterio viejo
-    (borde del bbox) como red de seguridad, sin romper nada.
+    realmente lo sostiene). Con base o marco, el punto de anclaje es el
+    centro de ese ancla; sin ninguno de los dos, en vez del centro
+    pelado del bbox de la última línea (que puede caer en un hueco entre
+    letras) se busca el mejor "trazo vertical" con `_mejor_trazo_vertical`
+    -- el asta de una letra, la pata de una "p", lo que haya de sólido y
+    razonablemente centrado. `palo_offset_x_mm` corre el palo ENCIMA de
+    ese punto ya elegido (automático o no), por si la usuaria prefiere
+    otro lugar a mano -- 0 (default) lo deja tal cual salió.
+
+    Una vez elegido el X (automático + ajuste manual), en vez de asumir
+    que hay material justo en el borde del bbox del ancla (un empujón
+    fijo, ciego), se sondea una franja del ancho de `ancho_palo_mm`
+    centrada en ese punto para encontrar el material real más bajo ahí,
+    y se mete el palo `solape_palo_mm` por ENCIMA de ese punto -- una
+    soldadura real y derecha en vez de depender de que
+    `conectar_componentes` le arme un puente torcido para llegar. Si la
+    franja no encuentra nada (cayó en un hueco real, p.ej. el centro de
+    un aro fino, o el ajuste manual lo movió a un lugar vacío) cae al
+    criterio viejo (borde del bbox) como red de seguridad, sin romper
+    nada.
     `decoracion_svg` (ruta a un SVG
     propio) agrega un dibujo/ícono suelto (ver `_decoracion_desde_svg` /
     `_posicionar_decoracion`) en el lado elegido (`decoracion_lado`,
@@ -1205,7 +1355,15 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     se pueden imprimir de un color/filamento distinto (ej. transparente,
     para que casi no se noten).
 
-    Devuelve (regiones, cantidad_de_puentes), con `regiones` un dict
+    Devuelve (regiones, cantidad_de_puentes, avisos_conectores), con
+    `avisos_conectores` un string listo para mostrar con `st.warning`
+    (en tono de consejo, no de error -- el puente ya funciona, esto
+    dice cómo evitarlo) si hizo falta soldar regiones que no se tocaban
+    entre sí, o None si no hizo falta ningún puente entre regiones
+    distintas (puede haber puentes DENTRO de una misma región -- p.ej.
+    dos letras del texto que no se tocan -- sin que eso genere aviso,
+    ya que ahí no hay nada que "acercar" de un control de la UI).
+    `regiones` es un dict
     {"texto": geom, "texto_2": geom|None, "texto_3": geom|None,
     "borde": geom|None, "marco": geom|None, "marco_borde": geom|None,
     "palo": geom|None, "decoracion": geom|None, "conectores": geom|None}
@@ -1456,7 +1614,26 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
             ancla_palo = piezas_texto[-1]
 
         minx, miny, maxx, maxy = ancla_palo.bounds
-        cx_pata = (minx + maxx) / 2
+        if con_base or aro is not None:
+            # Con base o marco, el ancla ya es una forma pensada a
+            # propósito para este apoyo (una placa, un aro completo) --
+            # el centro de su bbox alcanza, no hace falta buscar un
+            # "trazo" ahí (6B solo aplica al caso de texto suelto).
+            cx_pata = (minx + maxx) / 2
+        else:
+            # Sin marco ni base: en vez del centro pelado del bbox (que
+            # puede caer justo en un hueco entre letras), buscamos el
+            # mejor trazo vertical de la última línea -- ver
+            # _mejor_trazo_vertical. Refina 6A, no lo reemplaza: el
+            # sondeo de profundidad/solape de abajo sigue igual, ahora
+            # arrancando desde un X mejor elegido.
+            cx_pata = _mejor_trazo_vertical(ancla_palo, ancho_palo_mm)
+
+        # Ajuste manual ENCIMA del automático -- corre el palo desde
+        # donde lo puso el paso de arriba (centro del ancla, o el mejor
+        # trazo si aplicó), para el caso en que la usuaria prefiera otro
+        # lugar. 0 (default) respeta el automático tal cual.
+        cx_pata += palo_offset_x_mm
 
         # En vez de asumir que hay material justo en el borde inferior
         # del bbox (el 0.5mm fijo de antes -- un empujón a ciegas que a
@@ -1486,11 +1663,26 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     # aparte: si una decoración que cuelga (un moño, una cola) termina
     # más cerca del palito que del texto, ahora se suelda directo ahí en
     # lugar de sumar un puente aparte, más largo y más visible.
-    nombradas = nombradas_principales + [
-        g for g in (base, decoracion, decoracion_2, decoracion_3, decoracion_4, palo) if g is not None
-    ]
+    # Lista PARALELA a `nombradas` pero con el nombre de región de cada
+    # pieza -- conectar_componentes solo ve geometría anónima (une TODO
+    # en una sola `contenido` antes de llamarlo), así que esto es lo que
+    # permite armar el aviso de "qué quedó separado de qué" después,
+    # sin cambiar en nada cómo arma los puentes.
+    piezas_nombradas = [(p, "texto" if i == 0 else f"texto_{i + 1}") for i, p in enumerate(piezas_texto)]
+    if borde is not None:
+        piezas_nombradas.append((borde, "borde"))
+    piezas_nombradas += [(p, "marco" if i == 0 else "marco_borde") for i, p in enumerate(piezas_marco)]
+    for nombre, p in (("base", base), ("decoracion", decoracion), ("decoracion_2", decoracion_2),
+                      ("decoracion_3", decoracion_3), ("decoracion_4", decoracion_4), ("palo", palo)):
+        if p is not None:
+            piezas_nombradas.append((p, nombre))
+
+    nombradas = [p for p, _ in piezas_nombradas]
     contenido = so.unary_union(nombradas) if len(nombradas) > 1 else nombradas[0]
-    conectado, n_puentes = geo.conectar_componentes(contenido, ancho_puente_mm, 0.4)
+    conectado, n_puentes, piezas_conexas, puentes_info = geo.conectar_componentes(
+        contenido, ancho_puente_mm, 0.4, devolver_detalle=True)
+
+    avisos_conectores = _armar_aviso_conectores(piezas_conexas, puentes_info, piezas_nombradas)
 
     conectores = None
     extra = conectado.difference(contenido)
@@ -1510,7 +1702,7 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         "base": base, "palo": palo,
         "decoracion": decoracion, "decoracion_2": decoracion_2, "decoracion_3": decoracion_3,
         "decoracion_4": decoracion_4, "conectores": conectores,
-    }, n_puentes
+    }, n_puentes, avisos_conectores
 
 
 _SIMPLIFY_EXTRUSION_MM = 0.05  # limpia ruido numérico de union()/difference() antes de triangular
@@ -1561,7 +1753,8 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
                    grosor_marco_mm=3.0, margen_marco_mm=6.0, borde_texto_mm=0.0,
                    ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
-                   ancho_palo_mm=6.0, solape_palo_mm=2.5, con_base=False, ancho_base_extra_mm=10.0, alto_base_mm=6.0,
+                   ancho_palo_mm=6.0, solape_palo_mm=2.5, palo_offset_x_mm=0.0,
+                   con_base=False, ancho_base_extra_mm=10.0, alto_base_mm=6.0,
                    espesor_mm=3.0, raster_px=400,
                    tiene_ams=False, color_texto="Dorado", color_texto_2="Dorado", color_texto_3="Dorado",
                    color_borde="Blanco",
@@ -1602,7 +1795,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
     Devuelve un dict con las rutas, medidas y avisos."""
     os.makedirs(CARPETA_SALIDA, exist_ok=True)
 
-    regiones, n_puentes = _armar_regiones_plano(
+    regiones, n_puentes, avisos_conectores = _armar_regiones_plano(
         lineas, tamaño_mm=tamaño_mm, fuente=fuente, marco=marco, marco_svg=marco_svg,
         marco_imagen=marco_imagen, marco_imagen_umbral=marco_imagen_umbral,
         marco_imagen_invertir=marco_imagen_invertir,
@@ -1623,7 +1816,8 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         offset_vertical_mm=offset_vertical_mm, grosor_marco_mm=grosor_marco_mm,
         margen_marco_mm=margen_marco_mm, borde_texto_mm=borde_texto_mm,
         ancho_puente_mm=ancho_puente_mm, con_palo=con_palo, largo_palo_mm=largo_palo_mm,
-        ancho_palo_mm=ancho_palo_mm, solape_palo_mm=solape_palo_mm, con_base=con_base, ancho_base_extra_mm=ancho_base_extra_mm,
+        ancho_palo_mm=ancho_palo_mm, solape_palo_mm=solape_palo_mm, palo_offset_x_mm=palo_offset_x_mm,
+        con_base=con_base, ancho_base_extra_mm=ancho_base_extra_mm,
         alto_base_mm=alto_base_mm, raster_px=raster_px,
     )
 
@@ -1700,6 +1894,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         "tamaño_mm": tamaño_mm,
         "marco": marco,
         "puentes": n_puentes,
+        "avisos_conectores": avisos_conectores,
         "fuente": fuente,
         "ruta_stl": ruta_stl,
         "piezas_color": piezas_color,
@@ -1921,7 +2116,7 @@ def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
     pintado incluso para quien imprima en un solo color. Devuelve None
     si no se pudo armar el diseño."""
     try:
-        regiones, n_puentes = _armar_regiones_plano(lineas, tamaño_mm, fuente_ttf, marco, **kwargs)
+        regiones, n_puentes, _avisos = _armar_regiones_plano(lineas, tamaño_mm, fuente_ttf, marco, **kwargs)
     except Exception:
         return None
 
