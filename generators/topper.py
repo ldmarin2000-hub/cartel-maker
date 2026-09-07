@@ -764,24 +764,40 @@ def _poligono_regular(cx, cy, radio, n_lados, rotacion=np.pi / 2):
     return sg.Polygon(pts)
 
 
-def _forma_marco(forma, cx, cy, radio, grosor_mm):
+def _forma_marco(forma, cx, cy, radio, grosor_mm, relleno=False):
     """Aro/marco decorativo (Círculo/Hexágono/Pentágono) de `grosor_mm` de
-    ancho, centrado en (cx, cy), con radio EXTERIOR `radio` — un anillo,
-    no una forma rellena (así el interior queda libre para el texto)."""
+    ancho, centrado en (cx, cy), con radio EXTERIOR `radio`.
+
+    `relleno=False` (default): un anillo -- solo el contorno, el
+    interior queda libre para el texto. Devuelve una sola geometría.
+
+    `relleno=True`: la forma sólida completa, partida en DOS piezas --
+    devuelve la tupla `(interior, borde)`, donde `borde` es exactamente
+    el mismo aro que el modo Aro (mismo radio_int, mismo método de
+    erosión según la forma) y `interior` es el círculo/polígono más
+    chico que queda adentro de ese aro. `interior ∪ borde` es igual a
+    la forma sólida completa -- separarlas así deja que el que llama
+    las pinte de colores distintos (o del mismo, y las vuelva a unir)."""
     saf = _affinity()
-    radio_int = max(radio - grosor_mm, 0.1)
     if forma == "Círculo":
         sg, _ = _shapely()
         exterior = sg.Point(cx, cy).buffer(radio, resolution=64)
-        interior = sg.Point(cx, cy).buffer(radio_int, resolution=64)
     else:
         n_lados = 6 if forma == "Hexágono" else 5
         exterior = _poligono_regular(cx, cy, radio, n_lados)
+
+    radio_int = max(radio - grosor_mm, 0.1)
+    if forma == "Círculo":
+        interior = sg.Point(cx, cy).buffer(radio_int, resolution=64)
+    else:
         interior = saf.scale(exterior, xfact=radio_int / radio, yfact=radio_int / radio, origin=(cx, cy))
+
+    if relleno:
+        return interior, exterior.difference(interior)
     return exterior.difference(interior)
 
 
-def _marco_desde_svg(ruta_svg, cx, cy, radio, grosor_mm):
+def _marco_desde_svg(ruta_svg, cx, cy, radio, grosor_mm, relleno=False):
     """Aro a partir de la silueta de un SVG propio (core/svg_import.py,
     el mismo importador que usa Neón SVG y las decoraciones del
     Llavero): se escala la silueta rellena para que su lado/diámetro
@@ -798,7 +814,10 @@ def _marco_desde_svg(ruta_svg, cx, cy, radio, grosor_mm):
     cualquier SVG de silueta cerrada (una estrella, un corazón, un
     logo/escudo complejo); un SVG que YA es un aro/corona (con sus
     propios huecos) puede salir con una forma rara al volverlo a
-    huecar."""
+    huecar. `relleno=True`: la silueta sólida partida en `(interior,
+    borde)` -- mismo criterio que `_forma_marco`, `interior` es la
+    silueta erosionada `grosor_mm` hacia adentro y `borde` es el mismo
+    aro de siempre (`forma.difference(interior)`)."""
     svg_import = _svg_import()
     saf = _affinity()
 
@@ -816,6 +835,8 @@ def _marco_desde_svg(ruta_svg, cx, cy, radio, grosor_mm):
     forma = saf.translate(forma, xoff=cx, yoff=cy)
 
     interior = forma.buffer(-grosor_mm)
+    if relleno:
+        return interior, forma.difference(interior)
     return forma.difference(interior)
 
 
@@ -835,7 +856,7 @@ def _poligono_desde_imagen_centrado(ruta_imagen, umbral, invertir):
     return saf.translate(forma, xoff=-cx, yoff=-cy)
 
 
-def _marco_desde_imagen(ruta_imagen, cx, cy, radio, grosor_mm, umbral=128, invertir=False):
+def _marco_desde_imagen(ruta_imagen, cx, cy, radio, grosor_mm, umbral=128, invertir=False, relleno=False):
     """Aro a partir de la silueta de una imagen propia (PNG/JPG, un logo
     o escudo cualquiera) -- mismo criterio que `_marco_desde_svg` (ver
     ahí el porqué de la erosión de ancho constante en vez de una copia
@@ -844,7 +865,8 @@ def _marco_desde_imagen(ruta_imagen, cx, cy, radio, grosor_mm, umbral=128, inver
     (estrellas, cintas, letras) -- antes, con la copia escalada, esos
     casos salían fragmentados en un montón de pedacitos sueltos en vez
     de un contorno continuo reconocible. `umbral`/`invertir`: ver
-    core/imagen_import.py."""
+    core/imagen_import.py. `relleno=True`: la silueta sólida partida en
+    `(interior, borde)` -- ver `_forma_marco`."""
     saf = _affinity()
     forma = _poligono_desde_imagen_centrado(ruta_imagen, umbral, invertir)
 
@@ -858,6 +880,8 @@ def _marco_desde_imagen(ruta_imagen, cx, cy, radio, grosor_mm, umbral=128, inver
     forma = saf.translate(forma, xoff=cx, yoff=cy)
 
     interior = forma.buffer(-grosor_mm)
+    if relleno:
+        return interior, forma.difference(interior)
     return forma.difference(interior)
 
 
@@ -1024,9 +1048,41 @@ def _posicionar_decoracion(forma, lado, minx, miny, maxx, maxy):
     return saf.translate(forma, xoff=x_destino - dcx, yoff=y_destino - dcy)
 
 
+def _delta_acercar(forma, acercar_mm, cx_ref, cy_ref):
+    """Calcula el (dx, dy) para trasladar `forma` `acercar_mm` en línea
+    recta hacia (cx_ref, cy_ref) -- el centro de `forma` se toma por
+    BOUNDS (no centroid, que en una forma hueca o rara puede caer en un
+    lugar inesperado). (0, 0) si `acercar_mm <= 0` o si `forma` ya está
+    prácticamente en el centro de referencia."""
+    if acercar_mm <= 0:
+        return 0.0, 0.0
+    dminx, dminy, dmaxx, dmaxy = forma.bounds
+    cx_dec, cy_dec = (dminx + dmaxx) / 2, (dminy + dmaxy) / 2
+    dx, dy = cx_ref - cx_dec, cy_ref - cy_dec
+    dist = (dx ** 2 + dy ** 2) ** 0.5
+    if dist <= 1e-6:
+        return 0.0, 0.0
+    return (dx / dist) * acercar_mm, (dy / dist) * acercar_mm
+
+
+def _acercar_a_centro(forma, acercar_mm, cx_ref, cy_ref):
+    """Traslada `forma` `acercar_mm` en línea recta hacia (cx_ref, cy_ref)
+    -- pensado para llamarse DESPUÉS de posicionarla por lado/offset, así
+    empuja lo que quede hacia el texto/marco sin importar dónde la hayan
+    dejado esos otros dos ajustes. Con `acercar_mm <= 0` no hace nada (no-op
+    exacto, sin ni siquiera llamar a translate). Ver `_delta_acercar` para
+    el mismo cálculo aplicado a un GRUPO de piezas de una sola vez (mismo
+    desplazamiento para todas, para que conserven su alineación relativa)."""
+    dx, dy = _delta_acercar(forma, acercar_mm, cx_ref, cy_ref)
+    if dx == 0.0 and dy == 0.0:
+        return forma
+    return _affinity().translate(forma, xoff=dx, yoff=dy)
+
+
 def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                            marco_svg=None, marco_imagen=None, marco_imagen_umbral=128,
                            marco_imagen_invertir=False, texto_sobre_marco=False,
+                           marco_tam_automatico=True, marco_tam_mm=100.0, marco_relleno=False,
                            decoracion_svg=None, decoracion_imagen=None, decoracion_imagen_umbral=128,
                            decoracion_imagen_invertir=False,
                            decoracion_multicolor_imagen=None, decoracion_multicolor_indices=None,
@@ -1034,13 +1090,13 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                            decoraciones=None,
                            decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                            decoracion_sobre_marco=False,
-                           decoracion_offset_x_mm=0.0, decoracion_offset_y_mm=0.0,
+                           decoracion_offset_x_mm=0.0, decoracion_offset_y_mm=0.0, decoracion_acercar_mm=0.0,
                            multiplicadores_linea=None, ancho_texto_factor=1.0,
                            espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
                            offset_vertical_mm=0.0, grosor_marco_mm=3.0,
                            margen_marco_mm=6.0, borde_texto_mm=0.0,
                            ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
-                           ancho_palo_mm=6.0, con_base=False, ancho_base_extra_mm=10.0,
+                           ancho_palo_mm=6.0, solape_palo_mm=2.5, con_base=False, ancho_base_extra_mm=10.0,
                            alto_base_mm=6.0, raster_px=400):
     """Arma las regiones del topper plano -- texto (hasta 3 líneas, cada
     una su propia región) / borde del texto / marco / palo / decoración
@@ -1073,10 +1129,32 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     propósito sin que el marco lo siga. `texto_sobre_marco` decide quién
     "gana" donde el texto (y su borde) cruza el marco: en False (de
     siempre) el marco tapa al texto; en True es al revés, el texto tapa
-    al marco (le deja un hueco ahí). `con_base` agrega una placa
+    al marco (le deja un hueco ahí) -- funciona igual si el marco es un
+    aro fino o un relleno sólido (`marco_relleno=True`, ver
+    `_forma_marco`): con `texto_sobre_marco=True` el texto CALA la
+    placa sólida en vez de quedar tapado por ella. `marco_tam_automatico`
+    (default) calcula el tamaño del marco a partir del texto +
+    `margen_marco_mm`, como siempre; en `False`, usa `marco_tam_mm`
+    directo (el diámetro/lado mayor, no el radio) e ignora el texto y
+    `margen_marco_mm` por completo para el tamaño -- el CENTRO del
+    marco se sigue calculando del texto en los dos casos. `con_base` agrega una placa
     horizontal abajo de todo (alternativa al marco, estilo "topper
     parado sobre una base" en vez de "adentro de un aro") -- si además
     hay palo, sale directo de la base en vez de directo del texto.
+
+    El palo (`con_palo`) se ancla, en orden de prioridad: la base (si
+    `con_base`), si no el marco (si hay), si no la ÚLTIMA línea de texto
+    (no todas -- una línea de arriba no debe correr el centro del palo
+    hacia un lugar sin material en la línea de abajo, que es la que
+    realmente lo sostiene). En vez de asumir que hay material justo en
+    el borde del bbox del ancla (un empujón fijo, ciego), sondea una
+    franja del ancho de `ancho_palo_mm` centrada en ese punto para
+    encontrar el material real más bajo ahí, y mete el palo
+    `solape_palo_mm` por ENCIMA de ese punto -- una soldadura real y
+    derecha en vez de depender de que `conectar_componentes` le arme un
+    puente torcido para llegar. Si la franja no encuentra nada (cayó en
+    un hueco real, p.ej. el centro de un aro fino) cae al criterio viejo
+    (borde del bbox) como red de seguridad, sin romper nada.
     `decoracion_svg` (ruta a un SVG
     propio) agrega un dibujo/ícono suelto (ver `_decoracion_desde_svg` /
     `_posicionar_decoracion`) en el lado elegido (`decoracion_lado`,
@@ -1129,13 +1207,17 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
 
     Devuelve (regiones, cantidad_de_puentes), con `regiones` un dict
     {"texto": geom, "texto_2": geom|None, "texto_3": geom|None,
-    "borde": geom|None, "marco": geom|None, "palo": geom|None,
-    "decoracion": geom|None, "conectores": geom|None} -- "texto"/
-    "texto_2"/"texto_3" son SIEMPRE una región por línea presente
-    (nunca se fusionan acá, aunque el que llama vaya a pintarlas todas
-    igual -- ver generar_plano, que las vuelve a fusionar en una sola
-    "texto" si el color termina siendo el mismo en las tres). Unir todo
-    lo que no sea None da la pieza completa conectada."""
+    "borde": geom|None, "marco": geom|None, "marco_borde": geom|None,
+    "palo": geom|None, "decoracion": geom|None, "conectores": geom|None}
+    -- "texto"/"texto_2"/"texto_3" son SIEMPRE una región por línea
+    presente (nunca se fusionan acá, aunque el que llama vaya a
+    pintarlas todas igual -- ver generar_plano, que las vuelve a
+    fusionar en una sola "texto" si el color termina siendo el mismo en
+    las tres). Mismo criterio para "marco"/"marco_borde": con
+    `marco_relleno=True` SIEMPRE salen como 2 regiones separadas
+    (interior y borde, ver `_forma_marco`), y `generar_plano` las
+    vuelve a fusionar en una sola "marco" si terminan del mismo color.
+    Unir todo lo que no sea None da la pieza completa conectada."""
     sg, so = _shapely()
     saf = _affinity()
     t2d = _texto2d()
@@ -1192,17 +1274,35 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     minx, miny, maxx, maxy = texto_total.bounds
     cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
 
-    aro = None
+    # Radio del marco -- un solo cálculo para los 3 tipos (antes repetido
+    # x3): automático sale del texto + margen, como siempre; manual usa
+    # `marco_tam_mm` (diámetro/lado mayor, no radio) directo, ignorando
+    # el texto y el margen por completo.
+    if marco_tam_automatico:
+        radio_marco = max(maxx - minx, maxy - miny) / 2 + margen_marco_mm
+    else:
+        radio_marco = marco_tam_mm / 2
+
+    # `piezas_marco`: 0 elementos sin marco, 1 en modo Aro (o Relleno sin
+    # separar), 2 en modo Relleno (interior + borde, ver _forma_marco) --
+    # `aro` se mantiene como la UNIÓN de `piezas_marco`, para todo el
+    # resto del código que solo necesita "el marco" como una sola
+    # geometría (bounds de referencia, tapar/ser tapado por el texto).
+    resultado_marco = None
     if marco == "SVG propio" and marco_svg:
-        radio = max(maxx - minx, maxy - miny) / 2 + margen_marco_mm
-        aro = _marco_desde_svg(marco_svg, cx, cy, radio, grosor_marco_mm)
+        resultado_marco = _marco_desde_svg(marco_svg, cx, cy, radio_marco, grosor_marco_mm, relleno=marco_relleno)
     elif marco == "Imagen propia" and marco_imagen:
-        radio = max(maxx - minx, maxy - miny) / 2 + margen_marco_mm
-        aro = _marco_desde_imagen(marco_imagen, cx, cy, radio, grosor_marco_mm,
-                                   umbral=marco_imagen_umbral, invertir=marco_imagen_invertir)
+        resultado_marco = _marco_desde_imagen(marco_imagen, cx, cy, radio_marco, grosor_marco_mm,
+                                               umbral=marco_imagen_umbral, invertir=marco_imagen_invertir,
+                                               relleno=marco_relleno)
     elif marco not in ("Ninguno", "SVG propio", "Imagen propia"):
-        radio = max(maxx - minx, maxy - miny) / 2 + margen_marco_mm
-        aro = _forma_marco(marco, cx, cy, radio, grosor_marco_mm)
+        resultado_marco = _forma_marco(marco, cx, cy, radio_marco, grosor_marco_mm, relleno=marco_relleno)
+
+    aro = None
+    piezas_marco = []
+    if resultado_marco is not None:
+        piezas_marco = list(resultado_marco) if marco_relleno else [resultado_marco]
+        aro = so.unary_union(piezas_marco) if len(piezas_marco) > 1 else piezas_marco[0]
 
     if offset_vertical_mm:
         # se traslada cada línea por separado (no solo la unión) para
@@ -1219,9 +1319,12 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     if aro is not None:
         if texto_sobre_marco:
             # el texto (+ su borde) gana donde se crucen -- el marco queda
-            # con un hueco ahí en vez de taparlos.
+            # con un hueco ahí en vez de taparlos -- se aplica a CADA
+            # pieza del marco (interior y borde si hay las dos, ver
+            # `piezas_marco`), así el calado atraviesa las dos por igual.
             tapado = texto_total if borde is None else so.unary_union([texto_total, borde])
-            aro = aro.difference(tapado)
+            piezas_marco = [p.difference(tapado) for p in piezas_marco]
+            aro = so.unary_union(piezas_marco) if len(piezas_marco) > 1 else piezas_marco[0]
         else:
             # comportamiento de siempre: el marco gana, tapa lo que se
             # cruce del texto/borde -- (A∪B∪C).difference(aro) ==
@@ -1264,6 +1367,11 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
             off_y_item = item.get("offset_y_mm", 0.0)
             if off_x_item or off_y_item:
                 forma = saf.translate(forma, xoff=off_x_item, yoff=off_y_item)
+            acercar_item = item.get("acercar_mm", 0.0)
+            if acercar_item:
+                cx_ref_item = (ref_minx + ref_maxx) / 2
+                cy_ref_item = (ref_miny + ref_maxy) / 2
+                forma = _acercar_a_centro(forma, acercar_item, cx_ref_item, cy_ref_item)
             piezas_decoracion.append((forma, None))
             sobre_marco_por_pieza.append(item.get("sobre_marco", decoracion_sobre_marco))
     elif decoracion_svg:
@@ -1291,19 +1399,31 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
             dx = grupo_posicionado.bounds[0] - grupo.bounds[0] + decoracion_offset_x_mm
             dy = grupo_posicionado.bounds[1] - grupo.bounds[1] + decoracion_offset_y_mm
             piezas_decoracion = [(saf.translate(p, xoff=dx, yoff=dy), c) for p, c in piezas_decoracion]
+            if decoracion_acercar_mm:
+                # mismo desplazamiento para TODO el grupo (como el resto
+                # del posicionamiento acá) -- conserva la alineación
+                # relativa entre las piezas de una imagen multicolor.
+                grupo_final = so.unary_union([p for p, _ in piezas_decoracion]) if len(piezas_decoracion) > 1 else piezas_decoracion[0][0]
+                cx_ref_g, cy_ref_g = (ref_minx + ref_maxx) / 2, (ref_miny + ref_maxy) / 2
+                ax, ay = _delta_acercar(grupo_final, decoracion_acercar_mm, cx_ref_g, cy_ref_g)
+                if ax or ay:
+                    piezas_decoracion = [(saf.translate(p, xoff=ax, yoff=ay), c) for p, c in piezas_decoracion]
             sobre_marco_por_pieza = [decoracion_sobre_marco] * len(piezas_decoracion)
 
         for i, (p, color_hex) in enumerate(piezas_decoracion[:MAX_COLORES_DECORACION_MULTICOLOR]):
             if aro is not None:
                 if sobre_marco_por_pieza[i]:
-                    aro = aro.difference(p)
+                    # ídem texto_sobre_marco: el calado de la decoración
+                    # atraviesa cada pieza del marco por igual.
+                    piezas_marco = [m.difference(p) for m in piezas_marco]
+                    aro = so.unary_union(piezas_marco) if len(piezas_marco) > 1 else piezas_marco[0]
                 else:
                     p = p.difference(aro)
             decoracion_slots[i] = p
 
     decoracion, decoracion_2, decoracion_3, decoracion_4 = decoracion_slots
 
-    nombradas_principales = list(piezas_texto) + [g for g in (borde, aro) if g is not None]
+    nombradas_principales = list(piezas_texto) + ([borde] if borde is not None else []) + list(piezas_marco)
     principal = so.unary_union(nombradas_principales) if len(nombradas_principales) > 1 else nombradas_principales[0]
 
     base = None
@@ -1320,17 +1440,43 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
 
     palo = None
     if con_palo:
-        # OJO: centrado/apoyado en "soporte" (texto+borde+marco+base si
-        # hay), NO en el diseño completo -- si se usara el bbox con la
-        # decoración incluida, una decoración grande o que cuelgue hacia
-        # abajo (una figura, un moño largo) corre el palito de lugar sin
-        # sentido, a veces terminando pegado a una pata/rulo de la
-        # decoración en vez de centrado bajo el texto/base. Así el
-        # palito sale siempre de la base (si hay) o del texto (si no).
-        minx, miny, maxx, maxy = soporte.bounds
+        # Ancla del palo -- NO el diseño completo (si se usara el bbox
+        # con la decoración incluida, una decoración grande o que
+        # cuelgue hacia abajo corre el palito de lugar sin sentido).
+        # Prioridad: base (si hay, sale de ahí como siempre) > marco (si
+        # hay) > última línea de texto (no todo el texto -- evita que
+        # una línea de arriba more el centro X hacia un lugar sin
+        # material en la línea de abajo, que es la que de verdad importa
+        # para el apoyo).
+        if con_base:
+            ancla_palo = soporte
+        elif aro is not None:
+            ancla_palo = aro
+        else:
+            ancla_palo = piezas_texto[-1]
+
+        minx, miny, maxx, maxy = ancla_palo.bounds
         cx_pata = (minx + maxx) / 2
-        palo = sg.box(cx_pata - ancho_palo_mm / 2, miny - largo_palo_mm,
-                      cx_pata + ancho_palo_mm / 2, miny + 0.5)
+
+        # En vez de asumir que hay material justo en el borde inferior
+        # del bbox (el 0.5mm fijo de antes -- un empujón a ciegas que a
+        # veces cae en un hueco entre letras y obliga a un puente
+        # torcido para llegar al material real), sondeamos una franja
+        # del ancho del palo para encontrar el punto más bajo con
+        # material DE VERDAD ahí, y hundimos el palo `solape_palo_mm`
+        # por ENCIMA de ese punto -- soldadura real, derecha, sin codo.
+        franja = sg.box(cx_pata - ancho_palo_mm / 2, miny - 1,
+                        cx_pata + ancho_palo_mm / 2, maxy + 1)
+        interseccion = ancla_palo.intersection(franja)
+        # si la franja no encuentra nada (cayó en un hueco real, ej. el
+        # centro del marco cuando es un aro fino) caemos al criterio de
+        # siempre -- ligeramente peor, pero nunca falla, y el puente que
+        # arme conectar_componentes más abajo sigue de red de seguridad.
+        y_material = interseccion.bounds[1] if not interseccion.is_empty else miny
+
+        y_tope_palo = y_material + solape_palo_mm
+        palo = sg.box(cx_pata - ancho_palo_mm / 2, y_tope_palo - largo_palo_mm,
+                      cx_pata + ancho_palo_mm / 2, y_tope_palo)
 
     # Las piezas (texto/borde/marco/base/decoración/palo) se conectan
     # TODAS JUNTAS en un solo pase -- así el árbol de expansión mínima
@@ -1352,10 +1498,16 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         conectores = extra
 
     texto_l1, texto_l2, texto_l3 = (list(piezas_texto) + [None, None, None])[:3]
+    # "marco" es siempre la primera pieza (el interior, en modo Relleno;
+    # el aro entero, en modo Aro); "marco_borde" solo existe con 2 piezas
+    # (Relleno) -- generar_plano decide si las vuelve a fusionar cuando
+    # coinciden en color, igual que con las líneas de texto.
+    marco_final, marco_borde_final = (list(piezas_marco) + [None, None])[:2]
 
     return {
         "texto": texto_l1, "texto_2": texto_l2, "texto_3": texto_l3,
-        "borde": borde, "marco": aro, "base": base, "palo": palo,
+        "borde": borde, "marco": marco_final, "marco_borde": marco_borde_final,
+        "base": base, "palo": palo,
         "decoracion": decoracion, "decoracion_2": decoracion_2, "decoracion_3": decoracion_3,
         "decoracion_4": decoracion_4, "conectores": conectores,
     }, n_puentes
@@ -1396,6 +1548,7 @@ def _extrudir_geom(geom, espesor_mm):
 def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_svg=None,
                    marco_imagen=None, marco_imagen_umbral=128, marco_imagen_invertir=False,
                    texto_sobre_marco=False,
+                   marco_tam_automatico=True, marco_tam_mm=100.0, marco_relleno=False,
                    decoracion_svg=None, decoracion_imagen=None, decoracion_imagen_umbral=128,
                    decoracion_imagen_invertir=False,
                    decoracion_multicolor_imagen=None, decoracion_multicolor_indices=None,
@@ -1403,16 +1556,17 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
                    decoraciones=None,
                    decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
                    decoracion_sobre_marco=False,
-                   decoracion_offset_x_mm=0.0, decoracion_offset_y_mm=0.0,
+                   decoracion_offset_x_mm=0.0, decoracion_offset_y_mm=0.0, decoracion_acercar_mm=0.0,
                    multiplicadores_linea=None, ancho_texto_factor=1.0,
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
                    grosor_marco_mm=3.0, margen_marco_mm=6.0, borde_texto_mm=0.0,
                    ancho_puente_mm=2.5, con_palo=True, largo_palo_mm=45.0,
-                   ancho_palo_mm=6.0, con_base=False, ancho_base_extra_mm=10.0, alto_base_mm=6.0,
+                   ancho_palo_mm=6.0, solape_palo_mm=2.5, con_base=False, ancho_base_extra_mm=10.0, alto_base_mm=6.0,
                    espesor_mm=3.0, raster_px=400,
                    tiene_ams=False, color_texto="Dorado", color_texto_2="Dorado", color_texto_3="Dorado",
                    color_borde="Blanco",
-                   color_marco="Dorado", color_palo="Dorado", color_decoracion="Dorado",
+                   color_marco="Dorado", color_marco_borde="Dorado",
+                   color_palo="Dorado", color_decoracion="Dorado",
                    color_decoracion_2="Blanco", color_decoracion_3="Negro", color_decoracion_4="Gris Frío",
                    color_conectores="Transparente/Natural", color_base="Dorado"):
     """Generar topper "plano" (recortado, tipo acrílico/madera láser): 1 a
@@ -1435,6 +1589,16 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
     necesidad. Solo quedan como regiones separadas ("texto"/"texto_2"/
     "texto_3") cuando de verdad se pidieron colores distintos.
 
+    `color_marco`/`color_marco_borde`: mismo criterio, pero para el
+    interior y el contorno de un marco en modo Relleno (`marco_relleno`
+    en `_armar_regiones_plano`) -- con `marco_relleno=True` el marco
+    SIEMPRE sale partido en 2 regiones ("marco"=interior, "marco_borde"
+    =contorno); si terminan del mismo color (el default, `color_marco_borde`
+    arranca igual a `color_marco`) se fusionan de nuevo en una sola
+    "marco" antes de exportar, mismo motivo que con el texto. En modo
+    Aro (`marco_relleno=False`) no hay "marco_borde" -- `color_marco_borde`
+    no se usa para nada.
+
     Devuelve un dict con las rutas, medidas y avisos."""
     os.makedirs(CARPETA_SALIDA, exist_ok=True)
 
@@ -1443,6 +1607,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         marco_imagen=marco_imagen, marco_imagen_umbral=marco_imagen_umbral,
         marco_imagen_invertir=marco_imagen_invertir,
         texto_sobre_marco=texto_sobre_marco,
+        marco_tam_automatico=marco_tam_automatico, marco_tam_mm=marco_tam_mm, marco_relleno=marco_relleno,
         decoracion_svg=decoracion_svg, decoracion_imagen=decoracion_imagen,
         decoracion_imagen_umbral=decoracion_imagen_umbral, decoracion_imagen_invertir=decoracion_imagen_invertir,
         decoracion_multicolor_imagen=decoracion_multicolor_imagen,
@@ -1452,12 +1617,13 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         decoracion_tam_mm=decoracion_tam_mm, decoracion_lado=decoracion_lado,
         decoracion_sobre_marco=decoracion_sobre_marco,
         decoracion_offset_x_mm=decoracion_offset_x_mm, decoracion_offset_y_mm=decoracion_offset_y_mm,
+        decoracion_acercar_mm=decoracion_acercar_mm,
         multiplicadores_linea=multiplicadores_linea, ancho_texto_factor=ancho_texto_factor,
         espaciado_relativo=espaciado_relativo, separacion_lineas_mm=separacion_lineas_mm,
         offset_vertical_mm=offset_vertical_mm, grosor_marco_mm=grosor_marco_mm,
         margen_marco_mm=margen_marco_mm, borde_texto_mm=borde_texto_mm,
         ancho_puente_mm=ancho_puente_mm, con_palo=con_palo, largo_palo_mm=largo_palo_mm,
-        ancho_palo_mm=ancho_palo_mm, con_base=con_base, ancho_base_extra_mm=ancho_base_extra_mm,
+        ancho_palo_mm=ancho_palo_mm, solape_palo_mm=solape_palo_mm, con_base=con_base, ancho_base_extra_mm=ancho_base_extra_mm,
         alto_base_mm=alto_base_mm, raster_px=raster_px,
     )
 
@@ -1474,6 +1640,15 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         regiones["texto_2"] = None
         regiones["texto_3"] = None
 
+    # Mismo criterio para el marco en modo Relleno: "marco" (interior) +
+    # "marco_borde" (contorno) se vuelven a fusionar en una sola "marco"
+    # si terminan del mismo color -- con marco_relleno=False no hay
+    # "marco_borde" (queda None) y esto no hace nada.
+    if regiones.get("marco_borde") is not None and color_marco == color_marco_borde:
+        sg, so = _shapely()
+        regiones["marco"] = so.unary_union([regiones["marco"], regiones["marco_borde"]])
+        regiones["marco_borde"] = None
+
     lineas_validas = [l.strip() for l in lineas if l and l.strip()][:3]
     base_nombre = pieza.nombre_archivo(" ".join(lineas_validas), default="topper")
     marco_slug = "".join(c if c.isalnum() else "_" for c in marco).strip("_")
@@ -1481,7 +1656,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
 
     colores_por_region = {
         "texto": color_texto, "texto_2": color_texto_2, "texto_3": color_texto_3,
-        "borde": color_borde, "marco": color_marco,
+        "borde": color_borde, "marco": color_marco, "marco_borde": color_marco_borde,
         "palo": color_palo, "decoracion": color_decoracion, "conectores": color_conectores,
         "base": color_base,
         "decoracion_2": color_decoracion_2, "decoracion_3": color_decoracion_3, "decoracion_4": color_decoracion_4,
@@ -1534,7 +1709,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         "aviso_colores_3mf": aviso_colores_3mf,
         "colores": {
             "texto": color_texto, "texto_2": color_texto_2, "texto_3": color_texto_3,
-            "borde": color_borde, "marco": color_marco, "palo": color_palo,
+            "borde": color_borde, "marco": color_marco, "marco_borde": color_marco_borde, "palo": color_palo,
             "decoracion": color_decoracion, "conectores": color_conectores, "base": color_base,
             "decoracion_2": color_decoracion_2, "decoracion_3": color_decoracion_3, "decoracion_4": color_decoracion_4,
         },
@@ -1735,7 +1910,7 @@ def _shapely_a_svg_path(geom):
 def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
                         color_texto="#d4af37", color_texto_2=None, color_texto_3=None,
                         color_borde="#f4f4f2",
-                        color_marco="#d4af37", color_palo="#d4af37",
+                        color_marco="#d4af37", color_marco_borde=None, color_palo="#d4af37",
                         color_decoracion="#d4af37", color_conectores="#dce8e8",
                         color_base="#d4af37",
                         color_decoracion_2="#f4f4f2", color_decoracion_3="#1a1a1a",
@@ -1760,7 +1935,8 @@ def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
     tx, ty = -minx + pad, maxy + pad  # ty: ya negamos Y en _shapely_a_svg_path
 
     colores_region = {
-        "conectores": color_conectores, "base": color_base, "marco": color_marco, "palo": color_palo,
+        "conectores": color_conectores, "base": color_base, "marco": color_marco,
+        "marco_borde": color_marco_borde or color_marco, "palo": color_palo,
         "decoracion": color_decoracion, "decoracion_2": color_decoracion_2, "decoracion_3": color_decoracion_3,
         "decoracion_4": color_decoracion_4, "borde": color_borde, "texto": color_texto,
         "texto_2": color_texto_2 or color_texto, "texto_3": color_texto_3 or color_texto,
@@ -1768,8 +1944,9 @@ def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
     capas = "".join(
         f'<path d="{_shapely_a_svg_path(regiones[clave])}" fill="{colores_region[clave]}" '
         f'fill-rule="evenodd" stroke="#00000055" stroke-width="0.4"/>'
-        for clave in ("conectores", "base", "marco", "palo", "decoracion", "decoracion_2", "decoracion_3",
-                      "decoracion_4", "borde", "texto", "texto_2", "texto_3") if regiones.get(clave) is not None
+        for clave in ("conectores", "base", "marco", "marco_borde", "palo", "decoracion", "decoracion_2",
+                      "decoracion_3", "decoracion_4", "borde", "texto", "texto_2", "texto_3")
+        if regiones.get(clave) is not None
     )
 
     puentes_txt = f"{n_puentes} puente(s)" if n_puentes else "sin puentes (ya conectado)"

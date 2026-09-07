@@ -35,13 +35,16 @@ PRESET_KEYS = [
     "tp_plano_l1", "tp_plano_l2", "tp_plano_l3", "tp_plano_marco", "tp_plano_palo",
     "tp_plano_tam_l1", "tp_plano_tam_l2", "tp_plano_tam_l3", "tp_plano_ancho_texto",
     "tp_plano_espesor", "tp_plano_separacion", "tp_plano_palo_largo", "tp_plano_palo_ancho",
+    "tp_plano_palo_solape",
     "tp_plano_offset_y", "tp_plano_borde", "tp_plano_color_texto",
     "tp_plano_color_texto_2", "tp_plano_color_texto_3", "tp_plano_color_borde",
     "tp_plano_color_marco", "tp_plano_color_palo", "tp_plano_ams",
     "tp_plano_margen_marco", "tp_plano_grosor_marco", "tp_plano_texto_sobre_marco",
+    "tp_plano_marco_tam_modo", "tp_plano_marco_tam_manual", "tp_plano_marco_estilo",
+    "tp_plano_color_marco_borde",
     "tp_plano_decoracion_lado", "tp_plano_decoracion_tam", "tp_plano_color_decoracion",
     "tp_plano_decoracion_sobre_marco",
-    "tp_plano_decoracion_offset_x", "tp_plano_decoracion_offset_y",
+    "tp_plano_decoracion_offset_x", "tp_plano_decoracion_offset_y", "tp_plano_decoracion_acercar",
     "tp_plano_color_conectores",
     "tp_plano_base", "tp_plano_base_ancho_extra", "tp_plano_base_alto", "tp_plano_color_base",
     "tp_plano_marco_imagen_umbral", "tp_plano_marco_imagen_invertir",
@@ -167,17 +170,41 @@ with col_form:
                              "ser un píxel para contar como parte del logo. Subilo si falta parte "
                              "del dibujo, bajalo si trae de más el fondo."
                     )
+            marco_tam_modo_plano = st.radio(
+                "Tamaño del marco", ["Automático", "Manual"], horizontal=True,
+                disabled=marco_plano == "Ninguno", key="tp_plano_marco_tam_modo",
+                help="Automático: el marco se calcula a partir del texto + 'Distancia al texto', "
+                     "como siempre. Manual: elegís el tamaño en mm de abajo y el marco lo usa "
+                     "directo, ignorando el texto (y la distancia, que en ese caso no aplica)."
+            )
+            marco_tam_automatico_plano = marco_tam_modo_plano == "Automático"
+            marco_tam_manual_plano = st.slider(
+                "Tamaño del marco (mm)", 20.0, 250.0, 100.0, step=5.0,
+                disabled=marco_plano == "Ninguno" or marco_tam_automatico_plano,
+                key="tp_plano_marco_tam_manual",
+                help="Diámetro/lado mayor del marco -- solo se usa en modo Manual.",
+            )
             margen_marco_plano = st.slider(
                 "Distancia del marco al texto (mm)", 2.0, 30.0, 6.0, step=1.0,
-                disabled=marco_plano == "Ninguno", key="tp_plano_margen_marco",
+                disabled=marco_plano == "Ninguno" or not marco_tam_automatico_plano,
+                key="tp_plano_margen_marco",
                 help="Qué tan grande es el marco respecto del texto -- más margen, más lejos "
-                     "queda el aro de las letras (marco más grande)."
+                     "queda el aro de las letras (marco más grande). Solo aplica en modo Automático."
             )
             grosor_marco_plano = st.slider(
                 "Grosor del marco (mm)", 1.0, 8.0, 3.0, step=0.5,
                 disabled=marco_plano == "Ninguno", key="tp_plano_grosor_marco",
-                help="Ancho de la línea del aro en sí (no confundir con la distancia al texto)."
+                help="Ancho de la línea del aro en sí (no confundir con la distancia al texto). "
+                     "No aplica con el estilo 'Relleno' (ahí el marco es macizo, sin línea)."
             )
+            marco_estilo_plano = st.radio(
+                "Estilo del marco", ["Aro", "Relleno"], horizontal=True,
+                disabled=marco_plano == "Ninguno", key="tp_plano_marco_estilo",
+                help="Aro: solo el contorno, como siempre. Relleno: la forma completa sólida de "
+                     "un color -- combinalo con 'Texto sobre el marco' para que las letras la "
+                     "calen (hueco) en vez de quedar tapadas."
+            )
+            marco_relleno_plano = marco_estilo_plano == "Relleno"
             texto_sobre_marco_plano = st.checkbox(
                 "Texto sobre el marco", value=False,
                 disabled=marco_plano == "Ninguno", key="tp_plano_texto_sobre_marco",
@@ -203,29 +230,51 @@ with col_form:
                      "abajo, así hacen falta menos conectores.",
             )
         with col_b:
-            con_palo_plano = st.checkbox("Palo para clavar en la torta", value=True, key="tp_plano_palo")
+            st.caption(
+                "**Apoyo**: el palo se clava en la torta. Con 'Con base ancha' tildado, sale de "
+                "una placa ancha (tipo barra en T) para que no se ladee/incline; destildado, sale "
+                "derecho, clavado directo en el marco o el texto."
+            )
+            con_palo_plano = st.checkbox(
+                "Palo para clavar en la torta", value=True, key="tp_plano_palo",
+                help="El palito que se clava en la torta. Se ancla solo al marco (si hay), a la "
+                     "base (si la activás abajo) o si no a la última línea de texto.",
+            )
             largo_palo_plano = st.slider(
                 "Largo del palo (mm)", 20.0, 100.0, 45.0, step=5.0,
                 disabled=not con_palo_plano, key="tp_plano_palo_largo",
+                help="Cuánto entra el palo en la torta.",
             )
             ancho_palo_plano = st.slider(
                 "Ancho del palo (mm)", 3.0, 15.0, 6.0, step=1.0,
                 disabled=not con_palo_plano, key="tp_plano_palo_ancho",
+                help="Grosor del palo -- más ancho, más firme y menos frágil al clavarlo.",
+            )
+            solape_palo_plano = st.slider(
+                "Solape del palo (mm)", 0.0, 8.0, 2.5, step=0.5,
+                disabled=not con_palo_plano, key="tp_plano_palo_solape",
+                help="Cuánto se mete el palo dentro del material real del marco/texto donde se "
+                     "ancla, para soldar firme y derecho sin necesitar un puente. Si el diseño "
+                     "queda flojo, subilo; si el palo se nota demasiado metido, bajalo.",
             )
             con_base_plano = st.checkbox(
-                "Con base (en vez de clavar directo)", value=False, key="tp_plano_base",
-                help="Una placa/plataforma horizontal abajo de todo el diseño -- alternativa al "
-                     "marco, para el estilo 'topper parado sobre una base' (bautismo, casamiento). "
-                     "Si además hay palo, sale de la base en vez de directo del texto."
+                "Con base ancha (tipo barra en T, más firme)", value=False, key="tp_plano_base",
+                help="Agrega una placa ancha y fina debajo de todo el diseño -- el palo sale de "
+                     "ahí, formando una especie de T para que no se ladee/incline. Sin tildar "
+                     "esto, el palo sale derecho, clavado directo en el marco o el texto. También "
+                     "sirve como alternativa visual al marco, para el estilo 'topper parado sobre "
+                     "una base' (bautismo, casamiento)."
             )
             ancho_base_extra_plano = st.slider(
                 "Ancho extra de la base (mm)", 0.0, 40.0, 10.0, step=2.0,
                 disabled=not con_base_plano, key="tp_plano_base_ancho_extra",
-                help="Cuánto más ancha es la base que el diseño (a cada lado)."
+                help="Cuánto más ancha es la placa que el diseño, a cada lado -- más ancho, más "
+                     "firme el apoyo (la T queda más abierta), para que no se ladee/incline."
             )
             alto_base_plano = st.slider(
                 "Alto de la base (mm)", 2.0, 15.0, 6.0, step=1.0,
                 disabled=not con_base_plano, key="tp_plano_base_alto",
+                help="Espesor de la placa -- más alto, más rígida, pero también más material.",
             )
         offset_vertical_plano = st.slider(
             "Mover el texto arriba/abajo (mm)", -30.0, 30.0, 0.0, step=1.0, key="tp_plano_offset_y",
@@ -244,6 +293,12 @@ with col_form:
         # diseño, compartido por la decoración simple y por cada casillero de
         # "Múltiples decoraciones" (se define acá, antes de las dos, para no duplicarlo).
         _offset_dec_max = float(max(50.0, round(tamaño_mm * 1.0)))
+        # Tope de "Acercar al texto" -- más chico que el de offset X/Y a
+        # propósito: acercar solo tiene que cerrar el hueco hasta tocar el
+        # texto/marco, no cruzar todo el diseño. Relativo igual, para que
+        # en un diseño chico (tamaño_mm mínimo) no se pueda pasar de largo
+        # al otro lado del texto.
+        _acercar_dec_max = float(max(10.0, round(tamaño_mm * 0.5)))
         origen_decoracion_plano = st.radio(
             "Origen", ["Ninguna", "SVG", "Imagen (un color)", "Imagen multicolor", "Múltiples decoraciones"],
             horizontal=True, key="tp_plano_decoracion_origen",
@@ -416,6 +471,13 @@ with col_form:
                         key=f"tp_plano_multi_dec_{i}_offset_y",
                         help="Ídem, positivo hacia arriba.",
                     )
+                    item["acercar_mm"] = st.slider(
+                        "Acercar al texto (mm)", 0.0, _acercar_dec_max, 0.0, step=1.0,
+                        key=f"tp_plano_multi_dec_{i}_acercar",
+                        help="Después del Lado y de 'Correr horizontal/vertical', empuja ESTA "
+                             "decoración hacia el centro del texto/marco -- lo suficiente y se "
+                             "suelda sólida, sin necesitar un conector.",
+                    )
                     color_slot = st.selectbox(
                         "Color", list(colores.NOMBRES),
                         index=list(colores.NOMBRES).index("Dorado"),
@@ -455,6 +517,14 @@ with col_form:
             disabled=not hay_decoracion or origen_decoracion_plano == "Múltiples decoraciones",
             help="Ídem, positivo hacia arriba.",
         )
+        decoracion_acercar_plano = st.slider(
+            "Acercar al texto (mm)", 0.0, _acercar_dec_max, 0.0, step=1.0,
+            key="tp_plano_decoracion_acercar",
+            disabled=not hay_decoracion or origen_decoracion_plano == "Múltiples decoraciones",
+            help="Después del Lado y de 'Correr horizontal/vertical', empuja la decoración esa "
+                 "distancia hacia el centro del texto/marco -- lo suficiente y se suelda sólida, "
+                 "sin necesitar un conector.",
+        )
         decoracion_sobre_marco_plano = st.checkbox(
             "Decoración sobre el marco", value=False,
             disabled=not hay_decoracion or marco_plano == "Ninguno",
@@ -492,6 +562,13 @@ with col_form:
         color_marco_plano = col_c2.selectbox(
             "Marco", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
             disabled=marco_plano == "Ninguno", key="tp_plano_color_marco",
+        )
+        color_marco_borde_plano = col_c2.selectbox(
+            "Color del borde del marco", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
+            disabled=marco_plano == "Ninguno" or not marco_relleno_plano, key="tp_plano_color_marco_borde",
+            help="Solo con marco Relleno. Si coincide con 'Marco', el interior y el borde se "
+                 "exportan como una sola región -- distinto solo si de verdad querés un contorno "
+                 "de otro color.",
         )
         color_base_plano = col_c3.selectbox(
             "Base", list(colores.NOMBRES), index=list(colores.NOMBRES).index("Dorado"),
@@ -599,11 +676,13 @@ with col_preview:
                 decoracion_tam_mm=decoracion_tam_plano,
                 decoracion_lado=decoracion_lado_plano, decoracion_sobre_marco=decoracion_sobre_marco_plano,
                 decoracion_offset_x_mm=decoracion_offset_x_plano, decoracion_offset_y_mm=decoracion_offset_y_plano,
+                decoracion_acercar_mm=decoracion_acercar_plano,
                 multiplicadores_linea=multiplicadores_lineas_plano, ancho_texto_factor=ancho_texto_plano / 100.0,
                 color_texto=colores.hex_de(color_texto_plano), color_texto_2=colores.hex_de(color_texto_2_plano),
                 color_texto_3=colores.hex_de(color_texto_3_plano),
                 color_borde=colores.hex_de(color_borde_plano),
-                color_marco=colores.hex_de(color_marco_plano), color_palo=colores.hex_de(color_palo_plano),
+                color_marco=colores.hex_de(color_marco_plano), color_marco_borde=colores.hex_de(color_marco_borde_plano),
+                color_palo=colores.hex_de(color_palo_plano),
                 color_decoracion=colores.hex_de(_colores_decoracion_final[0]),
                 color_decoracion_2=colores.hex_de(_colores_decoracion_final[1]),
                 color_decoracion_3=colores.hex_de(_colores_decoracion_final[2]),
@@ -614,7 +693,10 @@ with col_preview:
                 borde_texto_mm=borde_texto_plano,
                 margen_marco_mm=margen_marco_plano, grosor_marco_mm=grosor_marco_plano,
                 texto_sobre_marco=texto_sobre_marco_plano,
+                marco_tam_automatico=marco_tam_automatico_plano, marco_tam_mm=marco_tam_manual_plano,
+                marco_relleno=marco_relleno_plano,
                 con_palo=con_palo_plano, largo_palo_mm=largo_palo_plano, ancho_palo_mm=ancho_palo_plano,
+                solape_palo_mm=solape_palo_plano,
                 con_base=con_base_plano, ancho_base_extra_mm=ancho_base_extra_plano, alto_base_mm=alto_base_plano,
             )
             if html_preview:
@@ -730,6 +812,9 @@ with col_preview:
                             marco_imagen_umbral=marco_imagen_umbral_plano,
                             marco_imagen_invertir=marco_imagen_invertir_plano,
                             texto_sobre_marco=texto_sobre_marco_plano,
+                            marco_tam_automatico=marco_tam_automatico_plano,
+                            marco_tam_mm=marco_tam_manual_plano,
+                            marco_relleno=marco_relleno_plano,
                             decoracion_svg=decoracion_svg_ruta,
                             decoracion_imagen=decoracion_imagen_ruta,
                             decoracion_imagen_umbral=decoracion_imagen_umbral_plano,
@@ -742,6 +827,7 @@ with col_preview:
                             decoracion_sobre_marco=decoracion_sobre_marco_plano,
                             decoracion_offset_x_mm=decoracion_offset_x_plano,
                             decoracion_offset_y_mm=decoracion_offset_y_plano,
+                            decoracion_acercar_mm=decoracion_acercar_plano,
                             multiplicadores_linea=multiplicadores_lineas_plano,
                             ancho_texto_factor=ancho_texto_plano / 100.0,
                             margen_marco_mm=margen_marco_plano,
@@ -752,6 +838,7 @@ with col_preview:
                             con_palo=con_palo_plano,
                             largo_palo_mm=largo_palo_plano,
                             ancho_palo_mm=ancho_palo_plano,
+                            solape_palo_mm=solape_palo_plano,
                             con_base=con_base_plano,
                             ancho_base_extra_mm=ancho_base_extra_plano,
                             alto_base_mm=alto_base_plano,
@@ -762,6 +849,7 @@ with col_preview:
                             color_texto_3=color_texto_3_plano,
                             color_borde=color_borde_plano,
                             color_marco=color_marco_plano,
+                            color_marco_borde=color_marco_borde_plano,
                             color_palo=color_palo_plano,
                             color_decoracion=_colores_decoracion_final[0],
                             color_decoracion_2=_colores_decoracion_final[1],
