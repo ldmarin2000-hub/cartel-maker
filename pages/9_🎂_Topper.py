@@ -110,12 +110,18 @@ for _i in range(topper.MAX_COLORES_DECORACION_MULTICOLOR):
         if _sufijo.endswith("__ruta"):
             PRESET_FILE_KEYS.append(_key)
 
-tipo_topper = st.radio("Tipo de topper", TIPOS_TOPPER, horizontal=True, key="tp_tipo")
-
 col_form, col_preview = st.columns([1, 1.3])
 
 with col_form:
+    # OJO: bloque_presets() tiene que ir ANTES de cualquier widget cuya
+    # key esté en PRESET_KEYS -- "Cargar" hace st.session_state[k] = v
+    # para restaurar valores, y Streamlit no permite tocar el estado de
+    # un widget que ya se instanció en esta misma corrida ("tp_tipo" es
+    # una de esas keys). Por eso el radio "Tipo de topper" se mueve para
+    # acá, DESPUÉS del bloque de presets, en vez de afuera de la columna.
     bloque_presets("topper", PRESET_KEYS, claves_archivo=PRESET_FILE_KEYS)
+
+    tipo_topper = st.radio("Tipo de topper", TIPOS_TOPPER, horizontal=True, key="tp_tipo")
 
     es_plano = "Plano" in tipo_topper
 
