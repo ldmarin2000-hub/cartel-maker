@@ -18,6 +18,34 @@ from ui_streamlit import bloque_presets, selector_fuente
 
 st.set_page_config(page_title="Topper · Cartel Maker", page_icon="🎂", layout="wide")
 
+
+def _resolver_archivo_subido(subido, key_uploader, prefijo_output):
+    """Guarda `subido` (un UploadedFile de un file_uploader con key
+    `key_uploader`) en output/ y actualiza la key "sombra"
+    `<key_uploader>__ruta` en session_state -- esa key sombra (no el
+    uploader en sí, que Streamlit no permite rellenar programáticamente)
+    es la que se guarda/restaura en los presets. Subir un archivo nuevo
+    siempre reemplaza lo que hubiera ahí, incluido lo que viniera de un
+    preset recién cargado.
+
+    Devuelve la ruta a usar: la del archivo recién subido si hay uno;
+    si no, la que haya quedado en la key sombra (de un preset cargado,
+    o de una subida anterior en esta misma sesión); None si no hay
+    nada. Si esa ruta ya no existe en disco (se borró/movió), la
+    ignora en vez de romper más adelante al intentar abrirla."""
+    key_ruta = f"{key_uploader}__ruta"
+    if subido is not None:
+        os.makedirs("output", exist_ok=True)
+        ruta = os.path.join("output", f"{prefijo_output}_{subido.name}")
+        with open(ruta, "wb") as f:
+            f.write(subido.getvalue())
+        st.session_state[key_ruta] = ruta
+
+    ruta = st.session_state.get(key_ruta)
+    if ruta and not os.path.exists(ruta):
+        ruta = None
+    return ruta
+
 st.title("🎂 Topper (decoración para tortas y más)")
 st.caption("Crea toppers para tortas, cupcakes, postres. Impresión 3D, Neón, LED, Acrílico.")
 
@@ -52,12 +80,42 @@ PRESET_KEYS = [
     "tp_plano_decoracion_origen",
 ]
 
+# Keys "sombra" (ver _resolver_archivo_subido) para los uploaders que NO
+# son de "Múltiples decoraciones" -- guardan la RUTA del archivo en uso,
+# no el archivo subido en sí (eso Streamlit no lo permite restaurar).
+PRESET_FILE_KEYS = [
+    "tp_plano_marco_svg__ruta",
+    "tp_plano_marco_imagen__ruta",
+    "tp_plano_decoracion_svg__ruta",
+    "tp_plano_decoracion_imagen__ruta",
+    "tp_plano_decoracion_multicolor_imagen__ruta",
+]
+PRESET_KEYS += PRESET_FILE_KEYS
+
+# Un casillero de "Múltiples decoraciones" completo necesita las 12 --
+# no alcanza con lado/tamaño/color/offsets/acercar: sin "usar" el
+# casillero ni siquiera queda marcado activo, sin "tipo" no se sabe si
+# mirar la key de archivo SVG o la de imagen, y "invertir"/"umbral"
+# solo importan si es imagen. Cada key se agrega una sola vez -- a
+# PRESET_KEYS siempre, y además a PRESET_FILE_KEYS si es una de
+# archivo (termina en "__ruta").
+SUFIJOS_MULTI_DEC = (
+    "usar", "tipo", "svg__ruta", "imagen__ruta", "invertir", "umbral",
+    "lado", "tam", "offset_x", "offset_y", "acercar", "color",
+)
+for _i in range(topper.MAX_COLORES_DECORACION_MULTICOLOR):
+    for _sufijo in SUFIJOS_MULTI_DEC:
+        _key = f"tp_plano_multi_dec_{_i}_{_sufijo}"
+        PRESET_KEYS.append(_key)
+        if _sufijo.endswith("__ruta"):
+            PRESET_FILE_KEYS.append(_key)
+
 tipo_topper = st.radio("Tipo de topper", TIPOS_TOPPER, horizontal=True, key="tp_tipo")
 
 col_form, col_preview = st.columns([1, 1.3])
 
 with col_form:
-    bloque_presets("topper", PRESET_KEYS)
+    bloque_presets("topper", PRESET_KEYS, claves_archivo=PRESET_FILE_KEYS)
 
     es_plano = "Plano" in tipo_topper
 
@@ -143,22 +201,15 @@ with col_form:
                          "mejor con una silueta cerrada simple -- una estrella, un corazón, "
                          "un logo -- que con un dibujo que ya es un aro/corona)."
                 )
-                if marco_svg_subido is not None:
-                    os.makedirs("output", exist_ok=True)
-                    marco_svg_ruta = os.path.join("output", f"_subido_tp_marco_{marco_svg_subido.name}")
-                    with open(marco_svg_ruta, "wb") as f:
-                        f.write(marco_svg_subido.getvalue())
+                marco_svg_ruta = _resolver_archivo_subido(marco_svg_subido, "tp_plano_marco_svg", "_subido_tp_marco")
             elif marco_plano == "Imagen propia":
                 marco_imagen_subida = st.file_uploader(
                     "Imagen (PNG/JPG) para el marco", type=["png", "jpg", "jpeg"], key="tp_plano_marco_imagen",
                     help="Un logo/ícono simple (silueta clara sobre fondo liso o transparente, "
                          "no una foto) -- se usa su silueta como aro, igual que con un SVG."
                 )
-                if marco_imagen_subida is not None:
-                    os.makedirs("output", exist_ok=True)
-                    marco_imagen_ruta = os.path.join("output", f"_subido_tp_marco_{marco_imagen_subida.name}")
-                    with open(marco_imagen_ruta, "wb") as f:
-                        f.write(marco_imagen_subida.getvalue())
+                marco_imagen_ruta = _resolver_archivo_subido(marco_imagen_subida, "tp_plano_marco_imagen", "_subido_tp_marco")
+                if marco_imagen_ruta:
                     marco_imagen_invertir_plano = st.checkbox(
                         "Imagen clara sobre fondo oscuro", value=False, key="tp_plano_marco_imagen_invertir",
                         help="Tildá esto si el logo es claro y el fondo oscuro (al revés del caso "
@@ -332,11 +383,8 @@ with col_form:
                 help="Un dibujo suelto (una mariposa, un moño, un logo) que se pega al costado o "
                      "arriba del diseño -- funciona mejor con una silueta cerrada simple."
             )
-            if decoracion_svg_subido is not None:
-                os.makedirs("output", exist_ok=True)
-                decoracion_svg_ruta = os.path.join("output", f"_subido_tp_decoracion_{decoracion_svg_subido.name}")
-                with open(decoracion_svg_ruta, "wb") as f:
-                    f.write(decoracion_svg_subido.getvalue())
+            decoracion_svg_ruta = _resolver_archivo_subido(
+                decoracion_svg_subido, "tp_plano_decoracion_svg", "_subido_tp_decoracion")
 
         elif origen_decoracion_plano == "Imagen (un color)":
             decoracion_imagen_subida = st.file_uploader(
@@ -344,11 +392,9 @@ with col_form:
                 key="tp_plano_decoracion_imagen",
                 help="Un logo/ícono simple (silueta clara sobre fondo liso o transparente, no una foto)."
             )
-            if decoracion_imagen_subida is not None:
-                os.makedirs("output", exist_ok=True)
-                decoracion_imagen_ruta = os.path.join("output", f"_subido_tp_decoracion_{decoracion_imagen_subida.name}")
-                with open(decoracion_imagen_ruta, "wb") as f:
-                    f.write(decoracion_imagen_subida.getvalue())
+            decoracion_imagen_ruta = _resolver_archivo_subido(
+                decoracion_imagen_subida, "tp_plano_decoracion_imagen", "_subido_tp_decoracion")
+            if decoracion_imagen_ruta:
                 decoracion_imagen_invertir_plano = st.checkbox(
                     "Imagen clara sobre fondo oscuro", value=False, key="tp_plano_decoracion_imagen_invertir",
                 )
@@ -368,13 +414,9 @@ with col_form:
                      "usá ese en vez del PNG/JPG: los colores ya vienen declarados en el archivo, "
                      "en vez de tener que adivinarlos analizando píxeles."
             )
-            if decoracion_multicolor_subida is not None:
-                os.makedirs("output", exist_ok=True)
-                decoracion_multicolor_imagen_ruta = os.path.join(
-                    "output", f"_subido_tp_decoracion_multicolor_{decoracion_multicolor_subida.name}")
-                with open(decoracion_multicolor_imagen_ruta, "wb") as f:
-                    f.write(decoracion_multicolor_subida.getvalue())
-
+            decoracion_multicolor_imagen_ruta = _resolver_archivo_subido(
+                decoracion_multicolor_subida, "tp_plano_decoracion_multicolor_imagen", "_subido_tp_decoracion_multicolor")
+            if decoracion_multicolor_imagen_ruta:
                 colores_detectados_raw = topper.detectar_colores_imagen(decoracion_multicolor_imagen_ruta)
                 if not colores_detectados_raw:
                     st.warning("No se pudo detectar ningún color con área en esta imagen.")
@@ -435,22 +477,18 @@ with col_form:
                         subido = st.file_uploader(
                             "SVG", type=["svg"], key=f"tp_plano_multi_dec_{i}_svg",
                         )
-                        if subido is not None:
-                            os.makedirs("output", exist_ok=True)
-                            ruta = os.path.join("output", f"_subido_tp_multidec_{i}_{subido.name}")
-                            with open(ruta, "wb") as f:
-                                f.write(subido.getvalue())
+                        ruta = _resolver_archivo_subido(
+                            subido, f"tp_plano_multi_dec_{i}_svg", f"_subido_tp_multidec_{i}")
+                        if ruta:
                             item["svg"] = ruta
                     else:
                         subido = st.file_uploader(
                             "Imagen (PNG/JPG)", type=["png", "jpg", "jpeg"],
                             key=f"tp_plano_multi_dec_{i}_imagen",
                         )
-                        if subido is not None:
-                            os.makedirs("output", exist_ok=True)
-                            ruta = os.path.join("output", f"_subido_tp_multidec_{i}_{subido.name}")
-                            with open(ruta, "wb") as f:
-                                f.write(subido.getvalue())
+                        ruta = _resolver_archivo_subido(
+                            subido, f"tp_plano_multi_dec_{i}_imagen", f"_subido_tp_multidec_{i}")
+                        if ruta:
                             item["imagen"] = ruta
                             item["invertir"] = st.checkbox(
                                 "Imagen clara sobre fondo oscuro", value=False,

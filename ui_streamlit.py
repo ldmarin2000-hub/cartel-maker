@@ -71,7 +71,7 @@ def selector_fuente(label, key, default_nombre="Comic Sans MS", texto_muestra=No
     return ruta_ttf
 
 
-def bloque_presets(generador, keys):
+def bloque_presets(generador, keys, claves_archivo=()):
     """Cargar/guardar/borrar combinaciones de parámetros guardadas para
     `generador` (ej. "llavero") — un preset guarda el valor actual de
     cada `key` en `keys` (los mismos `key=` que le diste a los widgets
@@ -79,7 +79,14 @@ def bloque_presets(generador, keys):
     fuerza un `st.rerun()` para que el próximo render de esos widgets
     ya salga con esos valores. Funciona en cualquier lugar de la
     página (no hace falta que esté antes de los widgets — el rerun se
-    encarga de eso)."""
+    encarga de eso).
+
+    `claves_archivo`: subconjunto de `keys` cuyo VALOR es un path a un
+    archivo en disco (no un archivo subido en sí -- eso Streamlit no
+    lo permite guardar/restaurar, ver la key "sombra" `<key>__ruta` que
+    arma cada página) -- `core.presets.guardar` copia esos archivos
+    adentro de la carpeta propia del preset en vez de guardar solo la
+    ruta, para que el preset quede autocontenido."""
     with st.expander("💾 Presets guardados"):
         existentes = presets.listar(generador)
 
@@ -107,7 +114,7 @@ def bloque_presets(generador, keys):
             disabled=not nombre_nuevo.strip(), use_container_width=True,
         ):
             valores = {k: st.session_state[k] for k in keys if k in st.session_state}
-            presets.guardar(generador, nombre_nuevo.strip(), valores)
+            presets.guardar(generador, nombre_nuevo.strip(), valores, claves_archivo=claves_archivo)
             st.success(f"Preset '{nombre_nuevo}' guardado.")
             st.rerun()
 
