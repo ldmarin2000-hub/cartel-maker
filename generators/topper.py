@@ -1132,6 +1132,37 @@ def _mejor_trazo_vertical(poligono, ancho_mm, umbral_relativo=UMBRAL_TRAZO_RELAT
     return max(candidatos, key=lambda c: c[1])[0]
 
 
+def _linea_base_comun(piezas, tolerancia_mm):
+    """Agrupa el borde inferior (`miny`) de cada pieza suelta de
+    `piezas` -- pensado para las letras sueltas del texto -- con
+    `tolerancia_mm` de margen entre una y otra, y devuelve el promedio
+    del grupo con MÁS piezas: la línea base tipográfica real, donde se
+    apoya la MAYORÍA de las letras. Un descendente aislado (una "g",
+    una "j") tiene un `miny` mucho más bajo que el resto de las letras
+    y cae en su propio grupo chico, sin arrastrar el resultado hacia
+    abajo con él -- a diferencia de usar directamente el `miny` de todo
+    el conjunto, que sí queda determinado por ese único descendente."""
+    minys_ordenados = sorted(pieza.bounds[1] for pieza in piezas)
+
+    grupos = []
+    for y in minys_ordenados:
+        agregado_a_grupo_existente = False
+        for grupo in grupos:
+            if abs(y - grupo[-1]) <= tolerancia_mm:
+                grupo.append(y)
+                agregado_a_grupo_existente = True
+                break
+        if not agregado_a_grupo_existente:
+            grupos.append([y])
+
+    grupo_mas_grande = grupos[0]
+    for grupo in grupos:
+        if len(grupo) > len(grupo_mas_grande):
+            grupo_mas_grande = grupo
+
+    return sum(grupo_mas_grande) / len(grupo_mas_grande)
+
+
 # Etiqueta humana y sugerencia por región, para el aviso de conectores
 # (ver _armar_aviso_conectores) -- una región sin sugerencia (None) no
 # agrega nada después del punto, para no inventar un consejo que no
@@ -1279,7 +1310,19 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     marco se sigue calculando del texto en los dos casos. `con_base` agrega una placa
     horizontal abajo de todo (alternativa al marco, estilo "topper
     parado sobre una base" en vez de "adentro de un aro") -- si además
-    hay palo, sale directo de la base en vez de directo del texto.
+    hay palo, sale directo de la base en vez de directo del texto. La
+    altura de la placa se apoya en la LÍNEA BASE tipográfica común (ver
+    `_linea_base_comun`) -- el nivel donde se apoya la MAYORÍA de las
+    letras -- y no en el punto más bajo absoluto del diseño: un
+    descendente aislado ("g", "j", "p") bajaba antes ese punto mucho más
+    que el resto de las letras, dejando la placa a SU nivel y obligando
+    a un puente fino por cada letra que no llegaba hasta ahí (probado
+    con "Jugando": 6 puentes). Con la línea base común, la placa toca
+    de entrada a casi todas las letras y solo el/los descendente(s) la
+    solapan (soldadura normal, no un problema) -- 0 puentes en los
+    mismos casos. Un solape chico y relativo al alto de línea (no fijo
+    en mm, para no taparle media letra a un texto chico) asegura que
+    incluso esa mayoría quede bien soldada, no solo tocando por un pelo.
 
     El palo (`con_palo`) se ancla, en orden de prioridad: la base (si
     `con_base`), si no el marco (si hay), si no la ÚLTIMA línea de texto
@@ -1592,8 +1635,30 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         # sobre una base", como pastel de bautismo/casamiento: ancho =
         # el diseño + un margen a cada lado, altura fija chica.
         minx, miny, maxx, maxy = principal.bounds
-        base = sg.box(minx - ancho_base_extra_mm, miny - alto_base_mm,
-                      maxx + ancho_base_extra_mm, miny + 0.5)
+        alto_linea_ref = maxy - miny
+
+        # La altura de la placa se apoya en la línea base tipográfica
+        # común (_linea_base_comun), NO en el punto más bajo absoluto
+        # (`miny`) -- ese punto lo puede estar marcando un solo
+        # descendente ("g", "j", "p"), dejando la placa a SU nivel y al
+        # resto de las letras colgando lejos, cada una necesitando su
+        # propio puente para llegar (probado con "Jugando": 6 puentes).
+        # Apoyada en la línea base común, la placa ya toca de entrada a
+        # casi todas las letras; el/los descendente(s) simplemente la
+        # solapan, que es una soldadura normal, no un problema.
+        piezas_para_base = principal.geoms if hasattr(principal, "geoms") else [principal]
+        tolerancia_agrupado_mm = max(1.0, alto_linea_ref * 0.02)
+        linea_base = _linea_base_comun(piezas_para_base, tolerancia_agrupado_mm)
+
+        # Solape relativo al alto de línea (no un mm fijo): asegura que
+        # la MAYORÍA de las letras quede bien soldada a la placa (no
+        # solo tocándola por un pelo), sin que en un texto chico la
+        # placa termine tapando media letra.
+        solape_base_mm = max(1.0, alto_linea_ref * 0.04)
+        tope_base = linea_base + 0.5 + solape_base_mm
+
+        base = sg.box(minx - ancho_base_extra_mm, tope_base - alto_base_mm,
+                      maxx + ancho_base_extra_mm, tope_base)
         soporte = so.unary_union([principal, base])
 
     palo = None
