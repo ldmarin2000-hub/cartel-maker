@@ -12,7 +12,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import colores, preview3d, fuentes
+from core import colores, preview3d, fuentes, biblioteca
 from generators import topper
 from ui_streamlit import bloque_presets, selector_fuente
 
@@ -46,6 +46,32 @@ def _resolver_archivo_subido(subido, key_uploader, prefijo_output):
         ruta = None
     return ruta
 
+
+_OPCION_BIBLIOTECA_NINGUNO = "— Ninguno —"
+
+
+def _resolver_biblioteca(key_biblioteca, label="O elegí de la biblioteca"):
+    """Selector de la biblioteca de escudos (core/biblioteca.py) --
+    devuelve la ruta elegida, o None si está en "— Ninguno —". Regla de
+    convivencia con "subir archivo" (la aplica quien llama): mientras
+    este selector no esté en "— Ninguno —", esa ruta gana sobre lo
+    subido -- para volver a un archivo propio hay que poner el selector
+    de vuelta en "— Ninguno —". Nunca toca el session_state de OTRO
+    widget (evita el StreamlitAPIException de tocar uno ya instanciado
+    en esta corrida) -- si un preset restaurado apunta a un escudo que
+    ya no está en la carpeta, cae a "Ninguno" ANTES de instanciar este
+    MISMO widget, en vez de romper el selectbox con un valor fuera de
+    sus propias opciones."""
+    escudos = biblioteca.listar_escudos()
+    opciones = [_OPCION_BIBLIOTECA_NINGUNO] + [nombre for nombre, _ in escudos]
+    if st.session_state.get(key_biblioteca) not in opciones:
+        st.session_state[key_biblioteca] = opciones[0]
+    elegido = st.selectbox(label, opciones, key=key_biblioteca)
+    if elegido == _OPCION_BIBLIOTECA_NINGUNO:
+        return None
+    return dict(escudos).get(elegido)
+
+
 st.title("🎂 Topper (decoración para tortas y más)")
 st.caption("Crea toppers para tortas, cupcakes, postres. Impresión 3D, Neón, LED, Acrílico.")
 
@@ -71,7 +97,8 @@ PRESET_KEYS = [
     "tp_plano_marco_tam_modo", "tp_plano_marco_tam_manual", "tp_plano_marco_estilo",
     "tp_plano_color_marco_borde",
     "tp_plano_decoracion_lado", "tp_plano_decoracion_tam", "tp_plano_color_decoracion",
-    "tp_plano_decoracion_sobre_marco",
+    "tp_plano_decoracion_sobre_marco", "tp_plano_decoracion_contenida",
+    "tp_plano_decoracion_svg_biblioteca", "tp_plano_decoracion_multicolor_biblioteca",
     "tp_plano_decoracion_offset_x", "tp_plano_decoracion_offset_y", "tp_plano_decoracion_acercar",
     "tp_plano_color_conectores",
     "tp_plano_base", "tp_plano_base_ancho_extra", "tp_plano_base_alto", "tp_plano_color_base",
@@ -101,7 +128,7 @@ PRESET_KEYS += PRESET_FILE_KEYS
 # archivo (termina en "__ruta").
 SUFIJOS_MULTI_DEC = (
     "usar", "tipo", "svg__ruta", "imagen__ruta", "invertir", "umbral",
-    "lado", "tam", "offset_x", "offset_y", "acercar", "color",
+    "lado", "tam", "offset_x", "offset_y", "acercar", "contenida", "svg_biblioteca", "color",
 )
 for _i in range(topper.MAX_COLORES_DECORACION_MULTICOLOR):
     for _sufijo in SUFIJOS_MULTI_DEC:
@@ -391,6 +418,7 @@ with col_form:
             )
             decoracion_svg_ruta = _resolver_archivo_subido(
                 decoracion_svg_subido, "tp_plano_decoracion_svg", "_subido_tp_decoracion")
+            decoracion_svg_ruta = _resolver_biblioteca("tp_plano_decoracion_svg_biblioteca") or decoracion_svg_ruta
 
         elif origen_decoracion_plano == "Imagen (un color)":
             decoracion_imagen_subida = st.file_uploader(
@@ -422,6 +450,8 @@ with col_form:
             )
             decoracion_multicolor_imagen_ruta = _resolver_archivo_subido(
                 decoracion_multicolor_subida, "tp_plano_decoracion_multicolor_imagen", "_subido_tp_decoracion_multicolor")
+            decoracion_multicolor_imagen_ruta = (
+                _resolver_biblioteca("tp_plano_decoracion_multicolor_biblioteca") or decoracion_multicolor_imagen_ruta)
             if decoracion_multicolor_imagen_ruta:
                 colores_detectados_raw = topper.detectar_colores_imagen(decoracion_multicolor_imagen_ruta)
                 if not colores_detectados_raw:
@@ -485,6 +515,7 @@ with col_form:
                         )
                         ruta = _resolver_archivo_subido(
                             subido, f"tp_plano_multi_dec_{i}_svg", f"_subido_tp_multidec_{i}")
+                        ruta = _resolver_biblioteca(f"tp_plano_multi_dec_{i}_svg_biblioteca") or ruta
                         if ruta:
                             item["svg"] = ruta
                     else:
@@ -504,6 +535,65 @@ with col_form:
                                 "Sensibilidad del contorno", 0, 255, 128,
                                 key=f"tp_plano_multi_dec_{i}_umbral",
                             )
+
+                    ruta_para_multicolor = item.get("svg") or item.get("imagen")
+                    item["multicolor"] = st.checkbox(
+                        "Separar por color (como un escudo con varios colores)", value=False,
+                        key=f"tp_plano_multi_dec_{i}_multicolor",
+                        disabled=not ruta_para_multicolor,
+                        help="En vez de una silueta de un solo color, detecta los colores reales "
+                             "del archivo y los separa en piezas -- para escudos/logos con "
+                             "colores bien definidos, cada uno con su propio filamento.",
+                    )
+                    if item["multicolor"] and ruta_para_multicolor:
+                        colores_detectados_slot = topper.detectar_colores_imagen(ruta_para_multicolor)
+                        if not colores_detectados_slot:
+                            st.warning("No se pudo detectar ningún color con área en este archivo.")
+                        else:
+                            claves_check_slot = [
+                                f"tp_plano_multi_dec_{i}_multicolor_usar_{j}"
+                                for j in range(len(colores_detectados_slot))
+                            ]
+                            for j, key_check in enumerate(claves_check_slot):
+                                if key_check not in st.session_state:
+                                    st.session_state[key_check] = j < topper.MAX_COLORES_DECORACION_MULTICOLOR
+                            marcados_actual_slot = sum(1 for k in claves_check_slot if st.session_state.get(k))
+
+                            st.caption(
+                                f"Se detectaron {len(colores_detectados_slot)} colores -- elegí hasta "
+                                f"{topper.MAX_COLORES_DECORACION_MULTICOLOR} para usar y asignale un "
+                                "filamento real a cada uno."
+                            )
+                            indices_usados_slot = []
+                            colores_asignados_slot = []
+                            for j, (hex_detectado, frac) in enumerate(colores_detectados_slot):
+                                col_check, col_swatch, col_sel = st.columns([1, 1, 3])
+                                ya_marcado_slot = st.session_state.get(claves_check_slot[j], False)
+                                deshabilitar_slot = (
+                                    marcados_actual_slot >= topper.MAX_COLORES_DECORACION_MULTICOLOR
+                                    and not ya_marcado_slot
+                                )
+                                usar_color_slot = col_check.checkbox(
+                                    f"{frac * 100:.0f}%", key=claves_check_slot[j], disabled=deshabilitar_slot,
+                                    help="Destildado = no se usa este color (ej. ruido de antialiasing).",
+                                )
+                                col_swatch.color_picker(
+                                    f"tp_plano_multi_dec_{i}_multicolor_muestra_{j}", value=hex_detectado,
+                                    disabled=True, label_visibility="collapsed",
+                                    key=f"tp_plano_multi_dec_{i}_multicolor_muestra_{j}",
+                                )
+                                sugerido_slot = colores.nombre_mas_cercano(hex_detectado)
+                                elegido_slot = col_sel.selectbox(
+                                    f"tp_plano_multi_dec_{i}_multicolor_color_{j}", list(colores.NOMBRES),
+                                    index=list(colores.NOMBRES).index(sugerido_slot), disabled=not usar_color_slot,
+                                    key=f"tp_plano_multi_dec_{i}_multicolor_color_{j}", label_visibility="collapsed",
+                                )
+                                if usar_color_slot:
+                                    indices_usados_slot.append(j)
+                                    colores_asignados_slot.append(elegido_slot)
+                            item["multicolor_indices"] = indices_usados_slot
+                            item["multicolor_colores"] = colores_asignados_slot
+
                     col_ld, col_tm = st.columns(2)
                     item["lado"] = col_ld.selectbox(
                         "Lado", topper.LADOS_DECORACION_PLANO, key=f"tp_plano_multi_dec_{i}_lado",
@@ -530,10 +620,23 @@ with col_form:
                              "decoración hacia el centro del texto/marco -- lo suficiente y se "
                              "suelda sólida, sin necesitar un conector.",
                     )
+                    item["contenida"] = st.checkbox(
+                        "Contenida en el marco (recortada al borde)", value=False,
+                        key=f"tp_plano_multi_dec_{i}_contenida",
+                        disabled=marco_plano == "Ninguno",
+                        help="Destildado (de siempre): esta decoración puede sobresalir del "
+                             "marco libremente. Tildado: se recorta lo que se pase del borde "
+                             "del marco. Sin marco no hay de qué sobresalir, así que no aplica.",
+                    )
                     color_slot = st.selectbox(
                         "Color", list(colores.NOMBRES),
                         index=list(colores.NOMBRES).index("Dorado"),
                         key=f"tp_plano_multi_dec_{i}_color",
+                        disabled=item.get("multicolor", False),
+                        help=(
+                            "Con 'Separar por color' tildado, este selector no aplica -- cada "
+                            "color detectado tiene el suyo propio arriba."
+                        ) if item.get("multicolor") else None,
                     )
                     if item.get("svg") or item.get("imagen"):
                         decoraciones_multi.append(item)
@@ -584,6 +687,14 @@ with col_form:
             help="Igual que 'Texto sobre el marco' pero para la decoración. Solo importa si "
                  "llega a tocar el marco (lado/tamaño grande). Destildado (de siempre): el "
                  "marco tapa a la decoración donde se crucen. Tildado: al revés."
+        )
+        decoracion_contenida_plano = st.checkbox(
+            "Contenida en el marco (recortada al borde)", value=False,
+            disabled=not hay_decoracion or marco_plano == "Ninguno",
+            key="tp_plano_decoracion_contenida",
+            help="Destildado (de siempre): la decoración puede sobresalir del marco libremente. "
+                 "Tildado: se recorta lo que se pase del borde del marco. Sin marco no hay de "
+                 "qué sobresalir, así que no aplica."
         )
 
         st.markdown("**Colores** (para imprimir con AMS multicolor, o de guía para pintar a mano)")
@@ -727,6 +838,7 @@ with col_preview:
                 decoraciones=decoraciones_multi if origen_decoracion_plano == "Múltiples decoraciones" else None,
                 decoracion_tam_mm=decoracion_tam_plano,
                 decoracion_lado=decoracion_lado_plano, decoracion_sobre_marco=decoracion_sobre_marco_plano,
+                decoracion_contenida=decoracion_contenida_plano,
                 decoracion_offset_x_mm=decoracion_offset_x_plano, decoracion_offset_y_mm=decoracion_offset_y_plano,
                 decoracion_acercar_mm=decoracion_acercar_plano,
                 multiplicadores_linea=multiplicadores_lineas_plano, ancho_texto_factor=ancho_texto_plano / 100.0,
@@ -877,6 +989,7 @@ with col_preview:
                             decoracion_tam_mm=decoracion_tam_plano,
                             decoracion_lado=decoracion_lado_plano,
                             decoracion_sobre_marco=decoracion_sobre_marco_plano,
+                            decoracion_contenida=decoracion_contenida_plano,
                             decoracion_offset_x_mm=decoracion_offset_x_plano,
                             decoracion_offset_y_mm=decoracion_offset_y_plano,
                             decoracion_acercar_mm=decoracion_acercar_plano,

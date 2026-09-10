@@ -6,6 +6,12 @@ presets/
 *.svg
 *.png
 !README_img/
+# fixtures de test permanentes y biblioteca real -- sin esto, *.svg/*.png de arriba
+# los ignora a todos y un clon nuevo del repo tiene la suite de tests rota y el
+# Topper con la biblioteca vacía.
+!tests/_fixture_*.svg
+!tests/_fixture_*.png
+!biblioteca/escudos/*.svg
 .venv/
 venv/
 Kimi.txt

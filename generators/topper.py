@@ -9,6 +9,7 @@ Integración 3D completa con STL export y previsualizaciones fieles
 """
 
 import os
+import re
 import base64
 import numpy as np
 import trimesh
@@ -928,6 +929,57 @@ MAX_COLORES_DECORACION_MULTICOLOR = 4  # cuántos colores como máximo se pueden
 COLORES_DETECCION_MULTICOLOR = 12  # cuántos se cuantizan puertas adentro para elegir entre ellos (ver core/imagen_import.py)
 
 
+def _clave_decoracion(indice):
+    """Nombre de región para la decoración en la posición `indice`
+    (0-based): "decoracion" para la primera, "decoracion_2"/"_3"/"_4"
+    para las siguientes -- MISMO criterio que ya usaban las 4 variables
+    fijas de antes de 7B. Importa preservar el índice ORIGINAL (nunca
+    renumerar/compactar): esta clave es la que une cada geometría con el
+    color que le asignó la página (`color_decoracion_2` es del casillero
+    2, sin importar si algún casillero anterior quedó vacío) -- compactar
+    correría los colores de lugar sin que nadie se dé cuenta."""
+    return "decoracion" if indice == 0 else f"decoracion_{indice + 1}"
+
+
+def _clave_decoracion_independiente(indice_casillero, indice_subcolor):
+    """Región de la sub-pieza `indice_subcolor` (0-based) del casillero
+    `indice_casillero` (0-based) de "Múltiples decoraciones" -- para
+    cuando 7C-B haga que un casillero pueda separarse en varios colores
+    (hoy siempre `indice_subcolor=0`, un solo color por casillero).
+
+    Con exactamente 1 sub-pieza por casillero (el caso de HOY) da
+    EXACTAMENTE lo mismo que `_clave_decoracion(indice_casillero)` --
+    "decoracion" para el casillero 0, "decoracion_2"/"_3"/"_4" para el
+    resto -- por eso enchufarla ahora es invisible: nada cambia mientras
+    nadie llame con `indice_subcolor != 0`. Con más de una sub-pieza,
+    agrega un sufijo `_colN` al nombre de casillero de siempre, SIN
+    tocarlo -- mismo cuidado que en 7B (nunca renumerar/compactar el
+    índice de casillero, la clave de unión con el color que le asignó
+    la página) extendido al índice de sub-color: tampoco se puede
+    compactar ESE, o dos sub-colores de casilleros distintos podrían
+    terminar con el mismo nombre."""
+    base = _clave_decoracion(indice_casillero)
+    return base if indice_subcolor == 0 else f"{base}_col{indice_subcolor + 1}"
+
+
+_PATRON_CLAVE_DECORACION = re.compile(r"^decoracion(?:_(\d+))?(?:_col(\d+))?$")
+
+
+def _indices_desde_clave_decoracion(clave):
+    """Inversa de `_clave_decoracion_independiente`: (indice_casillero,
+    indice_subcolor), ambos 0-based, a partir del nombre de región --
+    None si `clave` no es una región de decoración. La usa 7C-E para
+    poder ORDENAR claves de decoración de forma determinística (quién
+    "sobrevive" cuando dos se fusionan por color) sin depender de la
+    posición en ninguna lista -- mismo motivo que `_clave_decoracion`
+    documenta para no renumerar índices."""
+    m = _PATRON_CLAVE_DECORACION.match(clave)
+    if not m:
+        return None
+    n_casillero, n_subcolor = m.group(1), m.group(2)
+    return (int(n_casillero) - 1 if n_casillero else 0, int(n_subcolor) - 1 if n_subcolor else 0)
+
+
 def _es_svg(ruta):
     """True si `ruta` es un archivo .svg (por extensión) -- usado para
     elegir el motor de separación por color: `core.svg_import` (colores
@@ -1079,6 +1131,62 @@ def _acercar_a_centro(forma, acercar_mm, cx_ref, cy_ref):
     return _affinity().translate(forma, xoff=dx, yoff=dy)
 
 
+def _posicionar_grupo(piezas, lado, offset_x_mm, offset_y_mm, acercar_mm, ref_bounds):
+    """Posiciona `piezas` (lista de (polígono, color_hex_o_None)) COMO
+    UNIDAD RÍGIDA: se unen para calcular el desplazamiento según `lado`
+    (mismo criterio que una sola pieza, ver `_posicionar_decoracion`) y
+    se aplica el MISMO delta a TODAS -- así conservan su posición
+    relativa entre sí (imprescindible para que una imagen/SVG separado
+    por color siga formando el mismo dibujo reconocible). Después suma
+    `offset_x_mm`/`offset_y_mm` (ajuste fino sobre lo que ya dio "lado")
+    y, si `acercar_mm > 0`, empuja el grupo esa distancia hacia el
+    centro de `ref_bounds` (mismo desplazamiento para todas otra vez).
+
+    Con una sola pieza en `piezas` se usa el MISMO camino que antes de
+    7C-B (posicionar la pieza directo, sin pasar por `unary_union` ni
+    por "recuperar el delta restando bounds") -- ese camino alternativo
+    (necesario para varias piezas, ver abajo) es matemáticamente
+    equivalente para una sola pieza, pero NO siempre bit a bit idéntico
+    (restar bounds después de trasladar puede perder el último dígito
+    de precisión en algunos valores) -- con las decoraciones de HOY
+    (1 sola pieza por casillero) eso importa para que 7C-B sea
+    invisible. Con varias piezas (imagen/SVG multicolor, o un casillero
+    multicolor) se posicionan TODAS JUNTAS como un solo grupo rígido --
+    mismo código que ya usaba la decoración simple multicolor, sin
+    cambiarle una cuenta. Devuelve la lista de piezas ya posicionada,
+    mismo orden y colores."""
+    saf = _affinity()
+    so = _shapely()[1]
+    ref_minx, ref_miny, ref_maxx, ref_maxy = ref_bounds
+
+    if len(piezas) == 1:
+        forma, color = piezas[0]
+        forma = _posicionar_decoracion(forma, lado, ref_minx, ref_miny, ref_maxx, ref_maxy)
+        if offset_x_mm or offset_y_mm:
+            forma = saf.translate(forma, xoff=offset_x_mm, yoff=offset_y_mm)
+        if acercar_mm:
+            cx_ref, cy_ref = (ref_minx + ref_maxx) / 2, (ref_miny + ref_maxy) / 2
+            forma = _acercar_a_centro(forma, acercar_mm, cx_ref, cy_ref)
+        return [(forma, color)]
+
+    grupo = so.unary_union([p for p, _ in piezas])
+    grupo_posicionado = _posicionar_decoracion(grupo, lado, ref_minx, ref_miny, ref_maxx, ref_maxy)
+    dx = grupo_posicionado.bounds[0] - grupo.bounds[0] + offset_x_mm
+    dy = grupo_posicionado.bounds[1] - grupo.bounds[1] + offset_y_mm
+    piezas = [(saf.translate(p, xoff=dx, yoff=dy), c) for p, c in piezas]
+
+    if acercar_mm:
+        # mismo desplazamiento para TODO el grupo otra vez -- conserva
+        # la alineación relativa lograda arriba.
+        grupo_final = so.unary_union([p for p, _ in piezas])
+        cx_ref, cy_ref = (ref_minx + ref_maxx) / 2, (ref_miny + ref_maxy) / 2
+        ax, ay = _delta_acercar(grupo_final, acercar_mm, cx_ref, cy_ref)
+        if ax or ay:
+            piezas = [(saf.translate(p, xoff=ax, yoff=ay), c) for p, c in piezas]
+
+    return piezas
+
+
 UMBRAL_TRAZO_RELATIVO = 0.3  # fracción del alto de la línea -- ver _mejor_trazo_vertical
 PASO_TRAZO_MM = 0.5  # resolución del barrido de columnas
 
@@ -1174,14 +1282,8 @@ _ETIQUETA_REGION_CONECTOR = {
     "marco": "el marco", "marco_borde": "el borde del marco",
     "base": "la base",
     "palo": "el palo",
-    "decoracion": "la decoración", "decoracion_2": "la decoración",
-    "decoracion_3": "la decoración", "decoracion_4": "la decoración",
 }
 _SUGERENCIA_REGION_CONECTOR = {
-    "decoracion": "Probá acercarla con 'Acercar al texto' o los sliders de posición X/Y",
-    "decoracion_2": "Probá acercarla con 'Acercar al texto' o los sliders de posición X/Y",
-    "decoracion_3": "Probá acercarla con 'Acercar al texto' o los sliders de posición X/Y",
-    "decoracion_4": "Probá acercarla con 'Acercar al texto' o los sliders de posición X/Y",
     "palo": "Revisá el anclaje o subí 'Solape del palo'",
     "texto": "Probá una separación entre líneas más chica (o negativa) o un ancho de letras mayor",
     "texto_2": "Probá una separación entre líneas más chica (o negativa) o un ancho de letras mayor",
@@ -1189,10 +1291,23 @@ _SUGERENCIA_REGION_CONECTOR = {
     "marco": "Revisá 'Distancia del marco al texto' o el tamaño del marco",
     "marco_borde": "Revisá 'Distancia del marco al texto' o el tamaño del marco",
 }
+_SUGERENCIA_DECORACION_CONECTOR = "Probá acercarla con 'Acercar al texto' o los sliders de posición X/Y"
+
+
+def _es_region_decoracion(nombre):
+    """True si `nombre` es alguna región de decoración -- "decoracion",
+    "decoracion_2", "decoracion_3", ... (ver `_clave_decoracion`, cuya
+    cantidad es dinámica) -- se trata aparte de
+    `_ETIQUETA_REGION_CONECTOR`/`_SUGERENCIA_REGION_CONECTOR` (listas
+    FIJAS de nombres) por eso mismo: no hay un número fijo de posibles
+    nombres de decoración para listar a mano."""
+    return nombre == "decoracion" or nombre.startswith("decoracion_")
+
+
 # Orden de preferencia para elegir DE CUÁL de las dos regiones de un par
-# sacar la sugerencia -- la más específica/accionable primero.
+# sacar la sugerencia -- la más específica/accionable primero (una
+# región de decoración, sea cual sea su índice, gana antes que todas).
 _PRIORIDAD_SUGERENCIA_CONECTOR = (
-    "decoracion", "decoracion_2", "decoracion_3", "decoracion_4",
     "palo", "marco", "marco_borde", "texto", "texto_2", "texto_3", "borde", "base",
 )
 
@@ -1232,11 +1347,14 @@ def _armar_aviso_conectores(piezas_conexas, puentes_info, piezas_nombradas):
 
     lineas_aviso = []
     for (na, nb), distancia_mm in grupos.items():
-        etiqueta_a = _ETIQUETA_REGION_CONECTOR.get(na, na)
-        etiqueta_b = _ETIQUETA_REGION_CONECTOR.get(nb, nb)
-        elegido = next((r for r in _PRIORIDAD_SUGERENCIA_CONECTOR if r in (na, nb)
-                        and r in _SUGERENCIA_REGION_CONECTOR), None)
-        sugerencia = _SUGERENCIA_REGION_CONECTOR.get(elegido)
+        etiqueta_a = "la decoración" if _es_region_decoracion(na) else _ETIQUETA_REGION_CONECTOR.get(na, na)
+        etiqueta_b = "la decoración" if _es_region_decoracion(nb) else _ETIQUETA_REGION_CONECTOR.get(nb, nb)
+        if _es_region_decoracion(na) or _es_region_decoracion(nb):
+            sugerencia = _SUGERENCIA_DECORACION_CONECTOR
+        else:
+            elegido = next((r for r in _PRIORIDAD_SUGERENCIA_CONECTOR if r in (na, nb)
+                            and r in _SUGERENCIA_REGION_CONECTOR), None)
+            sugerencia = _SUGERENCIA_REGION_CONECTOR.get(elegido)
         frase = f"{etiqueta_a[0].upper()}{etiqueta_a[1:]} no llega a tocar {etiqueta_b} ({distancia_mm:.1f}mm)."
         if sugerencia:
             frase += f" {sugerencia}."
@@ -1258,7 +1376,7 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                            decoracion_multicolor_deteccion=COLORES_DETECCION_MULTICOLOR,
                            decoraciones=None,
                            decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
-                           decoracion_sobre_marco=False,
+                           decoracion_sobre_marco=False, decoracion_contenida=False,
                            decoracion_offset_x_mm=0.0, decoracion_offset_y_mm=0.0, decoracion_acercar_mm=0.0,
                            multiplicadores_linea=None, ancho_texto_factor=1.0,
                            espaciado_relativo=-0.05, separacion_lineas_mm=10.0,
@@ -1398,8 +1516,16 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     se pueden imprimir de un color/filamento distinto (ej. transparente,
     para que casi no se noten).
 
-    Devuelve (regiones, cantidad_de_puentes, avisos_conectores), con
-    `avisos_conectores` un string listo para mostrar con `st.warning`
+    Devuelve (regiones, cantidad_de_puentes, avisos_conectores,
+    colores_sugeridos_decoracion) -- este último (7C-E) es un dict
+    {clave_region: "#rrggbb"} SOLO con las claves de decoración que
+    salieron de separar un casillero/imagen por color real (7C-B):
+    `generar_plano` lo usa para sugerir un color de filamento real
+    (`core.colores.nombre_mas_cercano`) en vez de pedirle a la usuaria
+    que elija manualmente cada sub-color -- una pieza de un solo color
+    no tiene entrada acá (no hay nada "sugerido", el color lo elige el
+    selector de siempre). `avisos_conectores` un string listo para
+    mostrar con `st.warning`
     (en tono de consejo, no de error -- el puente ya funciona, esto
     dice cómo evitarlo) si hizo falta soldar regiones que no se tocaban
     entre sí, o None si no hizo falta ningún puente entre regiones
@@ -1409,7 +1535,15 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     `regiones` es un dict
     {"texto": geom, "texto_2": geom|None, "texto_3": geom|None,
     "borde": geom|None, "marco": geom|None, "marco_borde": geom|None,
-    "palo": geom|None, "decoracion": geom|None, "conectores": geom|None}
+    "palo": geom|None, "conectores": geom|None, ...}
+    más una clave "decoracion"/"decoracion_2"/"decoracion_3"/"decoracion_4"
+    por CADA pieza de decoración presente (ver `_clave_decoracion`) --
+    a diferencia del resto, estas claves son dinámicas: si no hay
+    decoración no aparece ninguna, y si una pieza quedó vacía (tapada
+    por el marco, recortada del todo por "Contenida") su clave
+    simplemente no está, en vez de guardarse como `None` -- ningún lugar
+    que lea `regiones` distingue "ausente" de "None" (todos usan `.get()`
+    o filtran `None`), así que da exactamente el mismo resultado.
     -- "texto"/"texto_2"/"texto_3" son SIEMPRE una región por línea
     presente (nunca se fusionan acá, aunque el que llama vaya a
     pintarlas todas igual -- ver generar_plano, que las vuelve a
@@ -1489,21 +1623,30 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     # `aro` se mantiene como la UNIÓN de `piezas_marco`, para todo el
     # resto del código que solo necesita "el marco" como una sola
     # geometría (bounds de referencia, tapar/ser tapado por el texto).
+    # Siempre se pide en formato (interior, borde) -- relleno=True -- sin
+    # importar el modo VISIBLE elegido (`marco_relleno`): así queda
+    # disponible `marco_silueta_solida` (interior ∪ borde, la silueta
+    # LLENA del marco) para recortar decoraciones "Contenidas" incluso
+    # cuando el marco visible es un aro fino -- recortar contra el aro
+    # dejaría casi nada, la silueta llena es la que de verdad importa acá.
     resultado_marco = None
     if marco == "SVG propio" and marco_svg:
-        resultado_marco = _marco_desde_svg(marco_svg, cx, cy, radio_marco, grosor_marco_mm, relleno=marco_relleno)
+        resultado_marco = _marco_desde_svg(marco_svg, cx, cy, radio_marco, grosor_marco_mm, relleno=True)
     elif marco == "Imagen propia" and marco_imagen:
         resultado_marco = _marco_desde_imagen(marco_imagen, cx, cy, radio_marco, grosor_marco_mm,
                                                umbral=marco_imagen_umbral, invertir=marco_imagen_invertir,
-                                               relleno=marco_relleno)
+                                               relleno=True)
     elif marco not in ("Ninguno", "SVG propio", "Imagen propia"):
-        resultado_marco = _forma_marco(marco, cx, cy, radio_marco, grosor_marco_mm, relleno=marco_relleno)
+        resultado_marco = _forma_marco(marco, cx, cy, radio_marco, grosor_marco_mm, relleno=True)
 
     aro = None
     piezas_marco = []
+    marco_silueta_solida = None
     if resultado_marco is not None:
-        piezas_marco = list(resultado_marco) if marco_relleno else [resultado_marco]
-        aro = so.unary_union(piezas_marco) if len(piezas_marco) > 1 else piezas_marco[0]
+        interior_marco, borde_marco = resultado_marco
+        marco_silueta_solida = so.unary_union([interior_marco, borde_marco])
+        piezas_marco = [interior_marco, borde_marco] if marco_relleno else [borde_marco]
+        aro = marco_silueta_solida if marco_relleno else borde_marco
 
     if offset_vertical_mm:
         # se traslada cada línea por separado (no solo la unión) para
@@ -1541,40 +1684,55 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         borde = None
 
     # `piezas_decoracion`: lista de (polígono, color_hex_detectado_o_None)
-    # -- 1 sola pieza para SVG o imagen de un color (color=None, usa el
-    # que elija el usuario), hasta MAX_COLORES_DECORACION_MULTICOLOR para
-    # una imagen multicolor (cada una con el color real detectado como
-    # sugerencia). Después de acá se tratan todas igual: se posicionan
-    # COMO GRUPO (mismo desplazamiento para todas, así conservan su
-    # posición relativa) y se resuelve marco vs. decoración por pieza.
+    # -- 1 sola pieza por casillero de "Múltiples decoraciones" (o hasta
+    # MAX_COLORES_DECORACION_MULTICOLOR si ESE casillero es multicolor,
+    # ver `item["multicolor"]` más abajo -- 7C-B), o hasta
+    # MAX_COLORES_DECORACION_MULTICOLOR para SVG/imagen/imagen-multicolor
+    # "simple". `origen_por_pieza` es la lista PARALELA con el índice
+    # (casillero, sub-color) de cada una -- ver
+    # `_clave_decoracion_independiente`: nunca se recalcula por POSICIÓN
+    # en la lista combinada (volvería a cruzar colores, mismo motivo que
+    # en 7B/7C-A). El modo "simple" no tiene casillero real -- usa
+    # (posición, 0), igual que ya hacía 7C-A. Después de acá se tratan
+    # todas igual: se resuelve marco vs. decoración por pieza.
     piezas_decoracion = []
+    origen_por_pieza = []
     modo_independiente = bool(decoraciones)
     sobre_marco_por_pieza = []
+    contenida_por_pieza = []
     if modo_independiente:
-        ref_minx, ref_miny, ref_maxx, ref_maxy = (aro.bounds if aro is not None else texto_total.bounds)
-        for item in decoraciones[:MAX_COLORES_DECORACION_MULTICOLOR]:
+        ref_bounds = (aro.bounds if aro is not None else texto_total.bounds)
+        for indice_casillero, item in enumerate(decoraciones[:MAX_COLORES_DECORACION_MULTICOLOR]):
             tam_item = item.get("tam_mm") or decoracion_tam_mm
             lado_item = item.get("lado") or decoracion_lado
-            if item.get("svg"):
-                forma = _decoracion_desde_svg(item["svg"], tam_item)
+            ruta_item = item.get("svg") or item.get("imagen")
+            if item.get("multicolor") and ruta_item:
+                # Separar por color real -- mismo motor que "Imagen
+                # multicolor" simple (_decoraciones_multicolor_desde_imagen
+                # ya escala/centra TODAS las sub-piezas juntas, con un
+                # solo factor/origen, conservando su posición relativa).
+                piezas_item = _decoraciones_multicolor_desde_imagen(
+                    ruta_item, tam_item,
+                    indices_seleccionados=item.get("multicolor_indices"),
+                    colores_deteccion=decoracion_multicolor_deteccion)
+            elif item.get("svg"):
+                piezas_item = [(_decoracion_desde_svg(item["svg"], tam_item), None)]
             elif item.get("imagen"):
-                forma = _decoracion_desde_imagen(
+                piezas_item = [(_decoracion_desde_imagen(
                     item["imagen"], tam_item,
-                    umbral=item.get("umbral", 128), invertir=item.get("invertir", False))
+                    umbral=item.get("umbral", 128), invertir=item.get("invertir", False)), None)]
             else:
                 continue
-            forma = _posicionar_decoracion(forma, lado_item, ref_minx, ref_miny, ref_maxx, ref_maxy)
-            off_x_item = item.get("offset_x_mm", 0.0)
-            off_y_item = item.get("offset_y_mm", 0.0)
-            if off_x_item or off_y_item:
-                forma = saf.translate(forma, xoff=off_x_item, yoff=off_y_item)
-            acercar_item = item.get("acercar_mm", 0.0)
-            if acercar_item:
-                cx_ref_item = (ref_minx + ref_maxx) / 2
-                cy_ref_item = (ref_miny + ref_maxy) / 2
-                forma = _acercar_a_centro(forma, acercar_item, cx_ref_item, cy_ref_item)
-            piezas_decoracion.append((forma, None))
-            sobre_marco_por_pieza.append(item.get("sobre_marco", decoracion_sobre_marco))
+
+            piezas_item = _posicionar_grupo(
+                piezas_item, lado_item, item.get("offset_x_mm", 0.0), item.get("offset_y_mm", 0.0),
+                item.get("acercar_mm", 0.0), ref_bounds)
+
+            for indice_subcolor, (forma, color_hex) in enumerate(piezas_item):
+                piezas_decoracion.append((forma, color_hex))
+                origen_por_pieza.append((indice_casillero, indice_subcolor))
+            sobre_marco_por_pieza.extend([item.get("sobre_marco", decoracion_sobre_marco)] * len(piezas_item))
+            contenida_por_pieza.extend([item.get("contenida", False)] * len(piezas_item))
     elif decoracion_svg:
         piezas_decoracion = [(_decoracion_desde_svg(decoracion_svg, decoracion_tam_mm), None)]
     elif decoracion_multicolor_imagen:
@@ -1587,32 +1745,35 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
             decoracion_imagen, decoracion_tam_mm,
             umbral=decoracion_imagen_umbral, invertir=decoracion_imagen_invertir), None)]
 
-    decoracion_slots = [None] * MAX_COLORES_DECORACION_MULTICOLOR
+    piezas_decoracion_final = []
+    origen_final = []
+    color_hex_final = []
     if piezas_decoracion:
         if not modo_independiente:
             # Un solo SVG/imagen (1 pieza) o los colores de UNA imagen
-            # multicolor (varias piezas que tienen que conservar su
-            # posición relativa) -- se posicionan TODAS JUNTAS como un
-            # solo grupo rígido, en el lado único `decoracion_lado`.
-            ref_minx, ref_miny, ref_maxx, ref_maxy = (aro.bounds if aro is not None else texto_total.bounds)
-            grupo = so.unary_union([p for p, _ in piezas_decoracion]) if len(piezas_decoracion) > 1 else piezas_decoracion[0][0]
-            grupo_posicionado = _posicionar_decoracion(grupo, decoracion_lado, ref_minx, ref_miny, ref_maxx, ref_maxy)
-            dx = grupo_posicionado.bounds[0] - grupo.bounds[0] + decoracion_offset_x_mm
-            dy = grupo_posicionado.bounds[1] - grupo.bounds[1] + decoracion_offset_y_mm
-            piezas_decoracion = [(saf.translate(p, xoff=dx, yoff=dy), c) for p, c in piezas_decoracion]
-            if decoracion_acercar_mm:
-                # mismo desplazamiento para TODO el grupo (como el resto
-                # del posicionamiento acá) -- conserva la alineación
-                # relativa entre las piezas de una imagen multicolor.
-                grupo_final = so.unary_union([p for p, _ in piezas_decoracion]) if len(piezas_decoracion) > 1 else piezas_decoracion[0][0]
-                cx_ref_g, cy_ref_g = (ref_minx + ref_maxx) / 2, (ref_miny + ref_maxy) / 2
-                ax, ay = _delta_acercar(grupo_final, decoracion_acercar_mm, cx_ref_g, cy_ref_g)
-                if ax or ay:
-                    piezas_decoracion = [(saf.translate(p, xoff=ax, yoff=ay), c) for p, c in piezas_decoracion]
+            # multicolor -- se posicionan TODAS JUNTAS como un solo
+            # grupo rígido, en el lado único `decoracion_lado`. Posición
+            # plana (i, 0): no hay casillero real en este modo.
+            ref_bounds = (aro.bounds if aro is not None else texto_total.bounds)
+            piezas_decoracion = _posicionar_grupo(
+                piezas_decoracion, decoracion_lado, decoracion_offset_x_mm,
+                decoracion_offset_y_mm, decoracion_acercar_mm, ref_bounds)
             sobre_marco_por_pieza = [decoracion_sobre_marco] * len(piezas_decoracion)
+            contenida_por_pieza = [decoracion_contenida] * len(piezas_decoracion)
+            origen_por_pieza = [(i, 0) for i in range(len(piezas_decoracion))]
 
         for i, (p, color_hex) in enumerate(piezas_decoracion[:MAX_COLORES_DECORACION_MULTICOLOR]):
-            if aro is not None:
+            if marco_silueta_solida is not None and contenida_por_pieza[i]:
+                # "Contenida en el marco": lo que se pasaría del borde se
+                # recorta -- contra la silueta LLENA del marco, no contra
+                # el aro visible (ver más arriba), así funciona igual con
+                # marco Aro o Relleno. Si queda vacía (la decoración cayó
+                # entera afuera del marco), se trata como "sin decoración"
+                # esa pieza, igual que ya se hace con el borde de texto.
+                p = p.intersection(marco_silueta_solida)
+                if p.is_empty:
+                    p = None
+            if p is not None and aro is not None:
                 if sobre_marco_por_pieza[i]:
                     # ídem texto_sobre_marco: el calado de la decoración
                     # atraviesa cada pieza del marco por igual.
@@ -1620,9 +1781,36 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
                     aro = so.unary_union(piezas_marco) if len(piezas_marco) > 1 else piezas_marco[0]
                 else:
                     p = p.difference(aro)
-            decoracion_slots[i] = p
+                    if p.is_empty:
+                        # "Contenida" + marco Relleno + sin "sobre el marco":
+                        # el marco (disco sólido) ya cubre TODO lo que quedó
+                        # adentro tras el recorte -- la decoración termina
+                        # completamente tapada, no hay nada que mostrar.
+                        p = None
+            piezas_decoracion_final.append(p)
+            origen_final.append(origen_por_pieza[i])
+            color_hex_final.append(color_hex)
 
-    decoracion, decoracion_2, decoracion_3, decoracion_4 = decoracion_slots
+    # `regiones_decoracion`: dict dinámico {clave: geometría}, una
+    # entrada por pieza de decoración PRESENTE (ni una de más, sin
+    # relleno a 4). La clave sale de `origen_final[i]` (el índice
+    # ORIGINAL (casillero, sub-color) de esa pieza, ver
+    # `_clave_decoracion_independiente`) -- NUNCA de la posición en esta
+    # lista, que puede tener huecos si alguna pieza quedó tapada/vacía.
+    # `generar_plano` es quien fusiona las que terminen con el mismo
+    # color -- acá no se sabe todavía qué color le toca a cada una,
+    # salvo por `colores_sugeridos_decoracion` (ver abajo): el color
+    # HEX real detectado al separar por color (7C-B), para las piezas
+    # que vinieron de ahí -- None para una pieza de un solo color (la
+    # elige la usuaria en el selector de siempre, no hay nada "sugerido").
+    regiones_decoracion = {
+        _clave_decoracion_independiente(*origen_final[i]): p
+        for i, p in enumerate(piezas_decoracion_final) if p is not None
+    }
+    colores_sugeridos_decoracion = {
+        _clave_decoracion_independiente(*origen_final[i]): color_hex_final[i]
+        for i, p in enumerate(piezas_decoracion_final) if p is not None and color_hex_final[i]
+    }
 
     nombradas_principales = list(piezas_texto) + ([borde] if borde is not None else []) + list(piezas_marco)
     principal = so.unary_union(nombradas_principales) if len(nombradas_principales) > 1 else nombradas_principales[0]
@@ -1737,8 +1925,8 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
     if borde is not None:
         piezas_nombradas.append((borde, "borde"))
     piezas_nombradas += [(p, "marco" if i == 0 else "marco_borde") for i, p in enumerate(piezas_marco)]
-    for nombre, p in (("base", base), ("decoracion", decoracion), ("decoracion_2", decoracion_2),
-                      ("decoracion_3", decoracion_3), ("decoracion_4", decoracion_4), ("palo", palo)):
+    piezas_nombradas += [(p, clave) for clave, p in regiones_decoracion.items()]
+    for nombre, p in (("base", base), ("palo", palo)):
         if p is not None:
             piezas_nombradas.append((p, nombre))
 
@@ -1765,9 +1953,8 @@ def _armar_regiones_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno",
         "texto": texto_l1, "texto_2": texto_l2, "texto_3": texto_l3,
         "borde": borde, "marco": marco_final, "marco_borde": marco_borde_final,
         "base": base, "palo": palo,
-        "decoracion": decoracion, "decoracion_2": decoracion_2, "decoracion_3": decoracion_3,
-        "decoracion_4": decoracion_4, "conectores": conectores,
-    }, n_puentes, avisos_conectores
+        **regiones_decoracion, "conectores": conectores,
+    }, n_puentes, avisos_conectores, colores_sugeridos_decoracion
 
 
 _SIMPLIFY_EXTRUSION_MM = 0.05  # limpia ruido numérico de union()/difference() antes de triangular
@@ -1812,7 +1999,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
                    decoracion_multicolor_deteccion=COLORES_DETECCION_MULTICOLOR,
                    decoraciones=None,
                    decoracion_tam_mm=25.0, decoracion_lado="Arriba derecha",
-                   decoracion_sobre_marco=False,
+                   decoracion_sobre_marco=False, decoracion_contenida=False,
                    decoracion_offset_x_mm=0.0, decoracion_offset_y_mm=0.0, decoracion_acercar_mm=0.0,
                    multiplicadores_linea=None, ancho_texto_factor=1.0,
                    espaciado_relativo=-0.05, separacion_lineas_mm=10.0, offset_vertical_mm=0.0,
@@ -1826,6 +2013,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
                    color_marco="Dorado", color_marco_borde="Dorado",
                    color_palo="Dorado", color_decoracion="Dorado",
                    color_decoracion_2="Blanco", color_decoracion_3="Negro", color_decoracion_4="Gris Frío",
+                   colores_decoracion_extra=None,
                    color_conectores="Transparente/Natural", color_base="Dorado"):
     """Generar topper "plano" (recortado, tipo acrílico/madera láser): 1 a
     3 líneas de texto, marco decorativo opcional, borde de texto
@@ -1857,10 +2045,54 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
     Aro (`marco_relleno=False`) no hay "marco_borde" -- `color_marco_borde`
     no se usa para nada.
 
+    `color_decoracion`/`_2`/`_3`/`_4`: color de cada casillero de un
+    solo color (o de la decoración simple SVG/imagen -- ahí solo importa
+    `color_decoracion`), como siempre -- SALVO que ese casillero se haya
+    separado por color real (7C-B, `item["multicolor"]`): ahí estos 4
+    parámetros se ignoran para ESE casillero (para TODAS sus sub-piezas,
+    incluida la primera -- no tendría sentido que una sub-pieza respete
+    el selector manual y las demás no) y el color sale de
+    `colores_sugeridos_decoracion` (el hex real detectado, ver
+    `_armar_regiones_plano`) vía `core.colores.nombre_mas_cercano`, salvo
+    que `colores_decoracion_extra` la sobreescriba a mano (7C-F, hoy
+    siempre vacío). Las regiones de decoración que terminan con el MISMO
+    color -- de cualquier origen, casillero o sub-color, no solo las 4
+    de siempre -- se fusionan en una sola antes de exportar, mismo
+    motivo que texto/marco: así 3 escudos que comparten colores reales
+    (o sombras del mismo color que el escudo) terminan pesando lo mismo
+    en filamentos que si fuera 1 solo, en vez de 3 regiones sueltas del
+    mismo color.
+
+    `colores_decoracion_extra`: dict opcional `{clave_region: nombre_color}`
+    para reasignar a mano el color sugerido de una sub-pieza puntual por
+    su nombre de región interno ("decoracion_3_col2", etc.) -- pensado
+    como escape hatch de bajo nivel; la vía normal (la que usa la
+    página, ver 7C-F) es `item["multicolor_colores"]` dentro de cada
+    dict de `decoraciones` (una lista de nombres de color, en el mismo
+    orden que `item["multicolor_indices"]`), que este módulo traduce
+    solo a las claves reales -- así la página nunca necesita conocer
+    `_clave_decoracion_independiente`. None (default) no reasigna nada.
+
     Devuelve un dict con las rutas, medidas y avisos."""
     os.makedirs(CARPETA_SALIDA, exist_ok=True)
 
-    regiones, n_puentes, avisos_conectores = _armar_regiones_plano(
+    # 7C-F: la página arma, por cada casillero de "Múltiples decoraciones"
+    # que separó por color, `item["multicolor_colores"]` -- la lista de
+    # filamentos elegidos, en el MISMO orden que `item["multicolor_indices"]`
+    # (posición j = j-ésimo color detectado que se usa). Se traduce acá
+    # adentro a claves de región reales (`_clave_decoracion_independiente`,
+    # privada de este módulo) -- la página nunca necesita conocer ese
+    # esquema de nombres, solo entregar una lista por casillero.
+    # `colores_decoracion_extra` (el dict explícito por clave, si alguien
+    # lo pasa a mano) se mergea ENCIMA de lo derivado -- gana si hay
+    # conflicto, pero hoy nadie lo pasa así que no hay conflicto posible.
+    _colores_extra_derivados = {}
+    for _indice_casillero, _item in enumerate((decoraciones or [])[:MAX_COLORES_DECORACION_MULTICOLOR]):
+        for _indice_subcolor, _color_nombre in enumerate(_item.get("multicolor_colores") or []):
+            _colores_extra_derivados[_clave_decoracion_independiente(_indice_casillero, _indice_subcolor)] = _color_nombre
+    colores_decoracion_extra = {**_colores_extra_derivados, **(colores_decoracion_extra or {})}
+
+    regiones, n_puentes, avisos_conectores, colores_sugeridos_decoracion = _armar_regiones_plano(
         lineas, tamaño_mm=tamaño_mm, fuente=fuente, marco=marco, marco_svg=marco_svg,
         marco_imagen=marco_imagen, marco_imagen_umbral=marco_imagen_umbral,
         marco_imagen_invertir=marco_imagen_invertir,
@@ -1873,7 +2105,7 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         decoracion_multicolor_deteccion=decoracion_multicolor_deteccion,
         decoraciones=decoraciones,
         decoracion_tam_mm=decoracion_tam_mm, decoracion_lado=decoracion_lado,
-        decoracion_sobre_marco=decoracion_sobre_marco,
+        decoracion_sobre_marco=decoracion_sobre_marco, decoracion_contenida=decoracion_contenida,
         decoracion_offset_x_mm=decoracion_offset_x_mm, decoracion_offset_y_mm=decoracion_offset_y_mm,
         decoracion_acercar_mm=decoracion_acercar_mm,
         multiplicadores_linea=multiplicadores_linea, ancho_texto_factor=ancho_texto_factor,
@@ -1908,6 +2140,44 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         regiones["marco"] = so.unary_union([regiones["marco"], regiones["marco_borde"]])
         regiones["marco_borde"] = None
 
+    # Mismo criterio, generalizado a las claves de decoración de 2 niveles
+    # (7C-E) -- "cuantas decoraciones haya", no solo 4 fijas: las que
+    # terminen con el MISMO color asignado se fusionan en una sola, la de
+    # `(índice_casillero, índice_subcolor)` más chico sobrevive (mismo
+    # criterio que texto, extendido a 2 dimensiones vía
+    # `_indices_desde_clave_decoracion`). El color de cada clave sale de
+    # `_color_de_clave_decoracion`: el de los 4 parámetros de siempre para
+    # una pieza de un solo color, o el sugerido (`nombre_mas_cercano` del
+    # hex real detectado, salvo que `colores_decoracion_extra` lo
+    # reasigne) para una sub-pieza que vino de separar por color -- así 3
+    # escudos que comparten un color real se fusionan en un solo
+    # filamento aunque vengan de casilleros DISTINTOS.
+    _colores_legacy_decoracion = (color_decoracion, color_decoracion_2, color_decoracion_3, color_decoracion_4)
+
+    def _color_de_clave_decoracion(clave):
+        if clave in colores_decoracion_extra:
+            return colores_decoracion_extra[clave]
+        hex_sugerido = colores_sugeridos_decoracion.get(clave)
+        if hex_sugerido:
+            return colores.nombre_mas_cercano(hex_sugerido)
+        indice_casillero, _ = _indices_desde_clave_decoracion(clave)
+        return _colores_legacy_decoracion[indice_casillero]
+
+    colores_decoracion_por_clave = {
+        clave: _color_de_clave_decoracion(clave) for clave in regiones if _es_region_decoracion(clave)
+    }
+    claves_deco_presentes = [c for c in colores_decoracion_por_clave if regiones.get(c) is not None]
+    grupos_por_color = {}
+    for clave in claves_deco_presentes:
+        grupos_por_color.setdefault(colores_decoracion_por_clave[clave], []).append(clave)
+    for claves_del_grupo in grupos_por_color.values():
+        if len(claves_del_grupo) > 1:
+            sg, so = _shapely()
+            sobreviviente, *resto = sorted(claves_del_grupo, key=_indices_desde_clave_decoracion)
+            regiones[sobreviviente] = so.unary_union([regiones[c] for c in claves_del_grupo])
+            for c in resto:
+                regiones[c] = None
+
     lineas_validas = [l.strip() for l in lineas if l and l.strip()][:3]
     base_nombre = pieza.nombre_archivo(" ".join(lineas_validas), default="topper")
     marco_slug = "".join(c if c.isalnum() else "_" for c in marco).strip("_")
@@ -1916,9 +2186,8 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
     colores_por_region = {
         "texto": color_texto, "texto_2": color_texto_2, "texto_3": color_texto_3,
         "borde": color_borde, "marco": color_marco, "marco_borde": color_marco_borde,
-        "palo": color_palo, "decoracion": color_decoracion, "conectores": color_conectores,
-        "base": color_base,
-        "decoracion_2": color_decoracion_2, "decoracion_3": color_decoracion_3, "decoracion_4": color_decoracion_4,
+        "palo": color_palo, "conectores": color_conectores, "base": color_base,
+        **colores_decoracion_por_clave,
     }
     mallas_por_region = {clave: _extrudir_geom(geom, espesor_mm) for clave, geom in regiones.items()}
     claves_presentes = [clave for clave, m in mallas_por_region.items() if m is not None]
@@ -1970,8 +2239,8 @@ def generar_plano(lineas, tamaño_mm=100, fuente=None, marco="Ninguno", marco_sv
         "colores": {
             "texto": color_texto, "texto_2": color_texto_2, "texto_3": color_texto_3,
             "borde": color_borde, "marco": color_marco, "marco_borde": color_marco_borde, "palo": color_palo,
-            "decoracion": color_decoracion, "conectores": color_conectores, "base": color_base,
-            "decoracion_2": color_decoracion_2, "decoracion_3": color_decoracion_3, "decoracion_4": color_decoracion_4,
+            "conectores": color_conectores, "base": color_base,
+            **colores_decoracion_por_clave,
         },
         "vertices": len(malla.vertices),
         "caras": len(malla.faces),
@@ -2181,7 +2450,7 @@ def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
     pintado incluso para quien imprima en un solo color. Devuelve None
     si no se pudo armar el diseño."""
     try:
-        regiones, n_puentes, _avisos = _armar_regiones_plano(lineas, tamaño_mm, fuente_ttf, marco, **kwargs)
+        regiones, n_puentes, _avisos, _colores_sugeridos = _armar_regiones_plano(lineas, tamaño_mm, fuente_ttf, marco, **kwargs)
     except Exception:
         return None
 
@@ -2197,15 +2466,25 @@ def preview_html_plano(lineas, tamaño_mm=100, marco="Ninguno", fuente_ttf=None,
     colores_region = {
         "conectores": color_conectores, "base": color_base, "marco": color_marco,
         "marco_borde": color_marco_borde or color_marco, "palo": color_palo,
-        "decoracion": color_decoracion, "decoracion_2": color_decoracion_2, "decoracion_3": color_decoracion_3,
-        "decoracion_4": color_decoracion_4, "borde": color_borde, "texto": color_texto,
+        "borde": color_borde, "texto": color_texto,
         "texto_2": color_texto_2 or color_texto, "texto_3": color_texto_3 or color_texto,
     }
+    # Claves de decoración: dinámicas (ver `_clave_decoracion`), no
+    # asumimos que hay exactamente 4 -- con las de hoy nunca son más,
+    # pero tampoco hace falta que este código lo sepa.
+    colores_region.update({
+        _clave_decoracion(i): c for i, c in enumerate(
+            (color_decoracion, color_decoracion_2, color_decoracion_3, color_decoracion_4))
+    })
+    orden_capas = (
+        ["conectores", "base", "marco", "marco_borde", "palo"]
+        + [_clave_decoracion(i) for i in range(MAX_COLORES_DECORACION_MULTICOLOR)]
+        + ["borde", "texto", "texto_2", "texto_3"]
+    )
     capas = "".join(
         f'<path d="{_shapely_a_svg_path(regiones[clave])}" fill="{colores_region[clave]}" '
         f'fill-rule="evenodd" stroke="#00000055" stroke-width="0.4"/>'
-        for clave in ("conectores", "base", "marco", "marco_borde", "palo", "decoracion", "decoracion_2",
-                      "decoracion_3", "decoracion_4", "borde", "texto", "texto_2", "texto_3")
+        for clave in orden_capas
         if regiones.get(clave) is not None
     )
 
