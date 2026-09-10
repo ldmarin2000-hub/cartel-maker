@@ -1,0 +1,13 @@
+Esta carpeta ("escudo", SINGULAR) NO es la biblioteca del Topper.
+
+Los 2 SVGs de acá son escudos OFICIALES que se usaron como fuente para
+armar los fixtures de test del Importador de Escudos
+(tests/_fixture_escudo_union_oficial.svg, etc.) -- quedaron guardados
+acá de referencia, nada más.
+
+La biblioteca real, la que lee el Topper y donde el Importador de
+Escudos (Parte H) guarda los escudos nuevos, es:
+
+    biblioteca/escudos/   <-- PLURAL
+
+Ver core/biblioteca.py.

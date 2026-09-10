@@ -94,15 +94,30 @@ def _mascara_a_poligono(mascara):
     """Vectoriza una máscara booleana (marching squares) a un polígono
     shapely con huecos -- el paso compartido entre
     `imagen_a_poligono_crudo` (una máscara) e
-    `imagen_a_poligonos_por_color` (una máscara por color detectado)."""
-    contornos = measure.find_contours(mascara.astype(float), level=0.5)
+    `imagen_a_poligonos_por_color` (una máscara por color detectado).
+
+    Se le agrega 1px de margen (relleno en False) ANTES de trazar los
+    contornos -- `skimage.measure.find_contours` no puede cerrar un
+    contorno en el borde mismo del array (no hay nada "afuera" contra
+    lo que cruzar el nivel 0.5): una forma que toca el borde (fila 0/-1
+    o columna 0/-1 de la máscara) sale FRAGMENTADA -- contornos
+    abiertos en vez de un polígono cerrado -- en vez de rota
+    silenciosamente. El offset del margen se resta de vuelta al armar
+    los puntos, así el resultado queda en las mismas coordenadas de
+    siempre (0,0 = esquina de la máscara ORIGINAL, sin el margen)."""
+    MARGEN_PX = 1
+    mascara_con_margen = np.pad(mascara, MARGEN_PX, mode="constant", constant_values=False)
+    contornos = measure.find_contours(mascara_con_margen.astype(float), level=0.5)
     alto_px = mascara.shape[0]
 
     polys = []
     for c in contornos:
         if len(c) < 4:
             continue
-        pts = [(col, alto_px - row) for row, col in c]  # flip Y: fila 0 = arriba
+        # fila/columna vienen en el sistema CON margen -- se resta
+        # MARGEN_PX para volver a las coordenadas de la máscara
+        # original, y recién ahí se invierte Y (fila 0 = arriba).
+        pts = [(col - MARGEN_PX, alto_px - (row - MARGEN_PX)) for row, col in c]
         p = Polygon(pts)
         if not p.is_valid:
             p = p.buffer(0)
@@ -157,27 +172,10 @@ def imagen_a_poligonos_por_color(ruta_imagen, colores_deteccion=COLORES_DETECCIO
 
     Devuelve una lista de (polígono, "#rrggbb") ordenada de mayor a
     menor área, o lista vacía si no se pudo sacar nada."""
-    img = Image.open(ruta_imagen)
-    ancho, alto = img.size
-    escala = TAMANO_TRABAJO_PX / max(ancho, alto)
-    if escala < 1:
-        img = img.resize((max(1, int(ancho * escala)), max(1, int(alto * escala))), Image.LANCZOS)
-
-    tiene_alfa = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
-    img_rgba = img.convert("RGBA")
-    arr_rgba = np.array(img_rgba)
-    if tiene_alfa:
-        mascara_valida = arr_rgba[:, :, 3] > 16
-    else:
-        mascara_valida = ~_detectar_fondo_solido(arr_rgba[:, :, :3])
-    area_total = int(mascara_valida.sum())
-    if area_total == 0:
+    alto_px, ancho_px, indices, paleta, mascara_valida, area_minima = _preparar_capas_color(
+        ruta_imagen, TAMANO_TRABAJO_PX, colores_deteccion)
+    if indices is None:
         return []
-    area_minima = max(AREA_MINIMA_PX, area_total * AREA_MINIMA_FRACCION)
-
-    cuantizada = img_rgba.convert("RGB").quantize(colors=colores_deteccion, method=Image.Quantize.MEDIANCUT)
-    paleta = cuantizada.getpalette()
-    indices = np.array(cuantizada)
 
     candidatos = []
     for idx in sorted(set(indices[mascara_valida].tolist())):
@@ -194,3 +192,40 @@ def imagen_a_poligonos_por_color(ruta_imagen, colores_deteccion=COLORES_DETECCIO
 
     candidatos = fusionar_colores_cercanos(candidatos)
     return [(poligono, color_hex) for _, poligono, color_hex in candidatos]
+
+
+def _preparar_capas_color(ruta_imagen, resolucion_px, colores_deteccion):
+    """Redimensiona, arma la máscara de píxeles válidos (ignorando fondo/
+    transparencia, ver `_detectar_fondo_solido`) y cuantiza -- el tramo
+    compartido entre `imagen_a_poligonos_por_color` (que sigue
+    vectorizando cada color) y `core.importador_escudos` (que arma
+    capas SIN vectorizar todavía, para el importador de escudos). Se
+    parametriza la resolución (a diferencia de usar `TAMANO_TRABAJO_PX`
+    fijo) porque el importador puede necesitar más resolución para no
+    perder detalles finos (letras internas chicas).
+
+    Devuelve `(alto_px, ancho_px, indices, paleta, mascara_valida,
+    area_minima)` -- `indices` es None (junto con los demás en None/0)
+    si no quedó ningún píxel válido."""
+    img = Image.open(ruta_imagen)
+    ancho, alto = img.size
+    escala = resolucion_px / max(ancho, alto)
+    if escala < 1:
+        img = img.resize((max(1, int(ancho * escala)), max(1, int(alto * escala))), Image.LANCZOS)
+
+    tiene_alfa = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
+    img_rgba = img.convert("RGBA")
+    arr_rgba = np.array(img_rgba)
+    if tiene_alfa:
+        mascara_valida = arr_rgba[:, :, 3] > 16
+    else:
+        mascara_valida = ~_detectar_fondo_solido(arr_rgba[:, :, :3])
+    area_total = int(mascara_valida.sum())
+    if area_total == 0:
+        return img_rgba.size[1], img_rgba.size[0], None, None, mascara_valida, 0
+
+    area_minima = max(AREA_MINIMA_PX, area_total * AREA_MINIMA_FRACCION)
+    cuantizada = img_rgba.convert("RGB").quantize(colors=colores_deteccion, method=Image.Quantize.MEDIANCUT)
+    paleta = cuantizada.getpalette()
+    indices = np.array(cuantizada)
+    return img_rgba.size[1], img_rgba.size[0], indices, paleta, mascara_valida, area_minima
