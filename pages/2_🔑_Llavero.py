@@ -13,7 +13,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import colores, decoraciones, preview3d
+from core import biblioteca, colores, decoraciones, preview3d
 from generators import llavero
 from ui_streamlit import bloque_presets, selector_fuente
 
@@ -162,6 +162,19 @@ with col_form:
                 decoracion_svg = os.path.join("output", f"_subido_{svg_subido.name}")
                 with open(decoracion_svg, "wb") as f:
                     f.write(svg_subido.getvalue())
+
+            escudos_biblioteca = biblioteca.listar_escudos()
+            if escudos_biblioteca:
+                _OPCION_SIN_ESCUDO = "— Ninguno —"
+                opciones_escudo = [_OPCION_SIN_ESCUDO] + [nombre for nombre, _ in escudos_biblioteca]
+                escudo_elegido = st.selectbox(
+                    "O elegí un escudo de la biblioteca", opciones_escudo, key="ll_svg_biblioteca",
+                    help="Escudos guardados con el Importador de Escudos -- gana sobre el SVG "
+                         "subido arriba. Se usa como silueta de UN solo color (como cualquier SVG "
+                         "propio, no en sus colores reales -- eso viene después).",
+                )
+                if escudo_elegido != _OPCION_SIN_ESCUDO:
+                    decoracion_svg = dict(escudos_biblioteca)[escudo_elegido]
         if modo_logo == "imagotipo":
             decoracion_lado = st.radio(
                 "Lado de la decoración", llavero.LADOS_DECO, horizontal=True, key="ll_decoracion_lado",
