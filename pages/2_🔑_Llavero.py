@@ -38,7 +38,7 @@ PRESET_KEYS = [
     "ll_tipo_deco", "ll_decoracion", "ll_emoji_elegido", "ll_emoji_libre",
     "ll_imagen_umbral", "ll_imagen_invertir",
     "ll_decoracion_lado", "ll_aro_lado",
-    "ll_tiene_ams", "ll_decoracion_tam", "ll_deco_x", "ll_deco_y", "ll_aro_r",
+    "ll_tiene_ams", "ll_decoracion_tam", "ll_deco_x", "ll_deco_y", "ll_aro_r", "ll_aro_x", "ll_aro_y",
     "ll_espesor_texto_mm", "ll_espesor_base_mm", "ll_borde_mm",
     "ll_espaciado_monograma", "ll_anillo_mm",
 ]
@@ -48,13 +48,14 @@ PRESET_KEYS = [
 def _preview_rapido(nombre, ruta_ttf, alto_mm, color_base, color_texto,
                      decoracion, decoracion_emoji, decoracion_lado, decoracion_tam,
                      deco_x, deco_y, aro_lado, aro_r, borde_mm,
-                     modo_logo, espaciado_monograma, anillo_mm):
+                     modo_logo, espaciado_monograma, anillo_mm, aro_x, aro_y):
     return llavero.preview_rapido(
         nombre, ruta_ttf, alto_mm=alto_mm, color_base=color_base, color_texto=color_texto,
         decoracion=decoracion, decoracion_emoji=decoracion_emoji,
         decoracion_lado=decoracion_lado, decoracion_tam=decoracion_tam,
         deco_x=deco_x, deco_y=deco_y, aro_lado=aro_lado, aro_r=aro_r, borde_mm=borde_mm,
         modo_logo=modo_logo, espaciado_monograma=espaciado_monograma, anillo_mm=anillo_mm,
+        aro_x=aro_x, aro_y=aro_y,
     )
 
 
@@ -182,6 +183,7 @@ with col_form:
     )
 
     decoracion_tam, deco_x, deco_y = 7, 0, 0
+    aro_x, aro_y = 0, 0
     espaciado_monograma, anillo_mm = -0.15, 0.0
     with st.expander("Ajustes finos"):
         if es_monograma:
@@ -191,7 +193,7 @@ with col_form:
             )
         if not es_isotipo or tiene_icono:
             if not es_monograma:
-                decoracion_tam = st.slider("Tamaño de la decoración", 3, 20, 7, key="ll_decoracion_tam")
+                decoracion_tam = st.slider("Tamaño de la decoración", 3, 40, 7, key="ll_decoracion_tam")
                 deco_x = st.slider("Ajuste horizontal de la decoración", -40, 40, 0, key="ll_deco_x")
                 deco_y = st.slider("Ajuste vertical de la decoración", -40, 40, 0, key="ll_deco_y")
         if es_monograma or es_emblema:
@@ -199,6 +201,9 @@ with col_form:
                 "Anillo circular (mm de grosor, 0 = sin anillo)", 0.0, 6.0, 2.0, step=0.5, key="ll_anillo_mm",
             )
         aro_r = st.slider("Radio del agujero del aro (mm)", 1.0, 5.0, 2.0, step=0.25, key="ll_aro_r")
+        if aro_lado != "ninguno":
+            aro_x = st.slider("Ajuste horizontal del aro", -40, 40, 0, key="ll_aro_x")
+            aro_y = st.slider("Ajuste vertical del aro", -40, 40, 0, key="ll_aro_y")
         espesor_texto_mm = st.slider(
             "Espesor del texto/decoración (mm)", 1.0, 6.0, 2.0, step=0.5, key="ll_espesor_texto_mm",
         )
@@ -213,7 +218,7 @@ with col_preview:
         png_rapido, ancho_rapido, alto_rapido = _preview_rapido(
             nombre, ruta_ttf, float(alto_mm), color_base, color_texto,
             decoracion, decoracion_emoji, decoracion_lado, decoracion_tam, deco_x, deco_y, aro_lado, aro_r, borde_mm,
-            modo_logo, espaciado_monograma, anillo_mm,
+            modo_logo, espaciado_monograma, anillo_mm, aro_x, aro_y,
         )
         if png_rapido:
             st.image(
@@ -242,7 +247,7 @@ with col_preview:
                     decoracion_svg=decoracion_svg, decoracion_emoji=decoracion_emoji,
                     decoracion_imagen=decoracion_imagen, imagen_umbral=imagen_umbral, imagen_invertir=imagen_invertir,
                     deco_x=deco_x, deco_y=deco_y,
-                    aro_lado=aro_lado, aro_r=aro_r,
+                    aro_lado=aro_lado, aro_r=aro_r, aro_x=aro_x, aro_y=aro_y,
                     espesor_texto_mm=espesor_texto_mm, espesor_base_mm=espesor_base_mm, borde_mm=borde_mm,
                     tiene_ams=tiene_ams,
                     modo_logo=modo_logo, espaciado_monograma=espaciado_monograma, anillo_mm=anillo_mm,

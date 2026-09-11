@@ -30,7 +30,7 @@ CARPETA_SALIDA = "output"
 COLORES = colores.NOMBRES
 DECORACIONES = list(decoraciones.NOMBRES_VALIDOS)
 LADOS_DECO = ["izquierda", "derecha", "arriba"]
-LADOS_ARO = ["izquierda", "derecha", "ambos", "ninguno"]
+LADOS_ARO = ["izquierda", "derecha", "arriba", "abajo", "ambos", "ninguno"]
 
 # Los 5 formatos clásicos de identidad visual (Pictórico/Isotipo,
 # Monográfico/Monograma, Combinado/Imagotipo-Isologo, Emblema — de los 7 de
@@ -107,24 +107,57 @@ def _agregar_marco(contenido, anillo_mm):
     return unary_union([contenido, anillo])
 
 
-def _armar_base_con_aro(contenido, aro_lado, aro_r, borde_mm):
+def _armar_base_con_aro(contenido, aro_lado, aro_r, borde_mm, aro_x=0, aro_y=0):
     """Borde + orejas de aro alrededor de `contenido` — el mismo cierre
     final para los 4 modos de logo, la parte que no cambia entre uno y
-    otro."""
+    otro. "arriba"/"abajo" son el mismo esquema que izquierda/derecha
+    pero en el eje Y (agujero pegado a `cmaxy`/`cminy`, centrado en X)
+    -- "ambos" sigue significando SOLO izquierda+derecha, no se agregó
+    una combinación vertical (no se pidió).
+
+    `aro_x`/`aro_y`: mismo mecanismo que `deco_x`/`deco_y` -- un offset
+    en mm que desplaza el SISTEMA COMPLETO del aro (agujero + la "oreja"
+    que lo conecta al borde), como un solo bloque rígido, desde donde
+    `aro_lado` lo pone por default -- para "ambos", el mismo offset a
+    los dos. Si el offset es grande puede llegar a despegar la oreja de
+    la base (mismo riesgo que empujar mucho una decoración con
+    `deco_x`/`deco_y`) -- es la usuaria quien decide cuánto mover."""
     cminx, cminy, cmaxx, cmaxy = contenido.bounds
+    ccx = (cminx + cmaxx) / 2
     ccy = (cminy + cmaxy) / 2
 
     base = contenido.buffer(borde_mm, join_style=1, cap_style=1)
 
+    def _tab_y_hueco(punto_borde, punto_aro):
+        """`punto_borde`: ancla contra `contenido`. `punto_aro`: centro
+        del agujero, en su posición DEFAULT (sin offset todavía). Se
+        arma el tab+agujero ahí y RECIÉN AL FINAL se traslada el
+        conjunto entero por (aro_x, aro_y) -- así el ancla se mueve
+        exactamente igual que el agujero, nunca quedan desalineados."""
+        tab = LineString([punto_aro, punto_borde]).buffer(aro_r + 2, cap_style=1)
+        hueco = Point(punto_aro).buffer(aro_r, resolution=32)
+        if aro_x or aro_y:
+            tab = translate(tab, xoff=aro_x, yoff=aro_y)
+            hueco = translate(hueco, xoff=aro_x, yoff=aro_y)
+        return tab, hueco
+
     tabs, huecos = [], []
     if aro_lado in ("izquierda", "ambos"):
-        rx = cminx - aro_r - 3
-        tabs.append(LineString([(rx, ccy), (cminx, ccy)]).buffer(aro_r + 2, cap_style=1))
-        huecos.append(Point(rx, ccy).buffer(aro_r, resolution=32))
+        tab, hueco = _tab_y_hueco((cminx, ccy), (cminx - aro_r - 3, ccy))
+        tabs.append(tab)
+        huecos.append(hueco)
     if aro_lado in ("derecha", "ambos"):
-        rx = cmaxx + aro_r + 3
-        tabs.append(LineString([(rx, ccy), (cmaxx, ccy)]).buffer(aro_r + 2, cap_style=1))
-        huecos.append(Point(rx, ccy).buffer(aro_r, resolution=32))
+        tab, hueco = _tab_y_hueco((cmaxx, ccy), (cmaxx + aro_r + 3, ccy))
+        tabs.append(tab)
+        huecos.append(hueco)
+    if aro_lado == "arriba":
+        tab, hueco = _tab_y_hueco((ccx, cmaxy), (ccx, cmaxy + aro_r + 3))
+        tabs.append(tab)
+        huecos.append(hueco)
+    if aro_lado == "abajo":
+        tab, hueco = _tab_y_hueco((ccx, cminy), (ccx, cminy - aro_r - 3))
+        tabs.append(tab)
+        huecos.append(hueco)
 
     if tabs:
         base = unary_union([base] + tabs)
@@ -137,7 +170,8 @@ def _armar_geometria(nombre, ruta_ttf, alto_mm, decoracion, decoracion_lado, dec
                       deco_x, deco_y, aro_lado, aro_r, borde_mm, raster_px,
                       decoracion_svg=None, decoracion_emoji=None,
                       decoracion_imagen=None, imagen_umbral=128, imagen_invertir=False,
-                      modo_logo="imagotipo", espaciado_monograma=-0.15, anillo_mm=0.0):
+                      modo_logo="imagotipo", espaciado_monograma=-0.15, anillo_mm=0.0,
+                      aro_x=0, aro_y=0):
     """Arma la geometría 2D del llavero/logo — contenido según `modo_logo`
     (ver MODOS_LOGO) y base = contenido con borde + orejas de aro
     (`_armar_base_con_aro`, igual en los 5 modos). Devuelve (contenido,
@@ -220,7 +254,7 @@ def _armar_geometria(nombre, ruta_ttf, alto_mm, decoracion, decoracion_lado, dec
             forma_deco = translate(forma_deco, xoff=cx_deco + deco_x, yoff=cy_deco + deco_y)
             contenido = unary_union([contenido, forma_deco])
 
-    base = _armar_base_con_aro(contenido, aro_lado, aro_r, borde_mm)
+    base = _armar_base_con_aro(contenido, aro_lado, aro_r, borde_mm, aro_x=aro_x, aro_y=aro_y)
     return contenido, base, ancho_mm, alto_mm_real
 
 
@@ -252,7 +286,8 @@ def preview_rapido(nombre, ruta_ttf, alto_mm=20,
                     decoracion="corazon", decoracion_lado="derecha", decoracion_tam=7,
                     decoracion_emoji=None,
                     deco_x=0, deco_y=0, aro_lado="izquierda", aro_r=2, borde_mm=3,
-                    modo_logo="imagotipo", espaciado_monograma=-0.15, anillo_mm=0.0):
+                    modo_logo="imagotipo", espaciado_monograma=-0.15, anillo_mm=0.0,
+                    aro_x=0, aro_y=0):
     """Preview 2D instantáneo — solo la geometría plana (`_armar_geometria`),
     SIN mesh3d ni booleanas 3D — para ver el resultado mientras se ajustan
     los parámetros, antes de tocar "Generar llavero" (que sí arma la malla
@@ -272,6 +307,7 @@ def preview_rapido(nombre, ruta_ttf, alto_mm=20,
             nombre, ruta_ttf, alto_mm, decoracion, decoracion_lado, decoracion_tam,
             deco_x, deco_y, aro_lado, aro_r, borde_mm, raster_px=250, decoracion_emoji=decoracion_emoji,
             modo_logo=modo_logo, espaciado_monograma=espaciado_monograma, anillo_mm=anillo_mm,
+            aro_x=aro_x, aro_y=aro_y,
         )
     except (ValueError, FileNotFoundError):
         return None, 0, 0
@@ -287,7 +323,7 @@ def generar(nombre, ruta_ttf, alto_mm=20,
             decoracion_svg=None, decoracion_emoji=None,
             decoracion_imagen=None, imagen_umbral=128, imagen_invertir=False,
             deco_x=0, deco_y=0,
-            aro_lado="izquierda", aro_r=2,
+            aro_lado="izquierda", aro_r=2, aro_x=0, aro_y=0,
             espesor_texto_mm=2, espesor_base_mm=3, borde_mm=3,
             tiene_ams=False, raster_px=400,
             modo_logo="imagotipo", espaciado_monograma=-0.15, anillo_mm=0.0,
@@ -336,6 +372,7 @@ def generar(nombre, ruta_ttf, alto_mm=20,
         decoracion_svg=decoracion_svg, decoracion_emoji=decoracion_emoji,
         decoracion_imagen=decoracion_imagen, imagen_umbral=imagen_umbral, imagen_invertir=imagen_invertir,
         modo_logo=modo_logo, espaciado_monograma=espaciado_monograma, anillo_mm=anillo_mm,
+        aro_x=aro_x, aro_y=aro_y,
     )
 
     os.makedirs(carpeta_salida, exist_ok=True)
