@@ -91,7 +91,35 @@ def _grilla_de_alturas(ruta_imagen, resolucion_px=RESOLUCION_MAX_PX, suavizado_p
     return img_arr
 
 
-def _malla_desde_grilla(alturas_norm, ancho_mm, alto_mm, espesor_base_mm, relieve_mm, oscuro_alto=True, mapa_relieve_mm=None):
+def _mascara_medallon(nh, nw, forma="Rectangular", suavizado_borde=0.06):
+    """Máscara [0,1] (nh,nw) para recortar el relieve dentro de una
+    silueta — "Circular"/"Ovalada" dejan un medallón con la foto tallada
+    adentro y el marco alrededor liso (a nivel de la base), en vez de
+    ocupar todo el rectángulo. "Rectangular" devuelve None (sin
+    recorte — comportamiento clásico). El borde tiene un degradé suave
+    (no un escalón brusco) para que la transición se imprima limpia."""
+    if forma not in ("Circular", "Ovalada"):
+        return None
+
+    ys, xs = np.mgrid[0:nh, 0:nw].astype(np.float64)
+    cy, cx = (nh - 1) / 2, (nw - 1) / 2
+    if forma == "Circular":
+        # círculo real (mismo radio físico en ambos ejes — la grilla ya
+        # respeta la proporción real de la imagen, 1 unidad de grilla =
+        # misma distancia física en X que en Y): usa el semieje menor,
+        # así el círculo queda siempre inscripto sin recortarse.
+        rx = ry = min(nh, nw) / 2
+    else:  # "Ovalada" — elipse inscripta en todo el rectángulo de la grilla
+        ry, rx = nh / 2, nw / 2
+    # normalizado: distancia radial 1.0 = borde de la elipse/círculo
+    dist = np.sqrt(((xs - cx) / rx) ** 2 + ((ys - cy) / ry) ** 2)
+    borde = suavizado_borde
+    mascara = np.clip((1.0 - dist) / borde, 0.0, 1.0)
+    return mascara
+
+
+def _malla_desde_grilla(alturas_norm, ancho_mm, alto_mm, espesor_base_mm, relieve_mm, oscuro_alto=True,
+                         mapa_relieve_mm=None, forma_medallon="Rectangular"):
     """Arma una malla watertight a partir de una grilla de alturas
     normalizadas [0,1] (`alturas_norm`, fila 0 = arriba de la imagen):
     superficie de arriba con Z variable (`espesor_base_mm` +
@@ -106,9 +134,18 @@ def _malla_desde_grilla(alturas_norm, ancho_mm, alto_mm, espesor_base_mm, reliev
     `mapa_relieve_mm`: si se pasa (array 2D del mismo tamaño que
     `alturas_norm`, en mm), reemplaza al `relieve_mm` escalar — el
     relieve máximo pasa a variar por píxel (ej. mayor sobre el sujeto,
-    menor sobre el fondo, ver `_mapa_relieve_sujeto_fondo`)."""
+    menor sobre el fondo, ver `_mapa_relieve_sujeto_fondo`).
+
+    `forma_medallon`: "Rectangular" (clásico, ocupa todo) / "Circular" /
+    "Ovalada" — recorta el relieve dentro de esa silueta, con el resto
+    de la placa lisa (a nivel de base) alrededor, como un medallón."""
     nh, nw = alturas_norm.shape
     h = 1.0 - alturas_norm if oscuro_alto else alturas_norm
+
+    mascara = _mascara_medallon(nh, nw, forma_medallon)
+    if mascara is not None:
+        h = h * mascara
+
     relieve_efectivo = mapa_relieve_mm if mapa_relieve_mm is not None else relieve_mm
     z_top = espesor_base_mm + h * relieve_efectivo
 
@@ -162,7 +199,8 @@ def escultura_desde_imagen(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
                             espesor_base_mm=3.0, relieve_mm=8.0,
                             resolucion_px=RESOLUCION_MAX_PX, suavizado_px=1.0,
                             oscuro_alto=True, usar_clahe=True, usar_bilateral=True,
-                            segmentar_sujeto=False, factor_relieve_sujeto=1.4, factor_relieve_fondo=0.35):
+                            segmentar_sujeto=False, factor_relieve_sujeto=1.4, factor_relieve_fondo=0.35,
+                            forma_medallon="Rectangular"):
     """Imagen -> malla 3D de relieve/escultura, lista para exportar.
     Mejoras de calidad: CLAHE (contrast equalization) + bilateral filtering.
     `usar_clahe`: aplica adaptive histogram equalization (True por default).
@@ -175,7 +213,11 @@ def escultura_desde_imagen(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
     resultado se lee más como un relieve escultórico real (la figura
     "sale" del fondo) que el relieve uniforme por brillo solo. Si rembg
     no está disponible o falla la segmentación, cae de vuelta al relieve
-    uniforme de siempre (no rompe el modo clásico)."""
+    uniforme de siempre (no rompe el modo clásico).
+
+    `forma_medallon`: "Rectangular" (clásico) / "Circular" / "Ovalada" —
+    recorta el relieve dentro de esa silueta (medallón), con el marco
+    alrededor liso a nivel de base."""
     alturas = _grilla_de_alturas(ruta_imagen, resolucion_px, suavizado_px, usar_clahe, usar_bilateral)
 
     mapa_relieve_mm = None
@@ -186,7 +228,8 @@ def escultura_desde_imagen(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
                 factor_relieve_fondo + (factor_relieve_sujeto - factor_relieve_fondo) * mascara
             )
 
-    malla = _malla_desde_grilla(alturas, ancho_mm, alto_mm, espesor_base_mm, relieve_mm, oscuro_alto, mapa_relieve_mm)
+    malla = _malla_desde_grilla(alturas, ancho_mm, alto_mm, espesor_base_mm, relieve_mm, oscuro_alto,
+                                 mapa_relieve_mm, forma_medallon)
 
     if not malla.is_watertight:
         trimesh.repair.fill_holes(malla)

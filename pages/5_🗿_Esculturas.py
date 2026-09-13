@@ -89,32 +89,74 @@ col_form, col_preview = st.columns([1, 1.3])
 with col_form:
     bloque_presets("esculturas", PRESET_KEYS)
 
-    imagen_subida = st.file_uploader(
-        "Imagen (PNG/JPG)", type=["png", "jpg", "jpeg"],
-        help="Foto, logo o dibujo — mejor con buen contraste entre las zonas que querés que "
-             "sobresalgan y las que no. No entra en el preset (el archivo no se puede pre-cargar).",
-    )
-    ruta_imagen = None
-    if imagen_subida is not None:
-        os.makedirs("output", exist_ok=True)
-        ruta_imagen = os.path.join("output", f"_subido_{imagen_subida.name}")
-        with open(ruta_imagen, "wb") as f:
-            f.write(imagen_subida.getvalue())
+    combinar_imagenes = False
+    if modo != "Estatua 3D completa (API externa)":
+        combinar_imagenes = st.checkbox(
+            "🖼️ Combinar varias imágenes en una misma escultura", value=False, key="es_combinar",
+            help=(
+                "Modo Relieve: hasta 4 fotos talladas juntas en una sola placa (collage). "
+                "Modo Estatua 3D: cada foto se reconstruye como su propia figura 3D (TripoSR) y "
+                "todas quedan paradas sobre un pedestal compartido — una familia, mascota + "
+                "dueño, etc., en una sola pieza imprimible."
+            ),
+        )
 
-    ancho_mm = st.slider("Ancho (mm)", 30, 200, 80, step=5, key="es_ancho_mm")
+    ruta_imagen = None
+    rutas_imagenes = []
+    layout_collage = "Lado a lado"
+
+    if combinar_imagenes:
+        archivos_subidos = st.file_uploader(
+            "Imágenes (2 a 4, PNG/JPG)", type=["png", "jpg", "jpeg"], accept_multiple_files=True,
+            help="Subí entre 2 y 4 imágenes. No entran en el preset.",
+        )
+        if archivos_subidos:
+            os.makedirs("output", exist_ok=True)
+            for arch in archivos_subidos[:4]:
+                ruta = os.path.join("output", f"_subido_{arch.name}")
+                with open(ruta, "wb") as f:
+                    f.write(arch.getvalue())
+                rutas_imagenes.append(ruta)
+            ruta_imagen = rutas_imagenes[0]  # se usa para calcular proporción/preview de referencia
+            if len(rutas_imagenes) < 2:
+                st.warning("Subí al menos 2 imágenes para combinar.")
+
+        if modo == "Relieve (rápido, sin IA)":
+            layout_collage = st.radio("Cómo combinarlas", esculturas.LAYOUTS_COLLAGE, horizontal=True, key="es_layout_collage")
+    else:
+        imagen_subida = st.file_uploader(
+            "Imagen (PNG/JPG)", type=["png", "jpg", "jpeg"],
+            help="Foto, logo o dibujo — mejor con buen contraste entre las zonas que querés que "
+                 "sobresalgan y las que no. No entra en el preset (el archivo no se puede pre-cargar).",
+        )
+        if imagen_subida is not None:
+            os.makedirs("output", exist_ok=True)
+            ruta_imagen = os.path.join("output", f"_subido_{imagen_subida.name}")
+            with open(ruta_imagen, "wb") as f:
+                f.write(imagen_subida.getvalue())
+
+    ancho_mm = st.slider("Ancho (mm)" if not combinar_imagenes else "Ancho / tamaño de referencia (mm)", 30, 200, 80, step=5, key="es_ancho_mm")
     alto_mm = ancho_mm
-    if ruta_imagen:
+    if combinar_imagenes:
+        if modo == "Relieve (rápido, sin IA)":
+            st.caption("El alto sale del layout elegido (el collage se arma cuadrado/rectangular según cómo combines las fotos).")
+        else:
+            st.caption("Cada figura mantiene su propia proporción — este valor es la altura de la figura principal.")
+    elif ruta_imagen:
         _, alto_mm = heightmap.ajustar_caja_a_proporcion(ruta_imagen, float(ancho_mm))
         st.caption(f"Alto calculado según la proporción real de la imagen: **{alto_mm:.0f} mm**.")
 
     espesor_base_mm = relieve_mm = 0.0
     oscuro_alto = True
     segmentar_sujeto = False
+    forma_medallon = "Rectangular"
     suavizado_px = 1.0
     resolucion_px = esculturas.RESOLUCION_DEFAULT_PX
     ia_calidad_label = api_key = ""
     ia_quitar_fondo = True
     api_proveedor = "Tripo3D"
+    forma_pedestal = "Redonda"
+    texto_placa = ""
 
     if modo == "Relieve (rápido, sin IA)":
         c1, c2 = st.columns(2)
@@ -143,6 +185,12 @@ with col_form:
                  "Tarda unos segundos más la primera vez (descarga un modelo chico de segmentación).",
         )
 
+        forma_medallon = st.radio(
+            "Forma del relieve", esculturas.FORMAS_MEDALLON, horizontal=True, key="es_forma_medallon",
+            help="\"Circular\"/\"Ovalada\" recortan la foto tallada dentro de esa silueta (medallón), "
+                 "con el resto de la placa lisa alrededor — como un camafeo o medallón conmemorativo.",
+        )
+
         with st.expander("Ajustes finos"):
             suavizado_px = st.slider(
                 "Suavizado (px)", 0.0, 4.0, 1.0, step=0.5, key="es_suavizado_px",
@@ -164,6 +212,20 @@ with col_form:
             help="Saca el fondo de la foto (rembg) antes de mandarla al modelo — ayuda mucho si "
                  "la foto no tiene fondo liso.",
         )
+
+        con_pedestal = combinar_imagenes or st.checkbox(
+            "Agregar pedestal + placa de nombre", value=False, key="es_con_pedestal",
+            help="La figura sola queda parada apoyada directo — con esta opción se agrega una base "
+                 "(pedestal) debajo y, si escribís algo, una placa con el texto grabado al frente. "
+                 "En 'Combinar varias imágenes' el pedestal es obligatorio (es lo que sostiene a "
+                 "todas las figuras juntas).",
+        )
+        if con_pedestal:
+            c1, c2 = st.columns(2)
+            forma_pedestal = c1.selectbox(
+                "Forma del pedestal", ["Redonda", "Ovalada", "Cuadrada", "Rectangular"], key="es_forma_pedestal",
+            )
+            texto_placa = c2.text_input("Texto de la placa (opcional)", "", key="es_texto_placa")
 
     else:
         api_proveedor = st.selectbox("Servicio", list(ia3d.PROVEEDORES_API.keys()))
@@ -198,8 +260,11 @@ with col_preview:
             st.divider()
 
     r = None
+    combo_activo = combinar_imagenes and len(rutas_imagenes) >= 2
     if not generar_click:
-        st.info(f"Subí una imagen y apretá **{etiqueta_boton}**.")
+        st.info(f"Subí {'2 a 4 imágenes' if combinar_imagenes else 'una imagen'} y apretá **{etiqueta_boton}**.")
+    elif combinar_imagenes and len(rutas_imagenes) < 2:
+        st.error("Subí al menos 2 imágenes para combinar.")
     elif not ruta_imagen:
         st.error("Subí una imagen primero.")
     elif modo == "Relieve (rápido, sin IA)":
@@ -216,14 +281,25 @@ with col_preview:
             for aviso in avisos:
                 st.warning(aviso)
 
-            with st.spinner("Tallando el relieve (puede tardar unos segundos)..."):
+            spinner_msg = f"Combinando {len(rutas_imagenes)} imágenes y tallando el relieve..." if combo_activo else "Tallando el relieve (puede tardar unos segundos)..."
+            with st.spinner(spinner_msg):
                 try:
-                    r = esculturas.generar(
-                        ruta_imagen, ancho_mm=float(ancho_mm), alto_mm=float(alto_mm),
-                        espesor_base_mm=float(espesor_base_mm), relieve_mm=float(relieve_mm),
-                        resolucion_px=resolucion_px, suavizado_px=float(suavizado_px),
-                        oscuro_alto=oscuro_alto, segmentar_sujeto=segmentar_sujeto,
-                    )
+                    if combo_activo:
+                        r = esculturas.generar_combinado(
+                            rutas_imagenes, layout=layout_collage,
+                            ancho_mm=float(ancho_mm), alto_mm=float(alto_mm),
+                            espesor_base_mm=float(espesor_base_mm), relieve_mm=float(relieve_mm),
+                            resolucion_px=resolucion_px, suavizado_px=float(suavizado_px),
+                            oscuro_alto=oscuro_alto, segmentar_sujeto=segmentar_sujeto,
+                        )
+                    else:
+                        r = esculturas.generar(
+                            ruta_imagen, ancho_mm=float(ancho_mm), alto_mm=float(alto_mm),
+                            espesor_base_mm=float(espesor_base_mm), relieve_mm=float(relieve_mm),
+                            resolucion_px=resolucion_px, suavizado_px=float(suavizado_px),
+                            oscuro_alto=oscuro_alto, segmentar_sujeto=segmentar_sujeto,
+                            forma_medallon=forma_medallon,
+                        )
                 except (FileNotFoundError, ValueError) as e:
                     st.error(str(e))
     elif modo == "Estatua 3D completa (IA local)":
@@ -240,12 +316,32 @@ with col_preview:
             for aviso in avisos:
                 st.warning(aviso)
 
-            with st.spinner(f"Reconstruyendo el volumen (TripoSR, malla {resolucion_malla}³, ~1-2 min en CPU)..."):
+            if combo_activo:
+                spinner_msg = f"Reconstruyendo {len(rutas_imagenes)} figuras (TripoSR, una por una) y armando la escena..."
+            else:
+                spinner_msg = f"Reconstruyendo el volumen (TripoSR, malla {resolucion_malla}³, ~1-2 min en CPU)..."
+
+            with st.spinner(spinner_msg):
                 try:
-                    r = ia3d.generar_local(
-                        ruta_imagen, ancho_mm=float(ancho_mm), resolucion_malla=resolucion_malla,
-                        quitar_fondo=ia_quitar_fondo,
-                    )
+                    if combo_activo:
+                        r = esculturas.generar_grupo_3d(
+                            rutas_imagenes, alto_mm_principal=float(ancho_mm),
+                            resolucion_malla=resolucion_malla, quitar_fondo=ia_quitar_fondo,
+                            forma_base=forma_pedestal, texto_placa=texto_placa,
+                        )
+                    else:
+                        r = ia3d.generar_local(
+                            ruta_imagen, ancho_mm=float(ancho_mm), resolucion_malla=resolucion_malla,
+                            quitar_fondo=ia_quitar_fondo,
+                        )
+                        if con_pedestal:
+                            ruta_con_pedestal, malla_pedestal = esculturas.agregar_pedestal(
+                                r["ruta_stl"], forma_base=forma_pedestal, texto=texto_placa,
+                            )
+                            r["ruta_stl"] = ruta_con_pedestal
+                            r["vertices"] = len(malla_pedestal.vertices)
+                            r["caras"] = len(malla_pedestal.faces)
+                            r["watertight"] = malla_pedestal.is_watertight
                 except (FileNotFoundError, ValueError, RuntimeError) as e:
                     st.error(str(e))
     else:
