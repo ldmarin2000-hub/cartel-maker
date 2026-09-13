@@ -78,18 +78,20 @@ def avisos_en_relieve(ancho_mm: float, alto_mm: float, suavizado_px: float) -> l
     return avisos
 
 
-def avisos_en_estatua(pasos: int) -> list:
-    """Generar avisos para estatua 3D."""
+def avisos_en_estatua(resolucion_malla: int) -> list:
+    """Generar avisos para estatua 3D (TripoSR — `resolucion_malla` es el
+    lado de la grilla de marching cubes, no "pasos" de un modelo difuso:
+    más resolución = malla más densa/fiel, no menos artefactos)."""
     avisos = []
 
-    if pasos < 20:
+    if resolucion_malla < 128:
         avisos.append(
-            "⚠️ Muy pocos pasos. La estatua podría quedar rústica/incompleta."
+            "⚠️ Resolución de malla muy baja. La estatua podría quedar rústica/con poco detalle."
         )
 
-    if pasos > 60:
+    if resolucion_malla > 384:
         avisos.append(
-            "⚠️ Muchos pasos. Esto tardará 20+ minutos en CPU. "
+            "⚠️ Resolución muy alta. Esto puede tardar varios minutos en CPU. "
             "Probá con 'Normal' primero para validar el encuadre."
         )
 

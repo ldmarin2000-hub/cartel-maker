@@ -33,10 +33,15 @@ from core import pieza, storage
 RAIZ_PROYECTO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PYTHON_IA3D = r"C:\ia3d_venv\Scripts\python.exe"
 
+# TripoSR no tiene "pasos" de generación (una sola pasada feed-forward,
+# rápida) — la calidad depende de la resolución de la grilla de marching
+# cubes con la que se extrae la malla del campo de densidad: más
+# resolución = más triángulos/detalle real, no "menos artefactos" como
+# los "pasos" de un modelo difuso (Shap-E).
 CALIDADES_LOCAL = {
-    "Rápida (más rústica, ~1-3 min en CPU)": 16,
-    "Normal (~3-7 min en CPU)": 24,
-    "Alta (más fiel, ~8-15 min en CPU)": 48,
+    "Rápida (malla 128³, ~30-45s en CPU)": 128,
+    "Normal (malla 256³, ~50-70s en CPU)": 256,
+    "Alta (malla 320³, más detalle, ~90-130s en CPU)": 320,
 }
 
 PROVEEDORES_API = {
@@ -57,15 +62,22 @@ def entorno_local_disponible():
 
 
 def generar_local(ruta_imagen, carpeta_salida="output", ancho_mm=80.0,
-                   pasos=32, quitar_fondo=True, timeout_seg=1800):
-    """Corre core/ia3d_worker.py en el venv de IA (subprocess, no
-    import — ese venv tiene torch/diffusers, este no) y devuelve el
+                   resolucion_malla=256, quitar_fondo=True, timeout_seg=900):
+    """Corre core/triposr_worker.py en el venv de IA (subprocess, no
+    import — ese venv tiene torch/transformers, este no) y devuelve el
     mismo shape de dict que generators/esculturas.py::generar(), para
     que la página los pueda tratar igual.
 
-    Puede tardar bastante (CPU, sin GPU) — `timeout_seg` corta la
-    espera si algo se cuelga. La primera vez además descarga los pesos
-    del modelo (~1-2GB) desde Hugging Face, así que tarda más."""
+    Usa TripoSR (Stability AI + Tripo, 2024) en vez de Shap-E (legado,
+    2022, sigue en core/ia3d_worker.py sin usarse desde acá): TripoSR
+    es un reconstructor feed-forward — una sola pasada que sigue la
+    imagen de verdad, no un generador difuso que "imagina" un objeto
+    parecido — mucha más fidelidad a la pose/proporciones reales, y
+    más rápido (~1 min en CPU vs 3-15 min de Shap-E; sin "pasos" que
+    ajustar, la calidad depende de `resolucion_malla`, no de
+    iteraciones). La primera vez además descarga los pesos del modelo
+    (~150MB) desde Hugging Face, así que tarda un poco más.
+    `timeout_seg` corta la espera si algo se cuelga."""
     if not entorno_local_disponible():
         raise RuntimeError(
             f"Falta el entorno de IA local — corré setup_ia3d.bat una vez "
@@ -85,10 +97,10 @@ def generar_local(ruta_imagen, carpeta_salida="output", ancho_mm=80.0,
     ruta_png = os.path.join(carpeta_salida, f"estatua_{base_nombre}_preview.png")
 
     comando = [
-        PYTHON_IA3D, "-m", "core.ia3d_worker",
+        PYTHON_IA3D, "-m", "core.triposr_worker",
         os.path.abspath(ruta_imagen), os.path.abspath(ruta_stl), os.path.abspath(ruta_png),
         "--ancho_mm", str(ancho_mm),
-        "--pasos", str(pasos),
+        "--resolucion_malla", str(resolucion_malla),
         "--quitar_fondo", "1" if quitar_fondo else "0",
         "--suavizado", "1",
         "--decimation", "1",
@@ -113,8 +125,8 @@ def generar_local(ruta_imagen, carpeta_salida="output", ancho_mm=80.0,
     if not malla.is_watertight:
         avisos.append("No quedó perfectamente watertight, revisala antes de imprimir.")
     info = [
-        f"Generado con IA local (Shap-E, {pasos} pasos) en {segundos:.0f}s — "
-        f"la fidelidad a la pose/proporciones original depende del modelo, no es exacta."
+        f"Generado con IA local (TripoSR, malla {resolucion_malla}³) en {segundos:.0f}s — "
+        f"reconstrucción feed-forward de la foto real, no una generación aproximada."
     ]
 
     return {

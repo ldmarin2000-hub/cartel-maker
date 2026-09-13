@@ -36,7 +36,7 @@ CALIDADES = {
 
 PRESET_KEYS = [
     "es_ancho_mm", "es_espesor_base_mm", "es_relieve_mm",
-    "es_oscuro_alto", "es_suavizado_px", "es_calidad", "es_color",
+    "es_oscuro_alto", "es_segmentar_sujeto", "es_suavizado_px", "es_calidad", "es_color",
     "es_ia_calidad", "es_ia_quitar_fondo",
 ]
 
@@ -62,16 +62,16 @@ if modo == "Relieve (rápido, sin IA)":
 elif modo == "Estatua 3D completa (IA local)":
     st.info(
         "Reconstruye un VOLUMEN completo que sigue la pose del sujeto (no una sola cara en "
-        "relieve) usando un modelo de IA (Shap-E) corriendo en tu máquina, gratis y sin mandar "
-        "la imagen a ningún lado — pero en CPU (sin GPU) tarda varios minutos y la fidelidad a "
-        "la foto es más rústica que un servicio pago. Mejor con la foto de UN sujeto claro, "
-        "fondo simple."
+        "relieve) con TripoSR, corriendo en tu máquina, gratis y sin mandar la imagen a ningún "
+        "lado. A diferencia de un generador difuso, TripoSR reconstruye en una sola pasada "
+        "siguiendo la foto de verdad — ~1-2 min en CPU (sin GPU), buena fidelidad de pose y "
+        "proporciones. Mejor con la foto de UN sujeto claro, fondo simple."
     )
     if not ia3d.entorno_local_disponible():
         st.warning(
             "Todavía no está instalado el entorno de IA local. Corré **setup_ia3d.bat** "
             "(en la carpeta del proyecto) una vez — ocupa 3-4GB en el disco C: y después la "
-            "primera generación descarga los pesos del modelo (~1-2GB más)."
+            "primera generación descarga los pesos del modelo (~150MB más)."
         )
 else:
     st.info(
@@ -109,6 +109,7 @@ with col_form:
 
     espesor_base_mm = relieve_mm = 0.0
     oscuro_alto = True
+    segmentar_sujeto = False
     suavizado_px = 1.0
     resolucion_px = esculturas.RESOLUCION_DEFAULT_PX
     ia_calidad_label = api_key = ""
@@ -133,6 +134,15 @@ with col_form:
         )
         oscuro_alto = oscuro_alto_label == "Zonas oscuras"
 
+        segmentar_sujeto = st.checkbox(
+            "Relieve escultórico diferenciado (el sujeto resalta del fondo)", value=False,
+            key="es_segmentar_sujeto",
+            help="Separa el sujeto (persona/objeto principal) del fondo con IA liviana (rembg) — "
+                 "el sujeto queda con más relieve y el fondo casi plano, como un relieve escultórico "
+                 "real (la figura 'sale' de la placa) en vez de un relieve uniforme por brillo solo. "
+                 "Tarda unos segundos más la primera vez (descarga un modelo chico de segmentación).",
+        )
+
         with st.expander("Ajustes finos"):
             suavizado_px = st.slider(
                 "Suavizado (px)", 0.0, 4.0, 1.0, step=0.5, key="es_suavizado_px",
@@ -144,9 +154,10 @@ with col_form:
 
     elif modo == "Estatua 3D completa (IA local)":
         ia_calidad_label = st.radio(
-            "Calidad (pasos del modelo)", list(ia3d.CALIDADES_LOCAL.keys()), key="es_ia_calidad",
-            help="Más pasos = más fiel pero mucho más lento en CPU. Sin GPU, arrancá por Rápida "
-                 "para probar el encuadre antes de esperar una corrida larga.",
+            "Calidad (resolución de la malla)", list(ia3d.CALIDADES_LOCAL.keys()), key="es_ia_calidad",
+            help="TripoSR reconstruye en una sola pasada (rápido) — la calidad depende de la "
+                 "resolución con la que se extrae la malla del volumen, no de 'pasos' como los "
+                 "modelos difusos. Más resolución = más triángulos/detalle real, más lento.",
         )
         ia_quitar_fondo = st.checkbox(
             "Recortar el sujeto del fondo automáticamente", value=True, key="es_ia_quitar_fondo",
@@ -211,12 +222,12 @@ with col_preview:
                         ruta_imagen, ancho_mm=float(ancho_mm), alto_mm=float(alto_mm),
                         espesor_base_mm=float(espesor_base_mm), relieve_mm=float(relieve_mm),
                         resolucion_px=resolucion_px, suavizado_px=float(suavizado_px),
-                        oscuro_alto=oscuro_alto,
+                        oscuro_alto=oscuro_alto, segmentar_sujeto=segmentar_sujeto,
                     )
                 except (FileNotFoundError, ValueError) as e:
                     st.error(str(e))
     elif modo == "Estatua 3D completa (IA local)":
-        pasos = ia3d.CALIDADES_LOCAL[ia_calidad_label]
+        resolucion_malla = ia3d.CALIDADES_LOCAL[ia_calidad_label]
         # Validación antes de generar
         try:
             validation.validar_imagen(ruta_imagen)
@@ -225,14 +236,15 @@ with col_preview:
             st.error(f"❌ {str(e)}")
         else:
             # Avisos (no errores)
-            avisos = validation.avisos_en_estatua(pasos)
+            avisos = validation.avisos_en_estatua(resolucion_malla)
             for aviso in avisos:
                 st.warning(aviso)
 
-            with st.spinner(f"Reconstruyendo el volumen ({pasos} pasos, puede tardar varios minutos en CPU)..."):
+            with st.spinner(f"Reconstruyendo el volumen (TripoSR, malla {resolucion_malla}³, ~1-2 min en CPU)..."):
                 try:
                     r = ia3d.generar_local(
-                        ruta_imagen, ancho_mm=float(ancho_mm), pasos=pasos, quitar_fondo=ia_quitar_fondo,
+                        ruta_imagen, ancho_mm=float(ancho_mm), resolucion_malla=resolucion_malla,
+                        quitar_fondo=ia_quitar_fondo,
                     )
                 except (FileNotFoundError, ValueError, RuntimeError) as e:
                     st.error(str(e))

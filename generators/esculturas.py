@@ -88,7 +88,7 @@ def preview_rapido(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
 def generar(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
             espesor_base_mm=3.0, relieve_mm=8.0,
             resolucion_px=RESOLUCION_DEFAULT_PX, suavizado_px=1.0,
-            oscuro_alto=True,
+            oscuro_alto=True, segmentar_sujeto=False,
             carpeta_salida=CARPETA_SALIDA):
     """Arma la escultura/relieve y exporta el STL. Devuelve un dict con
     la ruta, medidas y avisos. No pregunta nada ni imprime nada — así lo
@@ -99,7 +99,10 @@ def generar(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
     `espesor_base_mm`: piso mínimo (para que no se rompa). `relieve_mm`:
     cuánto sobresale la parte más alta por encima del piso.
     `oscuro_alto=True`: las zonas oscuras de la imagen quedan más altas
-    (relieve escultórico típico) — en falso, al revés."""
+    (relieve escultórico típico) — en falso, al revés.
+    `segmentar_sujeto=True`: relieve "escultórico diferenciado" — el
+    sujeto (persona/objeto principal, detectado con rembg) sobresale
+    más que el fondo, en vez de un relieve uniforme por brillo solo."""
     if not os.path.exists(ruta_imagen):
         raise FileNotFoundError(f"no encuentro la imagen: {ruta_imagen}")
     if espesor_base_mm <= 0:
@@ -109,7 +112,7 @@ def generar(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
         ruta_imagen, ancho_mm=ancho_mm, alto_mm=alto_mm,
         espesor_base_mm=espesor_base_mm, relieve_mm=relieve_mm,
         resolucion_px=resolucion_px, suavizado_px=suavizado_px,
-        oscuro_alto=oscuro_alto,
+        oscuro_alto=oscuro_alto, segmentar_sujeto=segmentar_sujeto,
     )
 
     os.makedirs(carpeta_salida, exist_ok=True)

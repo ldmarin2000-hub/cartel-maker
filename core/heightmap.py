@@ -24,6 +24,38 @@ from skimage import exposure, filters
 RESOLUCION_MAX_PX = 180  # lado más largo de la grilla de trabajo — más = más detalle, más lento y más pesado
 
 
+def _mascara_sujeto(ruta_imagen, resolucion_px, suavizado_borde_px=2.0):
+    """Segmenta sujeto/fondo con rembg (modelo liviano U2Net, corre rápido
+    en CPU) y devuelve una máscara 2D en [0,1] del mismo tamaño que la
+    grilla de trabajo — 1.0 = sujeto, 0.0 = fondo, con un degradé suave en
+    el borde (para que el relieve no tenga un escalón brusco entre sujeto
+    y fondo). Devuelve None si rembg no está instalado o falla (el llamador
+    debe tratar eso como "sin segmentación disponible", no como error)."""
+    try:
+        import rembg
+    except ImportError:
+        return None
+
+    try:
+        img = Image.open(ruta_imagen).convert("RGBA")
+        recortada = rembg.remove(img)
+        alpha = np.asarray(recortada.split()[-1], dtype=np.float64) / 255.0
+    except Exception:
+        return None
+
+    alpha_img = Image.fromarray((alpha * 255).astype(np.uint8))
+    ancho_px, alto_px = alpha_img.size
+    lado_mayor = max(ancho_px, alto_px)
+    escala = resolucion_px / lado_mayor
+    nw, nh = max(2, round(ancho_px * escala)), max(2, round(alto_px * escala))
+    alpha_img = alpha_img.resize((nw, nh), Image.LANCZOS)
+
+    if suavizado_borde_px > 0:
+        alpha_img = alpha_img.filter(ImageFilter.GaussianBlur(suavizado_borde_px))
+
+    return np.asarray(alpha_img, dtype=np.float64) / 255.0
+
+
 def _grilla_de_alturas(ruta_imagen, resolucion_px=RESOLUCION_MAX_PX, suavizado_px=1.0, usar_clahe=True, usar_bilateral=False):
     """Lee `ruta_imagen`, la pasa a escala de grises y la re-muestrea a una
     grilla de como mucho `resolucion_px` de lado (mantiene la proporción
@@ -59,7 +91,7 @@ def _grilla_de_alturas(ruta_imagen, resolucion_px=RESOLUCION_MAX_PX, suavizado_p
     return img_arr
 
 
-def _malla_desde_grilla(alturas_norm, ancho_mm, alto_mm, espesor_base_mm, relieve_mm, oscuro_alto=True):
+def _malla_desde_grilla(alturas_norm, ancho_mm, alto_mm, espesor_base_mm, relieve_mm, oscuro_alto=True, mapa_relieve_mm=None):
     """Arma una malla watertight a partir de una grilla de alturas
     normalizadas [0,1] (`alturas_norm`, fila 0 = arriba de la imagen):
     superficie de arriba con Z variable (`espesor_base_mm` +
@@ -69,10 +101,16 @@ def _malla_desde_grilla(alturas_norm, ancho_mm, alto_mm, espesor_base_mm, reliev
     quedan más altas (relieve "escultórico" típico); en falso, las
     claras quedan más altas (más parecido a una litofanía vista a
     trasluz, aunque litofanía de verdad es al revés en grosor, no en
-    altura — esto es una escultura de relieve, no un difusor)."""
+    altura — esto es una escultura de relieve, no un difusor).
+
+    `mapa_relieve_mm`: si se pasa (array 2D del mismo tamaño que
+    `alturas_norm`, en mm), reemplaza al `relieve_mm` escalar — el
+    relieve máximo pasa a variar por píxel (ej. mayor sobre el sujeto,
+    menor sobre el fondo, ver `_mapa_relieve_sujeto_fondo`)."""
     nh, nw = alturas_norm.shape
     h = 1.0 - alturas_norm if oscuro_alto else alturas_norm
-    z_top = espesor_base_mm + h * relieve_mm
+    relieve_efectivo = mapa_relieve_mm if mapa_relieve_mm is not None else relieve_mm
+    z_top = espesor_base_mm + h * relieve_efectivo
 
     xs = np.linspace(0, ancho_mm, nw)
     ys = np.linspace(alto_mm, 0, nh)  # fila 0 (arriba de la imagen) -> Y más alto
@@ -123,13 +161,32 @@ def _malla_desde_grilla(alturas_norm, ancho_mm, alto_mm, espesor_base_mm, reliev
 def escultura_desde_imagen(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
                             espesor_base_mm=3.0, relieve_mm=8.0,
                             resolucion_px=RESOLUCION_MAX_PX, suavizado_px=1.0,
-                            oscuro_alto=True, usar_clahe=True, usar_bilateral=True):
+                            oscuro_alto=True, usar_clahe=True, usar_bilateral=True,
+                            segmentar_sujeto=False, factor_relieve_sujeto=1.4, factor_relieve_fondo=0.35):
     """Imagen -> malla 3D de relieve/escultura, lista para exportar.
     Mejoras de calidad: CLAHE (contrast equalization) + bilateral filtering.
     `usar_clahe`: aplica adaptive histogram equalization (True por default).
-    `usar_bilateral`: aplica edge-aware smoothing (True por default)."""
+    `usar_bilateral`: aplica edge-aware smoothing (True por default).
+
+    `segmentar_sujeto=True`: relieve escultórico "diferenciado" — separa
+    sujeto/fondo con rembg y el relieve máximo (`relieve_mm`) se escala
+    por `factor_relieve_sujeto` sobre la persona/objeto (>1, resalta) y
+    por `factor_relieve_fondo` sobre el fondo (<1, queda casi plano) — el
+    resultado se lee más como un relieve escultórico real (la figura
+    "sale" del fondo) que el relieve uniforme por brillo solo. Si rembg
+    no está disponible o falla la segmentación, cae de vuelta al relieve
+    uniforme de siempre (no rompe el modo clásico)."""
     alturas = _grilla_de_alturas(ruta_imagen, resolucion_px, suavizado_px, usar_clahe, usar_bilateral)
-    malla = _malla_desde_grilla(alturas, ancho_mm, alto_mm, espesor_base_mm, relieve_mm, oscuro_alto)
+
+    mapa_relieve_mm = None
+    if segmentar_sujeto:
+        mascara = _mascara_sujeto(ruta_imagen, resolucion_px)
+        if mascara is not None and mascara.shape == alturas.shape:
+            mapa_relieve_mm = relieve_mm * (
+                factor_relieve_fondo + (factor_relieve_sujeto - factor_relieve_fondo) * mascara
+            )
+
+    malla = _malla_desde_grilla(alturas, ancho_mm, alto_mm, espesor_base_mm, relieve_mm, oscuro_alto, mapa_relieve_mm)
 
     if not malla.is_watertight:
         trimesh.repair.fill_holes(malla)
