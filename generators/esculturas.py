@@ -84,12 +84,12 @@ TIPOS_ESTATUA_3D = {
     "Busto (cabeza y hombros)": {
         "recorte": "busto", "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
         "modelo_rembg_sugerido": "u2net_human_seg",
-        "desc": "Recorta la foto a cabeza y hombros antes de reconstruir — formato clásico de busto sobre pedestal. Recorte automático aproximado (sin detección de rostro) — para mejor resultado, subí la foto ya encuadrada así.",
+        "desc": "Detecta el rostro (OpenCV, local) y recorta cabeza y hombros centrado en la cara — formato clásico de busto sobre pedestal. Si no detecta ningún rostro, cae a un recorte aproximado (franja superior) y avisa. Para mejor resultado: foto de frente, buena luz, rostro bien visible.",
     },
     "Torso (hasta la cintura)": {
         "recorte": "torso", "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
         "modelo_rembg_sugerido": "u2net_human_seg",
-        "desc": "Recorta de la cabeza hasta la cintura. Mismo criterio aproximado que Busto.",
+        "desc": "Igual que Busto pero recorta más abajo, hasta la cintura.",
     },
     "Monumento (figura + base grande)": {
         "recorte": None, "con_pedestal": True, "forma_pedestal": "Cuadrada", "resolucion_extra": False,
@@ -137,26 +137,72 @@ TIPO_NO_DISPONIBLE = {
 }
 
 
+def _detectar_rostro(ruta_imagen):
+    """Detecta el rostro más grande de la foto con Haar Cascade (OpenCV
+    — 100% local, ya viene con la instalación, sin descargas ni costo
+    extra). Devuelve (x, y, w, h) en píxeles, o None si no encuentra
+    ninguno (foto de perfil, mala luz, rostro chico/lejano, etc.)."""
+    import cv2
+    import numpy as np
+    from PIL import Image
+
+    with Image.open(ruta_imagen) as img:
+        gris = np.array(img.convert("L"))
+
+    cascada = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    rostros = cascada.detectMultiScale(gris, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
+    if len(rostros) == 0:
+        return None
+    return max(rostros, key=lambda r: r[2] * r[3])  # el más grande = sujeto principal
+
+
 def _recortar_encuadre(ruta_imagen, tipo):
     """Pre-encuadra la foto para 'Busto'/'Torso' antes de mandarla a
-    TripoSR — recorte aproximado (sin detección de rostro: asume que el
-    sujeto está más o menos centrado y de pie/derecho, como en una foto
-    de retrato típica), tomando la franja superior de la imagen. Para
-    `tipo=None` devuelve `ruta_imagen` sin tocar."""
+    TripoSR — intenta centrar el recorte en el ROSTRO detectado
+    (`_detectar_rostro`) para que la cara quede bien encuadrada y con
+    buen tamaño en el cuadro que ve el modelo: la fidelidad de rasgos
+    (ojos/cejas/nariz/boca) depende sobre todo del encuadre de entrada,
+    ya que TripoSR no tiene un módulo de rostro propio — un mal
+    encuadre (cara chica, descentrada, o de más con fondo/torso) es la
+    causa más común de un busto "genérico" sin rasgos reconocibles.
+    Si no detecta ningún rostro (perfil, mala luz, etc.) cae al recorte
+    aproximado anterior (franja superior de la imagen, asumiendo sujeto
+    centrado y de pie).
+
+    Devuelve `(ruta_para_ia, rostro_detectado)` — para `tipo=None`
+    devuelve `(ruta_imagen, True)` sin tocar nada."""
     if tipo not in ("busto", "torso"):
-        return ruta_imagen
+        return ruta_imagen, True
 
     from PIL import Image
 
-    frac_alto = 0.5 if tipo == "busto" else 0.72
     img = Image.open(ruta_imagen).convert("RGB")
-    alto_recorte = max(1, int(img.height * frac_alto))
-    recorte = img.crop((0, 0, img.width, alto_recorte))
+    rostro = _detectar_rostro(ruta_imagen)
+
+    if rostro is not None:
+        fx, fy, fw, fh = [float(v) for v in rostro]
+        cx = fx + fw / 2
+        # Márgenes en múltiplos de la altura del rostro detectado: algo
+        # de pelo/frente arriba, hombros abajo (más para torso), y aire
+        # a los costados — no un recuadro pegado justo a la cara.
+        arriba = fh * 1.1
+        abajo = fh * (3.2 if tipo == "torso" else 1.6)
+        lado = fw * 1.6
+
+        y0 = max(0, fy - arriba)
+        y1 = min(img.height, fy + fh + abajo)
+        x0 = max(0, cx - lado)
+        x1 = min(img.width, cx + lado)
+        recorte = img.crop((int(x0), int(y0), int(x1), int(y1)))
+    else:
+        frac_alto = 0.5 if tipo == "busto" else 0.72
+        alto_recorte = max(1, int(img.height * frac_alto))
+        recorte = img.crop((0, 0, img.width, alto_recorte))
 
     os.makedirs(CARPETA_SALIDA, exist_ok=True)
     ruta_temp = os.path.join(CARPETA_SALIDA, f"_encuadre_{tipo}_temp.png")
     recorte.save(ruta_temp)
-    return ruta_temp
+    return ruta_temp, rostro is not None
 
 
 # Vistas completas: 3/4 (hero, como se ve la pieza en la mano), Rasante
@@ -412,7 +458,14 @@ def agregar_pedestal(ruta_stl_estatua, forma_base="Redonda", texto="", fuente_tt
 
     piezas = [pedestal]
     estatua_elevada = estatua.copy()
-    estatua_elevada.apply_translation([0, 0, alto_pedestal_mm - estatua.bounds[0][2]])
+    # TripoSR entrega la malla con la esquina mínima en (0,0,0), NO
+    # centrada — hay que centrarla en X/Y antes de pararla sobre el
+    # pedestal (que sí está centrado en el origen), si no queda
+    # descolgada hacia un costado en vez de parada en el medio.
+    centro_xy = estatua.bounds.mean(axis=0)
+    estatua_elevada.apply_translation(
+        [-centro_xy[0], -centro_xy[1], alto_pedestal_mm - estatua.bounds[0][2]]
+    )
     piezas.append(estatua_elevada)
 
     if texto and texto.strip():
@@ -450,7 +503,7 @@ def generar_estatua_3d(ruta_imagen, tipo_estilo="Estatua simple", ancho_mm=80.0,
 
     preset = TIPOS_ESTATUA_3D.get(tipo_estilo, TIPOS_ESTATUA_3D["Estatua simple"])
 
-    ruta_para_ia = _recortar_encuadre(ruta_imagen, preset["recorte"])
+    ruta_para_ia, rostro_detectado = _recortar_encuadre(ruta_imagen, preset["recorte"])
     resolucion_final = 384 if preset["resolucion_extra"] else resolucion_malla
 
     resultado = ia3d.generar_local(
@@ -479,6 +532,12 @@ def generar_estatua_3d(ruta_imagen, tipo_estilo="Estatua simple", ancho_mm=80.0,
         resultado["avisos"] = resultado.get("avisos", []) + [
             f"La textura '{patron_pedestal}' solo aplica a pedestal Redondo/Ovalado — con forma "
             f"'{forma}' el pedestal quedó liso."
+        ]
+    if preset["recorte"] in ("busto", "torso") and not rostro_detectado:
+        resultado["avisos"] = resultado.get("avisos", []) + [
+            "No se detectó un rostro claro en la foto — se usó un recorte aproximado (franja "
+            "superior) en vez de encuadrar sobre la cara. Para mejor resultado, probá con una "
+            "foto de frente, con buena luz y el rostro bien visible."
         ]
     return resultado
 
@@ -537,8 +596,13 @@ def generar_grupo_3d(rutas_imagenes, alto_mm_principal=80.0, resolucion_malla=25
     piezas = [pedestal]
     x_actual = -ancho_total_figuras / 2
     for malla, ancho in zip(figuras, anchos):
-        cx_actual = malla.bounds.mean(axis=0)[0]
-        malla.apply_translation([-cx_actual + x_actual + ancho / 2, 0, alto_pedestal_mm - malla.bounds[0][2]])
+        # TripoSR entrega la malla con la esquina mínima en (0,0,0), no
+        # centrada — centrar en X (fila) y también en Y (si no, la
+        # figura queda corrida hacia adelante/atrás del pedestal).
+        cx_actual, cy_actual = malla.bounds.mean(axis=0)[:2]
+        malla.apply_translation(
+            [-cx_actual + x_actual + ancho / 2, -cy_actual, alto_pedestal_mm - malla.bounds[0][2]]
+        )
         piezas.append(malla)
         x_actual += ancho + separacion_mm
 
