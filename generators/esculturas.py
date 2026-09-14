@@ -76,6 +76,20 @@ TIPOS_RELIEVE = {
 # que mejor separa al sujeto para ese estilo — la UI lo propone como default
 # pero se puede cambiar a mano.
 TIPOS_ESTATUA_3D = {
+    "Mascota (perro, gato, animal)": {
+        "recorte": None, "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
+        "modelo_rembg_sugerido": "isnet-general-use", "es_figura_humana": False,
+        "desc": "Estatuilla de mascota sobre pedestal. TripoSR reconstruye animales/objetos con mucha "
+                "más fidelidad que personas (está entrenado sobre todo con ese tipo de sujetos) — es el "
+                "estilo con mejor resultado esperable del modo IA local. Subí una foto de cuerpo entero, "
+                "fondo simple si se puede.",
+    },
+    "Objeto / producto (juguete, decoración, etc.)": {
+        "recorte": None, "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
+        "modelo_rembg_sugerido": "isnet-general-use", "es_figura_humana": False,
+        "desc": "Estatuilla de un objeto (juguete, figura, producto, decoración) sobre pedestal — mismo "
+                "motivo que Mascota: TripoSR da su mejor resultado con objetos, no con personas.",
+    },
     "Estatua simple": {
         "recorte": None, "con_pedestal": False, "forma_pedestal": "Redonda", "resolucion_extra": False,
         "modelo_rembg_sugerido": "u2net",
@@ -83,42 +97,42 @@ TIPOS_ESTATUA_3D = {
     },
     "Busto (cabeza y hombros)": {
         "recorte": "busto", "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
-        "modelo_rembg_sugerido": "u2net_human_seg",
+        "modelo_rembg_sugerido": "u2net_human_seg", "es_figura_humana": True,
         "desc": "Detecta el rostro (OpenCV, local) y recorta cabeza y hombros centrado en la cara — formato clásico de busto sobre pedestal. Si no detecta ningún rostro, cae a un recorte aproximado (franja superior) y avisa. Para mejor resultado: foto de frente, buena luz, rostro bien visible.",
     },
     "Torso (hasta la cintura)": {
         "recorte": "torso", "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
-        "modelo_rembg_sugerido": "u2net_human_seg",
+        "modelo_rembg_sugerido": "u2net_human_seg", "es_figura_humana": True,
         "desc": "Igual que Busto pero recorta más abajo, hasta la cintura.",
     },
     "Monumento (figura + base grande)": {
         "recorte": None, "con_pedestal": True, "forma_pedestal": "Cuadrada", "resolucion_extra": False,
-        "modelo_rembg_sugerido": "u2net_human_seg",
+        "modelo_rembg_sugerido": "u2net_human_seg", "es_figura_humana": True,
         "desc": "Pedestal más alto y ancho, pensado para una placa conmemorativa — subí una foto de cuerpo entero.",
     },
     "Clásica griega/romana (ultra detalle)": {
         "recorte": None, "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": True,
-        "modelo_rembg_sugerido": "isnet-general-use",
-        "desc": "Usa la resolución de malla más alta — mejor para fotos de esculturas ya existentes que querés reproducir con el máximo detalle posible.",
+        "modelo_rembg_sugerido": "isnet-general-use", "es_figura_humana": False,
+        "desc": "Usa la resolución de malla más alta — mejor para fotos de esculturas/objetos ya existentes que querés reproducir con el máximo detalle posible (no una foto de una persona real).",
     },
     "Sedente (figura sentada)": {
         "recorte": None, "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
-        "modelo_rembg_sugerido": "u2net_human_seg",
+        "modelo_rembg_sugerido": "u2net_human_seg", "es_figura_humana": True,
         "desc": "Subí una foto de la persona SENTADA — se reconstruye la pose real de la foto, no se inventa.",
     },
     "Yacente (recostada, estilo funerario)": {
         "recorte": None, "con_pedestal": True, "forma_pedestal": "Rectangular", "resolucion_extra": False,
-        "modelo_rembg_sugerido": "u2net_human_seg",
+        "modelo_rembg_sugerido": "u2net_human_seg", "es_figura_humana": True,
         "desc": "Subí una foto de la persona recostada/acostada.",
     },
     "Orante (en actitud de oración)": {
         "recorte": None, "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
-        "modelo_rembg_sugerido": "u2net_human_seg",
+        "modelo_rembg_sugerido": "u2net_human_seg", "es_figura_humana": True,
         "desc": "Subí una foto con las manos juntas/en oración.",
     },
     "Ecuestre (persona a caballo)": {
         "recorte": None, "con_pedestal": True, "forma_pedestal": "Rectangular", "resolucion_extra": True,
-        "modelo_rembg_sugerido": "u2net",
+        "modelo_rembg_sugerido": "u2net", "es_figura_humana": True,
         "desc": "Subí una foto de la persona MONTADA A CABALLO (estilo San Martín/Bolívar/Washington) — persona y caballo se reconstruyen juntos como una sola figura. Se usa el modelo de recorte general (no 'Persona') para no perder al caballo.",
     },
 }

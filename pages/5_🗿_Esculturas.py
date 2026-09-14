@@ -241,6 +241,13 @@ with col_form:
                      "no la inventa — el preset es una guía de qué foto conviene subir, no magia.",
             )
             st.caption(esculturas.TIPOS_ESTATUA_3D[tipo_estatua]["desc"])
+            if esculturas.TIPOS_ESTATUA_3D[tipo_estatua].get("es_figura_humana"):
+                st.warning(
+                    "TripoSR (IA local, gratis) tiene una limitación real y conocida reconstruyendo "
+                    "PERSONAS — puede dar una forma irreconocible incluso con buen encuadre. Con "
+                    "mascotas/objetos el resultado es mucho más confiable (ver esos estilos arriba).",
+                    icon="⚠️",
+                )
             if st.session_state.get("_es_tipo_estatua_aplicado") != tipo_estatua:
                 preset = esculturas.TIPOS_ESTATUA_3D[tipo_estatua]
                 st.session_state["es_con_pedestal"] = preset["con_pedestal"]
