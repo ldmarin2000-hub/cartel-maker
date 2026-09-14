@@ -40,6 +40,7 @@ PRESET_KEYS = [
     "es_suavizado_px", "es_calidad", "es_color",
     "es_tipo_estatua", "es_ia_calidad", "es_ia_quitar_fondo", "es_modelo_rembg",
     "es_con_pedestal", "es_forma_pedestal", "es_texto_placa",
+    "es_patron_pedestal", "es_densidad_patron", "es_profundidad_patron",
 ]
 
 
@@ -160,6 +161,9 @@ with col_form:
     api_proveedor = "Tripo3D"
     forma_pedestal = "Redonda"
     texto_placa = ""
+    patron_pedestal = "Liso"
+    densidad_patron = 5
+    profundidad_patron = 1.2
 
     if modo == "Relieve (rápido, sin IA)":
         tipo_relieve = st.selectbox("Tipo de relieve", list(esculturas.TIPOS_RELIEVE.keys()), key="es_tipo_relieve")
@@ -274,6 +278,23 @@ with col_form:
             )
             texto_placa = c2.text_input("Texto de la placa (opcional)", "", key="es_texto_placa")
 
+            patron_pedestal = st.selectbox(
+                "Textura del pedestal", esculturas.PATRONES_PEDESTAL, key="es_patron_pedestal",
+                help="Relieve decorativo tallado en la pared del pedestal — solo disponible con forma "
+                     "Redonda/Ovalada (Cuadrada/Rectangular quedan lisas por ahora). 'Estriado' es el "
+                     "acabado clásico de columna griega/romana.",
+            )
+            if patron_pedestal != "Liso" and forma_pedestal not in ("Redonda", "Ovalada"):
+                st.caption("⚠️ La textura solo aplica a pedestal Redondo/Ovalado — con esta forma queda liso.")
+            elif patron_pedestal != "Liso":
+                c3, c4 = st.columns(2)
+                densidad_patron = c3.slider(
+                    "Densidad del patrón (repeticiones)", 2, 12, 5, key="es_densidad_patron",
+                )
+                profundidad_patron = c4.slider(
+                    "Profundidad del relieve (mm)", 0.3, 3.0, 1.2, step=0.1, key="es_profundidad_patron",
+                )
+
     else:
         api_proveedor = st.selectbox("Servicio", list(ia3d.PROVEEDORES_API.keys()))
         api_key = st.text_input(
@@ -376,6 +397,8 @@ with col_preview:
                             resolucion_malla=resolucion_malla, quitar_fondo=ia_quitar_fondo,
                             modelo_rembg=modelo_rembg_valor,
                             forma_base=forma_pedestal, texto_placa=texto_placa,
+                            patron_pedestal=patron_pedestal, densidad_patron=densidad_patron,
+                            profundidad_patron=float(profundidad_patron),
                         )
                     else:
                         r = esculturas.generar_estatua_3d(
@@ -383,6 +406,8 @@ with col_preview:
                             resolucion_malla=resolucion_malla, quitar_fondo=ia_quitar_fondo,
                             modelo_rembg=modelo_rembg_valor, texto_placa=texto_placa,
                             con_pedestal_manual=con_pedestal, forma_pedestal_manual=forma_pedestal,
+                            patron_pedestal=patron_pedestal, densidad_patron=densidad_patron,
+                            profundidad_patron=float(profundidad_patron),
                         )
                 except (FileNotFoundError, ValueError, RuntimeError) as e:
                     st.error(str(e))

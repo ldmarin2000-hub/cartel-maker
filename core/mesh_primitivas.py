@@ -92,12 +92,96 @@ def bloque(ancho, profundidad, altura, cx=0.0, cy=0.0, z0=0.0):
     return caja
 
 
-def forma_base(forma, radio, altura, z0=0.0, factor_ovalo=0.62):
+# Patrones decorativos para la pared del pedestal — misma técnica de
+# offset radial que generators/portalapices.py (no se comparte código a
+# propósito, ver docstring del módulo), pero acá se talla sobre un
+# pedestal SÓLIDO: es relieve puramente superficial, no compromete la
+# resistencia como sí podría hacerlo en una pared hueca fina.
+# "Estriado" es el acabado clásico de columna griega/romana.
+PATRONES_PEDESTAL = ["Liso", "Estriado (columna clásica)", "Diamante (rombos)", "Panal (hexágonos)", "Puntos"]
+
+
+def _offset_patron_pedestal(patron, theta, z_norm, frecuencia_theta, frecuencia_z, profundidad):
+    """Offset radial (mm) en el punto (theta, z_norm∈[0,1]) según el
+    patrón — `theta` es un ángulo escalar acá (se llama una vez por
+    vértice, no vectorizado sobre todo el anillo)."""
+    if patron == "Estriado (columna clásica)":
+        return profundidad * np.sin(theta * frecuencia_theta)
+    if patron == "Diamante (rombos)":
+        onda = np.sin(theta * frecuencia_theta) * np.sin(z_norm * frecuencia_z * np.pi)
+        return profundidad * onda
+    if patron == "Panal (hexágonos)":
+        a = np.sin(theta * frecuencia_theta + z_norm * frecuencia_z * np.pi * 0.5)
+        b = np.sin(theta * frecuencia_theta * 0.5 - z_norm * frecuencia_z * np.pi)
+        return profundidad * 0.5 * (a + b)
+    if patron == "Puntos":
+        onda = np.cos(theta * frecuencia_theta) * np.cos(z_norm * frecuencia_z * np.pi)
+        return profundidad * max(float(onda), 0.0)
+    return 0.0
+
+
+def cilindro_texturado(radio, altura, patron="Liso", z0=0.0, segmentos=64, anillos=48,
+                        radio_top_factor=1.0, densidad=5, profundidad_mm=1.2):
+    """Como `cilindro()`, pero con un patrón decorativo (PATRONES_PEDESTAL)
+    tallado como relieve real en la pared exterior — mismo repertorio que
+    el portalápices, aplicado acá a un pedestal de estatua. `patron="Liso"`
+    delega directo a `cilindro()` (mismo resultado exacto, sin anillos de
+    más, cero cambio de comportamiento para todo el código ya existente
+    que no pide patrón)."""
+    if patron == "Liso" or patron not in PATRONES_PEDESTAL:
+        # Sin pasar `segmentos`: usa el default propio de cilindro() (28)
+        # así el pedestal liso queda EXACTO al de antes de esta función
+        # existir, cero cambio de comportamiento para el código ya en uso.
+        return cilindro(radio, altura, z0=z0, radio_top_factor=radio_top_factor)
+
+    theta = np.linspace(0, 2 * np.pi, segmentos, endpoint=False)
+    z_vals = np.linspace(0.0, altura, anillos)
+    frecuencia_theta = max(4, int(segmentos / max(densidad, 1)))
+    frecuencia_z = max(2, int(anillos / max(densidad, 1) / 3))
+
+    verts = []
+    for z in z_vals:
+        z_norm = z / altura if altura > 0 else 0.0
+        radio_z = radio * (1.0 + (radio_top_factor - 1.0) * z_norm)
+        for a in theta:
+            off = _offset_patron_pedestal(patron, a, z_norm, frecuencia_theta, frecuencia_z, profundidad_mm)
+            r = max(radio_z + off, radio_z * 0.5)  # nunca colapsa el radio a cero/negativo
+            verts.append([r * np.cos(a), r * np.sin(a), z0 + z])
+
+    n, m = segmentos, len(z_vals)
+    idx_bottom = len(verts)
+    verts.append([0.0, 0.0, z0])
+    idx_top = len(verts)
+    verts.append([0.0, 0.0, z0 + altura])
+
+    faces = []
+    for i in range(m - 1):
+        for k in range(n):
+            j2 = (k + 1) % n
+            faces.append([i * n + k, i * n + j2, (i + 1) * n + j2])
+            faces.append([i * n + k, (i + 1) * n + j2, (i + 1) * n + k])
+    for k in range(n):
+        j2 = (k + 1) % n
+        faces.append([k, j2, idx_bottom])
+        faces.append([(m - 1) * n + k, idx_top, (m - 1) * n + j2])
+
+    return trimesh.Trimesh(
+        vertices=np.array(verts, dtype=np.float64),
+        faces=np.array(faces, dtype=np.int64), process=True,
+    )
+
+
+def forma_base(forma, radio, altura, z0=0.0, factor_ovalo=0.62,
+                patron="Liso", densidad_patron=5, profundidad_patron=1.2):
     """Malla de un pedestal/placa según su silueta — Redonda/Ovalada/
     Cuadrada/Rectangular — todas dimensionadas por un único `radio`
-    (mitad del lado/diámetro mayor)."""
+    (mitad del lado/diámetro mayor). `patron` (PATRONES_PEDESTAL) solo
+    aplica a Redonda/Ovalada (son las que tienen pared cilíndrica real
+    donde tallar un relieve); Cuadrada/Rectangular lo ignoran y quedan
+    lisas — el llamador es quien decide si avisar de esa limitación."""
     if forma == "Ovalada":
-        malla = cilindro(radio, altura, z0=z0)
+        malla = cilindro_texturado(radio, altura, patron=patron, z0=z0,
+                                    densidad=densidad_patron, profundidad_mm=profundidad_patron)
         malla.apply_scale([1.0, factor_ovalo, 1.0])
         return malla
     if forma == "Cuadrada":
@@ -105,7 +189,8 @@ def forma_base(forma, radio, altura, z0=0.0, factor_ovalo=0.62):
         return bloque(lado, lado, altura, z0=z0)
     if forma == "Rectangular":
         return bloque(radio * 2.1, radio * 1.3, altura, z0=z0)
-    return cilindro(radio, altura, z0=z0)  # "Redonda" (default)
+    return cilindro_texturado(radio, altura, patron=patron, z0=z0,
+                               densidad=densidad_patron, profundidad_mm=profundidad_patron)  # "Redonda"
 
 
 def texto_a_poligono(texto, fuente_ttf=None, tam_fuente=100):

@@ -31,6 +31,11 @@ RESOLUCION_ALTA_PX = 180
 FORMAS_MEDALLON = ["Rectangular", "Circular", "Ovalada"]
 LAYOUTS_COLLAGE = ["Lado a lado", "Grilla 2x2", "Principal + chicas"]
 
+# Patrones decorativos para la pared del pedestal (solo Redonda/Ovalada
+# tienen pared cilíndrica real donde tallarlos) — re-exportado acá para
+# que la UI no tenga que importar core.mesh_primitivas directamente.
+PATRONES_PEDESTAL = mesh_primitivas.PATRONES_PEDESTAL
+
 # ---------------------------------------------------------------------------
 # Catálogo de tipos/estilos de escultura — cada uno es un PRESET honesto:
 # ajusta parámetros que sí cambian la geometría real (profundidad de
@@ -382,21 +387,28 @@ def generar_combinado(rutas_imagenes, layout="Lado a lado", ancho_mm=120.0, alto
 # ---------------------------------------------------------------------------
 
 def agregar_pedestal(ruta_stl_estatua, forma_base="Redonda", texto="", fuente_ttf=None,
-                      ruta_salida=None, alto_pedestal_mm=8.0):
+                      ruta_salida=None, alto_pedestal_mm=8.0,
+                      patron_pedestal="Liso", densidad_patron=5, profundidad_patron=1.2):
     """Toma un STL de estatua ya generado (ej. por IA local/TripoSR) y le
     agrega un pedestal con la forma elegida debajo, más una placa con
     texto grabado (nombre/fecha/dedicatoria) al frente si se pasa
     `texto` — para que quede como una estatuilla de mesa lista para
     imprimir en una sola pieza, en vez de la figura sola apoyada
-    directo. Devuelve la ruta del nuevo STL (o `ruta_salida` si se
-    especificó)."""
+    directo. `patron_pedestal` (ver mesh_primitivas.PATRONES_PEDESTAL)
+    talla un relieve decorativo en la pared del pedestal — solo tiene
+    efecto con forma Redonda/Ovalada (Cuadrada/Rectangular lo ignoran,
+    ver forma_base()). Devuelve la ruta del nuevo STL (o `ruta_salida`
+    si se especificó)."""
     import trimesh
 
     estatua = trimesh.load(ruta_stl_estatua, force="mesh")
     ancho_estatua = max(estatua.extents[0], estatua.extents[2])
     radio_pedestal = max(20, ancho_estatua * 0.6)
 
-    pedestal = mesh_primitivas.forma_base(forma_base, radio_pedestal, alto_pedestal_mm, z0=0)
+    pedestal = mesh_primitivas.forma_base(
+        forma_base, radio_pedestal, alto_pedestal_mm, z0=0,
+        patron=patron_pedestal, densidad_patron=densidad_patron, profundidad_patron=profundidad_patron,
+    )
 
     piezas = [pedestal]
     estatua_elevada = estatua.copy()
@@ -425,6 +437,7 @@ def generar_estatua_3d(ruta_imagen, tipo_estilo="Estatua simple", ancho_mm=80.0,
                         resolucion_malla=256, quitar_fondo=True, modelo_rembg="u2net",
                         exportar_color=True, texto_placa="",
                         forma_pedestal_manual=None, con_pedestal_manual=None,
+                        patron_pedestal="Liso", densidad_patron=5, profundidad_patron=1.2,
                         carpeta_salida=CARPETA_SALIDA):
     """Estatua 3D con el preset de `tipo_estilo` (ver TIPOS_ESTATUA_3D)
     aplicado — recorte de encuadre si corresponde (busto/torso),
@@ -451,6 +464,8 @@ def generar_estatua_3d(ruta_imagen, tipo_estilo="Estatua simple", ancho_mm=80.0,
         forma = forma_pedestal_manual or preset["forma_pedestal"]
         ruta_con_pedestal, malla_pedestal = agregar_pedestal(
             resultado["ruta_stl"], forma_base=forma, texto=texto_placa,
+            patron_pedestal=patron_pedestal, densidad_patron=densidad_patron,
+            profundidad_patron=profundidad_patron,
         )
         resultado["ruta_stl"] = ruta_con_pedestal
         resultado["vertices"] = len(malla_pedestal.vertices)
@@ -460,6 +475,11 @@ def generar_estatua_3d(ruta_imagen, tipo_estilo="Estatua simple", ancho_mm=80.0,
     resultado["info"] = resultado.get("info", []) + [f"Estilo: {tipo_estilo}."]
     if con_pedestal and resultado.get("ruta_glb"):
         resultado["info"].append("El GLB con color es solo de la figura (el color no se calcula sobre el pedestal).")
+    if con_pedestal and patron_pedestal != "Liso" and forma not in ("Redonda", "Ovalada"):
+        resultado["avisos"] = resultado.get("avisos", []) + [
+            f"La textura '{patron_pedestal}' solo aplica a pedestal Redondo/Ovalado — con forma "
+            f"'{forma}' el pedestal quedó liso."
+        ]
     return resultado
 
 
@@ -469,6 +489,7 @@ def generar_estatua_3d(ruta_imagen, tipo_estilo="Estatua simple", ancho_mm=80.0,
 
 def generar_grupo_3d(rutas_imagenes, alto_mm_principal=80.0, resolucion_malla=256,
                       quitar_fondo=True, modelo_rembg="u2net", forma_base="Redonda", texto_placa="",
+                      patron_pedestal="Liso", densidad_patron=5, profundidad_patron=1.2,
                       fuente_ttf=None, timeout_seg=1800, carpeta_salida=CARPETA_SALIDA):
     """Reconstruye CADA foto con TripoSR (core.ia3d.generar_local_batch —
     el modelo se carga UNA sola vez para todas las figuras, no una vez
@@ -508,7 +529,10 @@ def generar_grupo_3d(rutas_imagenes, alto_mm_principal=80.0, resolucion_malla=25
 
     radio_pedestal = max(30, ancho_total_figuras * 0.6)
     alto_pedestal_mm = 6.0
-    pedestal = mesh_primitivas.forma_base(forma_base, radio_pedestal, alto_pedestal_mm, z0=0)
+    pedestal = mesh_primitivas.forma_base(
+        forma_base, radio_pedestal, alto_pedestal_mm, z0=0,
+        patron=patron_pedestal, densidad_patron=densidad_patron, profundidad_patron=profundidad_patron,
+    )
 
     piezas = [pedestal]
     x_actual = -ancho_total_figuras / 2
@@ -545,6 +569,11 @@ def generar_grupo_3d(rutas_imagenes, alto_mm_principal=80.0, resolucion_malla=25
     avisos = []
     if not escena.is_watertight:
         avisos.append("No quedó perfectamente watertight, revisala antes de imprimir.")
+    if patron_pedestal != "Liso" and forma_base not in ("Redonda", "Ovalada"):
+        avisos.append(
+            f"La textura '{patron_pedestal}' solo aplica a pedestal Redondo/Ovalado — con forma "
+            f"'{forma_base}' el pedestal quedó liso."
+        )
 
     return {
         "ruta_stl": ruta_stl,
