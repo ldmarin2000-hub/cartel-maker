@@ -36,8 +36,10 @@ CALIDADES = {
 
 PRESET_KEYS = [
     "es_ancho_mm", "es_espesor_base_mm", "es_relieve_mm",
-    "es_oscuro_alto", "es_segmentar_sujeto", "es_suavizado_px", "es_calidad", "es_color",
-    "es_ia_calidad", "es_ia_quitar_fondo",
+    "es_oscuro_alto", "es_segmentar_sujeto", "es_forma_medallon", "es_tipo_relieve",
+    "es_suavizado_px", "es_calidad", "es_color",
+    "es_tipo_estatua", "es_ia_calidad", "es_ia_quitar_fondo",
+    "es_con_pedestal", "es_forma_pedestal", "es_texto_placa",
 ]
 
 
@@ -159,6 +161,15 @@ with col_form:
     texto_placa = ""
 
     if modo == "Relieve (rápido, sin IA)":
+        tipo_relieve = st.selectbox("Tipo de relieve", list(esculturas.TIPOS_RELIEVE.keys()), key="es_tipo_relieve")
+        st.caption(esculturas.TIPOS_RELIEVE[tipo_relieve]["desc"])
+        if st.session_state.get("_es_tipo_relieve_aplicado") != tipo_relieve:
+            preset = esculturas.TIPOS_RELIEVE[tipo_relieve]
+            st.session_state["es_relieve_mm"] = preset["relieve_mm"]
+            st.session_state["es_segmentar_sujeto"] = preset["segmentar_sujeto"]
+            st.session_state["_es_tipo_relieve_aplicado"] = tipo_relieve
+            st.rerun()
+
         c1, c2 = st.columns(2)
         espesor_base_mm = c1.slider(
             "Espesor de la base (mm)", 1.0, 8.0, 3.0, step=0.5, key="es_espesor_base_mm",
@@ -201,6 +212,28 @@ with col_form:
             resolucion_px = CALIDADES[calidad_label]
 
     elif modo == "Estatua 3D completa (IA local)":
+        tipo_estatua = "Estatua simple"
+        if not combinar_imagenes:
+            tipo_estatua = st.selectbox(
+                "Tipo de escultura", list(esculturas.TIPOS_ESTATUA_3D.keys()), key="es_tipo_estatua",
+                help="Ajusta encuadre/pedestal según el estilo. Para las poses (Sedente/Yacente/Orante/"
+                     "Ecuestre) TripoSR reconstruye la pose que esté REALMENTE en la foto que subas — "
+                     "no la inventa — el preset es una guía de qué foto conviene subir, no magia.",
+            )
+            st.caption(esculturas.TIPOS_ESTATUA_3D[tipo_estatua]["desc"])
+            if st.session_state.get("_es_tipo_estatua_aplicado") != tipo_estatua:
+                preset = esculturas.TIPOS_ESTATUA_3D[tipo_estatua]
+                st.session_state["es_con_pedestal"] = preset["con_pedestal"]
+                st.session_state["es_forma_pedestal"] = preset["forma_pedestal"]
+                st.session_state["_es_tipo_estatua_aplicado"] = tipo_estatua
+                st.rerun()
+            if esculturas.TIPOS_ESTATUA_3D[tipo_estatua]["resolucion_extra"]:
+                st.caption("⚙️ Este estilo fuerza la resolución de malla más alta (384³), sin importar lo que elijas abajo.")
+
+            with st.expander("⚠️ No disponible: Cinética"):
+                for nombre, motivo in esculturas.TIPO_NO_DISPONIBLE.items():
+                    st.caption(f"**{nombre}:** {motivo}")
+
         ia_calidad_label = st.radio(
             "Calidad (resolución de la malla)", list(ia3d.CALIDADES_LOCAL.keys()), key="es_ia_calidad",
             help="TripoSR reconstruye en una sola pasada (rápido) — la calidad depende de la "
@@ -330,18 +363,12 @@ with col_preview:
                             forma_base=forma_pedestal, texto_placa=texto_placa,
                         )
                     else:
-                        r = ia3d.generar_local(
-                            ruta_imagen, ancho_mm=float(ancho_mm), resolucion_malla=resolucion_malla,
-                            quitar_fondo=ia_quitar_fondo,
+                        r = esculturas.generar_estatua_3d(
+                            ruta_imagen, tipo_estilo=tipo_estatua, ancho_mm=float(ancho_mm),
+                            resolucion_malla=resolucion_malla, quitar_fondo=ia_quitar_fondo,
+                            texto_placa=texto_placa,
+                            con_pedestal_manual=con_pedestal, forma_pedestal_manual=forma_pedestal,
                         )
-                        if con_pedestal:
-                            ruta_con_pedestal, malla_pedestal = esculturas.agregar_pedestal(
-                                r["ruta_stl"], forma_base=forma_pedestal, texto=texto_placa,
-                            )
-                            r["ruta_stl"] = ruta_con_pedestal
-                            r["vertices"] = len(malla_pedestal.vertices)
-                            r["caras"] = len(malla_pedestal.faces)
-                            r["watertight"] = malla_pedestal.is_watertight
                 except (FileNotFoundError, ValueError, RuntimeError) as e:
                     st.error(str(e))
     else:

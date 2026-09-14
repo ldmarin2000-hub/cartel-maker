@@ -31,6 +31,116 @@ RESOLUCION_ALTA_PX = 180
 FORMAS_MEDALLON = ["Rectangular", "Circular", "Ovalada"]
 LAYOUTS_COLLAGE = ["Lado a lado", "Grilla 2x2", "Principal + chicas"]
 
+# ---------------------------------------------------------------------------
+# Catálogo de tipos/estilos de escultura — cada uno es un PRESET honesto:
+# ajusta parámetros que sí cambian la geometría real (profundidad de
+# relieve, encuadre de la foto, tamaño/forma de pedestal). Para el modo
+# Estatua 3D, las poses (sedente/yacente/orante/ecuestre) NO las inventa
+# el modelo — TripoSR reconstruye la pose que está de verdad en la foto
+# que subís; el preset ahí es guía de qué foto conviene subir + ajustes
+# de calidad/pedestal, no una "receta de pose" mágica.
+# ---------------------------------------------------------------------------
+
+# Modo Relieve — bajo/medio/alto relieve son categorías reales de
+# escultura clásica, y mapean 1 a 1 a cuánto sobresale el tallado
+# (relieve_mm). "Arquitectónico" es un formato panorámico para friso de
+# pared, no una profundidad distinta.
+TIPOS_RELIEVE = {
+    "Bajorrelieve (sutil, clásico)": {
+        "relieve_mm": 5.0, "segmentar_sujeto": False, "aspecto_ancho": False,
+        "desc": "La figura apenas se despega del fondo — moneda, medallón, placa conmemorativa.",
+    },
+    "Mediorrelieve (equilibrado)": {
+        "relieve_mm": 10.0, "segmentar_sujeto": True, "aspecto_ancho": False,
+        "desc": "La figura sobresale con volumen parcial — el más usado para retratos.",
+    },
+    "Altorrelieve (muy marcado)": {
+        "relieve_mm": 18.0, "segmentar_sujeto": True, "aspecto_ancho": False,
+        "desc": "Relieve profundo, la figura casi se separa del fondo — el máximo que da el relieve 2.5D.",
+    },
+    "Arquitectónico (friso panorámico)": {
+        "relieve_mm": 9.0, "segmentar_sujeto": True, "aspecto_ancho": True,
+        "desc": "Formato apaisado para decorar una pared/friso — combina bien con 'Combinar imágenes → Lado a lado' para una escena corrida.",
+    },
+}
+
+# Modo Estatua 3D — "recorte" pre-encuadra la foto (busto/torso) antes de
+# mandarla al modelo; "con_pedestal"/"forma_pedestal" son sugerencias de
+# base; "resolucion_extra" pide la malla más densa disponible.
+TIPOS_ESTATUA_3D = {
+    "Estatua simple": {
+        "recorte": None, "con_pedestal": False, "forma_pedestal": "Redonda", "resolucion_extra": False,
+        "desc": "La figura completa tal cual sale en la foto, sin recorte ni ajustes especiales.",
+    },
+    "Busto (cabeza y hombros)": {
+        "recorte": "busto", "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
+        "desc": "Recorta la foto a cabeza y hombros antes de reconstruir — formato clásico de busto sobre pedestal. Recorte automático aproximado (sin detección de rostro) — para mejor resultado, subí la foto ya encuadrada así.",
+    },
+    "Torso (hasta la cintura)": {
+        "recorte": "torso", "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
+        "desc": "Recorta de la cabeza hasta la cintura. Mismo criterio aproximado que Busto.",
+    },
+    "Monumento (figura + base grande)": {
+        "recorte": None, "con_pedestal": True, "forma_pedestal": "Cuadrada", "resolucion_extra": False,
+        "desc": "Pedestal más alto y ancho, pensado para una placa conmemorativa — subí una foto de cuerpo entero.",
+    },
+    "Clásica griega/romana (ultra detalle)": {
+        "recorte": None, "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": True,
+        "desc": "Usa la resolución de malla más alta — mejor para fotos de esculturas ya existentes que querés reproducir con el máximo detalle posible.",
+    },
+    "Sedente (figura sentada)": {
+        "recorte": None, "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
+        "desc": "Subí una foto de la persona SENTADA — se reconstruye la pose real de la foto, no se inventa.",
+    },
+    "Yacente (recostada, estilo funerario)": {
+        "recorte": None, "con_pedestal": True, "forma_pedestal": "Rectangular", "resolucion_extra": False,
+        "desc": "Subí una foto de la persona recostada/acostada.",
+    },
+    "Orante (en actitud de oración)": {
+        "recorte": None, "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
+        "desc": "Subí una foto con las manos juntas/en oración.",
+    },
+    "Ecuestre (persona a caballo)": {
+        "recorte": None, "con_pedestal": True, "forma_pedestal": "Rectangular", "resolucion_extra": True,
+        "desc": "Subí una foto de la persona MONTADA A CABALLO (estilo San Martín/Bolívar/Washington) — persona y caballo se reconstruyen juntos como una sola figura.",
+    },
+}
+
+# Cinética (partes móviles con mecanismo real) no es algo que un
+# reconstructor de foto-a-STL pueda automatizar — no hay foto de la que
+# "sacar" un mecanismo. Se deja documentado en vez de ignorado en
+# silencio, con la alternativa más cercana disponible.
+TIPO_NO_DISPONIBLE = {
+    "Cinética (partes móviles)": (
+        "No es automatizable desde una foto — una escultura cinética necesita diseño mecánico real "
+        "(ejes, encastres con tolerancia). Alternativa disponible: generá las figuras por separado "
+        "(Combinar varias imágenes → escena 3D) e imprimilas como piezas sueltas para armar un "
+        "mecanismo vos mismo."
+    ),
+}
+
+
+def _recortar_encuadre(ruta_imagen, tipo):
+    """Pre-encuadra la foto para 'Busto'/'Torso' antes de mandarla a
+    TripoSR — recorte aproximado (sin detección de rostro: asume que el
+    sujeto está más o menos centrado y de pie/derecho, como en una foto
+    de retrato típica), tomando la franja superior de la imagen. Para
+    `tipo=None` devuelve `ruta_imagen` sin tocar."""
+    if tipo not in ("busto", "torso"):
+        return ruta_imagen
+
+    from PIL import Image
+
+    frac_alto = 0.5 if tipo == "busto" else 0.72
+    img = Image.open(ruta_imagen).convert("RGB")
+    alto_recorte = max(1, int(img.height * frac_alto))
+    recorte = img.crop((0, 0, img.width, alto_recorte))
+
+    os.makedirs(CARPETA_SALIDA, exist_ok=True)
+    ruta_temp = os.path.join(CARPETA_SALIDA, f"_encuadre_{tipo}_temp.png")
+    recorte.save(ruta_temp)
+    return ruta_temp
+
 
 # Vistas completas: 3/4 (hero, como se ve la pieza en la mano), Rasante
 # (luz casi al ras de la superficie — la técnica clásica para inspeccionar
@@ -297,6 +407,44 @@ def agregar_pedestal(ruta_stl_estatua, forma_base="Redonda", texto="", fuente_tt
         ruta_salida = f"{base}_pedestal{ext}"
     combinada.export(ruta_salida)
     return ruta_salida, combinada
+
+
+def generar_estatua_3d(ruta_imagen, tipo_estilo="Estatua simple", ancho_mm=80.0,
+                        resolucion_malla=256, quitar_fondo=True, texto_placa="",
+                        forma_pedestal_manual=None, con_pedestal_manual=None,
+                        carpeta_salida=CARPETA_SALIDA):
+    """Estatua 3D con el preset de `tipo_estilo` (ver TIPOS_ESTATUA_3D)
+    aplicado — recorte de encuadre si corresponde (busto/torso),
+    resolución de malla más alta si el estilo lo pide, y pedestal +
+    placa según el preset (a menos que `con_pedestal_manual`/
+    `forma_pedestal_manual` lo pisen explícitamente). Es la función que
+    conviene llamar desde la UI en vez de armar el recorte/pedestal a
+    mano en cada lugar."""
+    from core import ia3d
+
+    preset = TIPOS_ESTATUA_3D.get(tipo_estilo, TIPOS_ESTATUA_3D["Estatua simple"])
+
+    ruta_para_ia = _recortar_encuadre(ruta_imagen, preset["recorte"])
+    resolucion_final = 384 if preset["resolucion_extra"] else resolucion_malla
+
+    resultado = ia3d.generar_local(
+        ruta_para_ia, carpeta_salida=carpeta_salida, ancho_mm=ancho_mm,
+        resolucion_malla=resolucion_final, quitar_fondo=quitar_fondo,
+    )
+
+    con_pedestal = preset["con_pedestal"] if con_pedestal_manual is None else con_pedestal_manual
+    if con_pedestal:
+        forma = forma_pedestal_manual or preset["forma_pedestal"]
+        ruta_con_pedestal, malla_pedestal = agregar_pedestal(
+            resultado["ruta_stl"], forma_base=forma, texto=texto_placa,
+        )
+        resultado["ruta_stl"] = ruta_con_pedestal
+        resultado["vertices"] = len(malla_pedestal.vertices)
+        resultado["caras"] = len(malla_pedestal.faces)
+        resultado["watertight"] = malla_pedestal.is_watertight
+
+    resultado["info"] = resultado.get("info", []) + [f"Estilo: {tipo_estilo}."]
+    return resultado
 
 
 # ---------------------------------------------------------------------------
