@@ -13,7 +13,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import colores, heightmap, ia3d, preview3d, storage, validation
+from core import colores, deteccion_imagen, heightmap, ia3d, preview3d, storage, validation
 from generators import esculturas
 from ui_streamlit import bloque_presets
 
@@ -52,6 +52,11 @@ def _preview_rapido(ruta_imagen, ancho_mm, alto_mm, espesor_base_mm, relieve_mm,
         espesor_base_mm=espesor_base_mm, relieve_mm=relieve_mm,
         suavizado_px=suavizado_px, oscuro_alto=oscuro_alto,
     )
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _clasificar_imagen(ruta_imagen, mtime):
+    return deteccion_imagen.clasificar(ruta_imagen)
 
 
 modo = st.radio("Modo", MODOS, horizontal=True, key="es_modo")
@@ -248,6 +253,20 @@ with col_form:
                     "mascotas/objetos el resultado es mucho más confiable (ver esos estilos arriba).",
                     icon="⚠️",
                 )
+
+            if ruta_imagen and os.path.exists(ruta_imagen):
+                deteccion = _clasificar_imagen(ruta_imagen, os.path.getmtime(ruta_imagen))
+                cat = deteccion["categoria"]
+                es_mascota_u_objeto = tipo_estatua in (
+                    "Mascota (perro, gato, animal)", "Objeto / producto (juguete, decoración, etc.)",
+                )
+                if cat == "animal" and not es_mascota_u_objeto:
+                    st.info("🐾 Esta foto parece un animal — probá el estilo **Mascota (perro, gato, animal)**, TripoSR da mejor resultado ahí.")
+                elif cat in ("vehiculo", "objeto") and not es_mascota_u_objeto:
+                    st.info("📦 Esta foto parece un objeto — probá el estilo **Objeto / producto**, TripoSR da mejor resultado ahí.")
+                elif cat == "persona" and es_mascota_u_objeto:
+                    st.info("🧑 Esta foto parece una persona — si buscás esa pose, elegí Busto/Torso/Sedente/etc. más abajo en la lista (con su aviso de limitación).")
+
             if st.session_state.get("_es_tipo_estatua_aplicado") != tipo_estatua:
                 preset = esculturas.TIPOS_ESTATUA_3D[tipo_estatua]
                 st.session_state["es_con_pedestal"] = preset["con_pedestal"]

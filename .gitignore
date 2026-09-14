@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 output/
 presets/
+core/modelos/
 *.stl
 *.svg
 *.png
