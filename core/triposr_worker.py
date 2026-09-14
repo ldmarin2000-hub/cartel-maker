@@ -104,52 +104,14 @@ def _post_procesar_malla(malla_cruda, ancho_mm, aplicar_suavizado=True, aplicar_
 
 
 def _guardar_preview(destino, malla, titulo):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-
-    tris_full = malla.vertices[malla.faces]
-    if len(tris_full) > 10000:
-        step = len(tris_full) // 10000
-        indices = np.arange(0, len(tris_full), step)
-        tris = tris_full[indices]
-        face_normals = malla.face_normals[indices]
-    else:
-        tris = tris_full
-        face_normals = malla.face_normals
-
-    (minx, miny, minz), (maxx, maxy, maxz) = malla.bounds
-    dx, dy, dz = max(maxx - minx, 1), max(maxy - miny, 1), max(maxz - minz, 1)
-
-    fig = plt.figure(figsize=(11, 6))
-    vistas = [(20, -60, "3/4"), (10, 30, "Frente")]
-
-    for i, (elev, azim, sub) in enumerate(vistas):
-        ax = fig.add_subplot(1, 2, i + 1, projection="3d")
-        shade_vals = np.dot(face_normals, np.array([0.5, -0.5, 1]))
-        shade_vals = (shade_vals + 1) / 2
-        shade_vals = np.clip(shade_vals, 0.3, 1.0)
-        colors = np.zeros((len(tris), 3))
-        base_rgb = np.array([0.788, 0.659, 0.463])
-        colors[:] = base_rgb * shade_vals[:, np.newaxis]
-
-        poly = Poly3DCollection(tris, facecolor=colors, edgecolor="#00000011", linewidths=0.01)
-        ax.add_collection3d(poly)
-        ax.set_xlim(minx, maxx)
-        ax.set_ylim(miny, maxy)
-        ax.set_zlim(minz, maxz)
-        ax.view_init(elev=elev, azim=azim)
-        ax.set_title(sub, color="#ccc", fontsize=10)
-        ax.set_box_aspect((dx, dy, dz))
-        ax.set_axis_off()
-        ax.set_facecolor("#1a1a1a")
-        for pane in (ax.xaxis.pane, ax.yaxis.pane, ax.zaxis.pane):
-            pane.set_alpha(0.0)
-
-    fig.suptitle(titulo, color="#ccc", fontsize=12)
-    fig.savefig(destino, dpi=90, facecolor="#1a1a1a", bbox_inches="tight")
-    plt.close(fig)
+    # Sombreado real (2 luces) + sombra de contacto + fondo de estudio —
+    # mismo renderer que usa Esculturas para el relieve, ver
+    # core/render_preview.py (comparten lenguaje visual, no código
+    # duplicado). `core` es importable desde este venv aparte igual —
+    # el subprocess corre con cwd en la raíz del proyecto.
+    from core import render_preview
+    vistas = [(22, -55, "3/4"), (8, 0, "Frente"), (75, -90, "Arriba")]
+    render_preview.render_multivista(destino, malla, titulo, vistas)
 
 
 def generar(ruta_imagen, ruta_stl, ruta_png, ancho_mm=80.0, resolucion_malla=256,

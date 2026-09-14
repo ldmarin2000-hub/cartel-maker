@@ -17,13 +17,7 @@ plana en brillo (todo gris parejo) da un relieve casi sin relieve.
 import io
 import os
 
-import numpy as np
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-
-from core import heightmap, pieza, mesh_primitivas
+from core import heightmap, pieza, mesh_primitivas, render_preview
 
 NOMBRE = "Escultura (relieve desde imagen)"
 DESCRIPCION = "Imagen -> relieve 3D tallado (el brillo de cada zona modula la altura). STL watertight."
@@ -38,29 +32,18 @@ FORMAS_MEDALLON = ["Rectangular", "Circular", "Ovalada"]
 LAYOUTS_COLLAGE = ["Lado a lado", "Grilla 2x2", "Principal + chicas"]
 
 
-def _guardar_preview_sombreado(destino, malla, titulo):
-    tris = malla.vertices[malla.faces]
-    (minx, miny, minz), (maxx, maxy, maxz) = malla.bounds
-    dx, dy, dz = max(maxx - minx, 1), max(maxy - miny, 1), max(maxz - minz, 1)
+# Vistas completas: 3/4 (hero, como se ve la pieza en la mano), Rasante
+# (luz casi al ras de la superficie — la técnica clásica para inspeccionar
+# un relieve/bajorrelieve, exagera la sensación de profundidad tallada
+# mucho más que una vista frontal plana) y Arriba (útil para medallones
+# circulares/ovalados y para ver el layout completo de un collage).
+_VISTAS_COMPLETAS = [(32, -58, "3/4"), (6, -92, "Rasante (detalle del relieve)"), (82, -90, "Arriba")]
+_VISTAS_RAPIDAS = [(32, -58, "3/4"), (6, -92, "Rasante")]
 
-    fig = plt.figure(figsize=(11, 6))
-    vistas = [(55, -80, "3/4"), (20, -90, "De costado (se ve el relieve)")]
-    for i, (elev, azim, sub) in enumerate(vistas):
-        ax = fig.add_subplot(1, 2, i + 1, projection="3d")
-        ax.add_collection3d(Poly3DCollection(tris, facecolor="#c9a876", edgecolor="#00000022", linewidths=0.05))
-        ax.set_xlim(minx, maxx)
-        ax.set_ylim(miny, maxy)
-        ax.set_zlim(minz, maxz)
-        ax.view_init(elev=elev, azim=azim)
-        ax.set_title(sub, color="#ccc")
-        ax.set_box_aspect((dx, dy, dz))
-        ax.set_axis_off()
-        ax.set_facecolor("#1a1a1a")
-        for pane in (ax.xaxis.pane, ax.yaxis.pane, ax.zaxis.pane):
-            pane.set_alpha(0.0)
-    fig.suptitle(titulo, color="#ccc")
-    fig.savefig(destino, dpi=110, facecolor="#1a1a1a")
-    plt.close(fig)
+
+def _guardar_preview_sombreado(destino, malla, titulo, rapido=False):
+    vistas = _VISTAS_RAPIDAS if rapido else _VISTAS_COMPLETAS
+    render_preview.render_multivista(destino, malla, titulo, vistas)
 
 
 def preview_rapido(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
@@ -85,7 +68,7 @@ def preview_rapido(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
         return None
 
     buf = io.BytesIO()
-    _guardar_preview_sombreado(buf, malla, "Vista rápida")
+    _guardar_preview_sombreado(buf, malla, "Vista rápida", rapido=True)
     return buf.getvalue()
 
 
