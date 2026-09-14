@@ -37,6 +37,7 @@ CALIDADES = {
 PRESET_KEYS = [
     "es_ancho_mm", "es_espesor_base_mm", "es_relieve_mm",
     "es_oscuro_alto", "es_segmentar_sujeto", "es_forma_medallon", "es_tipo_relieve",
+    "es_marco_mm", "es_ancho_marco_frac",
     "es_suavizado_px", "es_calidad", "es_color",
     "es_tipo_estatua", "es_ia_calidad", "es_ia_quitar_fondo", "es_modelo_rembg",
     "es_con_pedestal", "es_forma_pedestal", "es_texto_placa",
@@ -164,6 +165,8 @@ with col_form:
     patron_pedestal = "Liso"
     densidad_patron = 5
     profundidad_patron = 1.2
+    marco_mm = 0.0
+    ancho_marco_frac = 0.08
 
     if modo == "Relieve (rápido, sin IA)":
         tipo_relieve = st.selectbox("Tipo de relieve", list(esculturas.TIPOS_RELIEVE.keys()), key="es_tipo_relieve")
@@ -203,9 +206,21 @@ with col_form:
 
         forma_medallon = st.radio(
             "Forma del relieve", esculturas.FORMAS_MEDALLON, horizontal=True, key="es_forma_medallon",
-            help="\"Circular\"/\"Ovalada\" recortan la foto tallada dentro de esa silueta (medallón), "
-                 "con el resto de la placa lisa alrededor — como un camafeo o medallón conmemorativo.",
+            help="\"Circular\"/\"Ovalada\"/\"Hexagonal\" recortan la foto tallada dentro de esa silueta "
+                 "(medallón), con el resto de la placa lisa alrededor — como un camafeo, medalla o "
+                 "insignia conmemorativa.",
         )
+        if forma_medallon != "Rectangular":
+            marco_mm = st.slider(
+                "Reborde decorativo (mm)", 0.0, 3.0, 0.0, step=0.2, key="es_marco_mm",
+                help="Aro levantado justo en el borde del medallón, como el reborde de una moneda o "
+                     "medalla — 0 = sin reborde.",
+            )
+            if marco_mm > 0:
+                ancho_marco_frac = st.slider(
+                    "Ancho del reborde", 0.03, 0.25, 0.08, step=0.01, key="es_ancho_marco_frac",
+                    help="Qué tan ancha es la banda del reborde, como fracción del radio del medallón.",
+                )
 
         with st.expander("Ajustes finos"):
             suavizado_px = st.slider(
@@ -359,6 +374,8 @@ with col_preview:
                             espesor_base_mm=float(espesor_base_mm), relieve_mm=float(relieve_mm),
                             resolucion_px=resolucion_px, suavizado_px=float(suavizado_px),
                             oscuro_alto=oscuro_alto, segmentar_sujeto=segmentar_sujeto,
+                            forma_medallon=forma_medallon, marco_mm=float(marco_mm),
+                            ancho_marco_frac=float(ancho_marco_frac),
                         )
                     else:
                         r = esculturas.generar(
@@ -366,7 +383,8 @@ with col_preview:
                             espesor_base_mm=float(espesor_base_mm), relieve_mm=float(relieve_mm),
                             resolucion_px=resolucion_px, suavizado_px=float(suavizado_px),
                             oscuro_alto=oscuro_alto, segmentar_sujeto=segmentar_sujeto,
-                            forma_medallon=forma_medallon,
+                            forma_medallon=forma_medallon, marco_mm=float(marco_mm),
+                            ancho_marco_frac=float(ancho_marco_frac),
                         )
                 except (FileNotFoundError, ValueError) as e:
                     st.error(str(e))

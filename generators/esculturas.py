@@ -28,7 +28,7 @@ RESOLUCION_RAPIDA_PX = 45
 RESOLUCION_DEFAULT_PX = 120
 RESOLUCION_ALTA_PX = 180
 
-FORMAS_MEDALLON = ["Rectangular", "Circular", "Ovalada"]
+FORMAS_MEDALLON = ["Rectangular", "Circular", "Ovalada", "Hexagonal"]
 LAYOUTS_COLLAGE = ["Lado a lado", "Grilla 2x2", "Principal + chicas"]
 
 # Patrones decorativos para la pared del pedestal (solo Redonda/Ovalada
@@ -249,6 +249,7 @@ def generar(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
             espesor_base_mm=3.0, relieve_mm=8.0,
             resolucion_px=RESOLUCION_DEFAULT_PX, suavizado_px=1.0,
             oscuro_alto=True, segmentar_sujeto=False, forma_medallon="Rectangular",
+            marco_mm=0.0, ancho_marco_frac=0.08,
             carpeta_salida=CARPETA_SALIDA):
     """Arma la escultura/relieve y exporta el STL. Devuelve un dict con
     la ruta, medidas y avisos. No pregunta nada ni imprime nada — así lo
@@ -262,7 +263,9 @@ def generar(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
     (relieve escultórico típico) — en falso, al revés.
     `segmentar_sujeto=True`: relieve "escultórico diferenciado" — el
     sujeto (persona/objeto principal, detectado con rembg) sobresale
-    más que el fondo, en vez de un relieve uniforme por brillo solo."""
+    más que el fondo, en vez de un relieve uniforme por brillo solo.
+    `marco_mm` (>0, solo con forma_medallon Circular/Ovalada/Hexagonal):
+    reborde decorativo levantado en el borde del medallón, tipo moneda."""
     if not os.path.exists(ruta_imagen):
         raise FileNotFoundError(f"no encuentro la imagen: {ruta_imagen}")
     if espesor_base_mm <= 0:
@@ -273,7 +276,7 @@ def generar(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
         espesor_base_mm=espesor_base_mm, relieve_mm=relieve_mm,
         resolucion_px=resolucion_px, suavizado_px=suavizado_px,
         oscuro_alto=oscuro_alto, segmentar_sujeto=segmentar_sujeto,
-        forma_medallon=forma_medallon,
+        forma_medallon=forma_medallon, marco_mm=marco_mm, ancho_marco_frac=ancho_marco_frac,
     )
 
     os.makedirs(carpeta_salida, exist_ok=True)
@@ -295,6 +298,11 @@ def generar(ruta_imagen, ancho_mm=80.0, alto_mm=80.0,
     avisos = []
     if not malla.is_watertight:
         avisos.append("No quedó perfectamente watertight, revisala antes de imprimir.")
+    if marco_mm > 0 and forma_medallon not in heightmap.FORMAS_MEDALLON_CON_MARCO:
+        avisos.append(
+            f"El reborde decorativo solo aplica a formas Circular/Ovalada/Hexagonal — con forma "
+            f"'{forma_medallon}' quedó sin reborde."
+        )
 
     return {
         "ruta_stl": ruta_stl,
@@ -400,7 +408,8 @@ def _ajustar_a_caja(img, ancho_px, alto_px):
 def generar_combinado(rutas_imagenes, layout="Lado a lado", ancho_mm=120.0, alto_mm=80.0,
                        espesor_base_mm=3.0, relieve_mm=8.0,
                        resolucion_px=RESOLUCION_DEFAULT_PX, suavizado_px=1.0,
-                       oscuro_alto=True, segmentar_sujeto=False,
+                       oscuro_alto=True, segmentar_sujeto=False, forma_medallon="Rectangular",
+                       marco_mm=0.0, ancho_marco_frac=0.08,
                        carpeta_salida=CARPETA_SALIDA):
     """Combina 2-4 fotos en UN solo relieve tallado (ver `_armar_collage`
     para los layouts) — misma técnica y mismo contrato de salida que
@@ -422,6 +431,7 @@ def generar_combinado(rutas_imagenes, layout="Lado a lado", ancho_mm=120.0, alto
         espesor_base_mm=espesor_base_mm, relieve_mm=relieve_mm,
         resolucion_px=resolucion_px, suavizado_px=suavizado_px,
         oscuro_alto=oscuro_alto, segmentar_sujeto=segmentar_sujeto,
+        forma_medallon=forma_medallon, marco_mm=marco_mm, ancho_marco_frac=ancho_marco_frac,
         carpeta_salida=carpeta_salida,
     )
     resultado["info"].append(f"Collage de {len(rutas_imagenes)} imágenes ({layout}).")
