@@ -66,43 +66,55 @@ TIPOS_RELIEVE = {
 
 # Modo Estatua 3D — "recorte" pre-encuadra la foto (busto/torso) antes de
 # mandarla al modelo; "con_pedestal"/"forma_pedestal" son sugerencias de
-# base; "resolucion_extra" pide la malla más densa disponible.
+# base; "resolucion_extra" pide la malla más densa disponible;
+# "modelo_rembg_sugerido" es el modelo de recorte de fondo (ia3d.MODELOS_REMBG)
+# que mejor separa al sujeto para ese estilo — la UI lo propone como default
+# pero se puede cambiar a mano.
 TIPOS_ESTATUA_3D = {
     "Estatua simple": {
         "recorte": None, "con_pedestal": False, "forma_pedestal": "Redonda", "resolucion_extra": False,
+        "modelo_rembg_sugerido": "u2net",
         "desc": "La figura completa tal cual sale en la foto, sin recorte ni ajustes especiales.",
     },
     "Busto (cabeza y hombros)": {
         "recorte": "busto", "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
+        "modelo_rembg_sugerido": "u2net_human_seg",
         "desc": "Recorta la foto a cabeza y hombros antes de reconstruir — formato clásico de busto sobre pedestal. Recorte automático aproximado (sin detección de rostro) — para mejor resultado, subí la foto ya encuadrada así.",
     },
     "Torso (hasta la cintura)": {
         "recorte": "torso", "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
+        "modelo_rembg_sugerido": "u2net_human_seg",
         "desc": "Recorta de la cabeza hasta la cintura. Mismo criterio aproximado que Busto.",
     },
     "Monumento (figura + base grande)": {
         "recorte": None, "con_pedestal": True, "forma_pedestal": "Cuadrada", "resolucion_extra": False,
+        "modelo_rembg_sugerido": "u2net_human_seg",
         "desc": "Pedestal más alto y ancho, pensado para una placa conmemorativa — subí una foto de cuerpo entero.",
     },
     "Clásica griega/romana (ultra detalle)": {
         "recorte": None, "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": True,
+        "modelo_rembg_sugerido": "isnet-general-use",
         "desc": "Usa la resolución de malla más alta — mejor para fotos de esculturas ya existentes que querés reproducir con el máximo detalle posible.",
     },
     "Sedente (figura sentada)": {
         "recorte": None, "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
+        "modelo_rembg_sugerido": "u2net_human_seg",
         "desc": "Subí una foto de la persona SENTADA — se reconstruye la pose real de la foto, no se inventa.",
     },
     "Yacente (recostada, estilo funerario)": {
         "recorte": None, "con_pedestal": True, "forma_pedestal": "Rectangular", "resolucion_extra": False,
+        "modelo_rembg_sugerido": "u2net_human_seg",
         "desc": "Subí una foto de la persona recostada/acostada.",
     },
     "Orante (en actitud de oración)": {
         "recorte": None, "con_pedestal": True, "forma_pedestal": "Redonda", "resolucion_extra": False,
+        "modelo_rembg_sugerido": "u2net_human_seg",
         "desc": "Subí una foto con las manos juntas/en oración.",
     },
     "Ecuestre (persona a caballo)": {
         "recorte": None, "con_pedestal": True, "forma_pedestal": "Rectangular", "resolucion_extra": True,
-        "desc": "Subí una foto de la persona MONTADA A CABALLO (estilo San Martín/Bolívar/Washington) — persona y caballo se reconstruyen juntos como una sola figura.",
+        "modelo_rembg_sugerido": "u2net",
+        "desc": "Subí una foto de la persona MONTADA A CABALLO (estilo San Martín/Bolívar/Washington) — persona y caballo se reconstruyen juntos como una sola figura. Se usa el modelo de recorte general (no 'Persona') para no perder al caballo.",
     },
 }
 
@@ -410,7 +422,8 @@ def agregar_pedestal(ruta_stl_estatua, forma_base="Redonda", texto="", fuente_tt
 
 
 def generar_estatua_3d(ruta_imagen, tipo_estilo="Estatua simple", ancho_mm=80.0,
-                        resolucion_malla=256, quitar_fondo=True, texto_placa="",
+                        resolucion_malla=256, quitar_fondo=True, modelo_rembg="u2net",
+                        exportar_color=True, texto_placa="",
                         forma_pedestal_manual=None, con_pedestal_manual=None,
                         carpeta_salida=CARPETA_SALIDA):
     """Estatua 3D con el preset de `tipo_estilo` (ver TIPOS_ESTATUA_3D)
@@ -430,6 +443,7 @@ def generar_estatua_3d(ruta_imagen, tipo_estilo="Estatua simple", ancho_mm=80.0,
     resultado = ia3d.generar_local(
         ruta_para_ia, carpeta_salida=carpeta_salida, ancho_mm=ancho_mm,
         resolucion_malla=resolucion_final, quitar_fondo=quitar_fondo,
+        modelo_rembg=modelo_rembg, exportar_color=exportar_color,
     )
 
     con_pedestal = preset["con_pedestal"] if con_pedestal_manual is None else con_pedestal_manual
@@ -444,6 +458,8 @@ def generar_estatua_3d(ruta_imagen, tipo_estilo="Estatua simple", ancho_mm=80.0,
         resultado["watertight"] = malla_pedestal.is_watertight
 
     resultado["info"] = resultado.get("info", []) + [f"Estilo: {tipo_estilo}."]
+    if con_pedestal and resultado.get("ruta_glb"):
+        resultado["info"].append("El GLB con color es solo de la figura (el color no se calcula sobre el pedestal).")
     return resultado
 
 
@@ -452,19 +468,21 @@ def generar_estatua_3d(ruta_imagen, tipo_estilo="Estatua simple", ancho_mm=80.0,
 # ---------------------------------------------------------------------------
 
 def generar_grupo_3d(rutas_imagenes, alto_mm_principal=80.0, resolucion_malla=256,
-                      quitar_fondo=True, forma_base="Redonda", texto_placa="",
-                      fuente_ttf=None, timeout_seg=900, carpeta_salida=CARPETA_SALIDA):
-    """Reconstruye CADA foto por separado con TripoSR (core.ia3d) y arma
-    una sola escultura con todas las figuras paradas sobre un pedestal
-    compartido — para "combinar varias imágenes en una misma escultura"
-    de verdad (no un collage plano): una familia, mascota + dueño, etc.,
-    cada una como figura 3D independiente, todas en una sola pieza
-    imprimible. La primera imagen es la "principal" (altura de
-    referencia `alto_mm_principal`); las demás se escalan proporcional
-    a su propio tamaño relativo detectado.
+                      quitar_fondo=True, modelo_rembg="u2net", forma_base="Redonda", texto_placa="",
+                      fuente_ttf=None, timeout_seg=1800, carpeta_salida=CARPETA_SALIDA):
+    """Reconstruye CADA foto con TripoSR (core.ia3d.generar_local_batch —
+    el modelo se carga UNA sola vez para todas las figuras, no una vez
+    por foto) y arma una sola escultura con todas las figuras paradas
+    sobre un pedestal compartido — para "combinar varias imágenes en una
+    misma escultura" de verdad (no un collage plano): una familia,
+    mascota + dueño, etc., cada una como figura 3D independiente, todas
+    en una sola pieza imprimible. La primera imagen es la "principal"
+    (altura de referencia `alto_mm_principal`); las demás se escalan
+    proporcional a su propio tamaño relativo detectado.
 
-    Puede tardar bastante — es N reconstrucciones TripoSR en serie
-    (~30-70s cada una en CPU) más el armado final."""
+    Puede tardar bastante — son N reconstrucciones TripoSR (~30-70s cada
+    una en CPU) más el armado final, aunque el modelo se carga una sola
+    vez para todas."""
     from core import ia3d
     import trimesh
 
@@ -476,16 +494,12 @@ def generar_grupo_3d(rutas_imagenes, alto_mm_principal=80.0, resolucion_malla=25
         if not os.path.exists(r):
             raise FileNotFoundError(f"no encuentro la imagen: {r}")
 
-    figuras = []
-    tiempos_totales = []
-    for r in rutas_imagenes:
-        res = ia3d.generar_local(
-            r, carpeta_salida=carpeta_salida, ancho_mm=alto_mm_principal,
-            resolucion_malla=resolucion_malla, quitar_fondo=quitar_fondo, timeout_seg=timeout_seg,
-        )
-        malla = trimesh.load(res["ruta_stl"], force="mesh")
-        figuras.append(malla)
-        tiempos_totales.append(res.get("info", [""])[0])
+    especificaciones = [(r, alto_mm_principal) for r in rutas_imagenes]
+    resultados = ia3d.generar_local_batch(
+        especificaciones, carpeta_salida=carpeta_salida, resolucion_malla=resolucion_malla,
+        quitar_fondo=quitar_fondo, modelo_rembg=modelo_rembg, timeout_seg=timeout_seg,
+    )
+    figuras = [trimesh.load(res["ruta_stl"], force="mesh") for res in resultados]
 
     anchos = [max(f.extents[0], f.extents[2]) for f in figuras]
     ancho_mayor = max(anchos)

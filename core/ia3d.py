@@ -44,6 +44,17 @@ CALIDADES_LOCAL = {
     "Alta (malla 320³, más detalle, ~90-130s en CPU)": 320,
 }
 
+# Modelo de segmentación de fondo — la calidad del recorte es, en la
+# práctica, la mayor palanca de calidad del resultado final. "General"
+# es el único que casi seguro ya está descargado; los otros dos son
+# más precisos para su caso pero pesan ~170MB más y se bajan la primera
+# vez que se usan (igual que pasó con los pesos de TripoSR).
+MODELOS_REMBG = {
+    "General (rápido)": "u2net",
+    "Persona/Retrato (más preciso en gente)": "u2net_human_seg",
+    "Objeto/Producto (alta precisión general)": "isnet-general-use",
+}
+
 PROVEEDORES_API = {
     "Tripo3D": {
         "url": "https://api.tripo3d.ai/v2/openapi/task",
@@ -62,7 +73,8 @@ def entorno_local_disponible():
 
 
 def generar_local(ruta_imagen, carpeta_salida="output", ancho_mm=80.0,
-                   resolucion_malla=256, quitar_fondo=True, timeout_seg=900):
+                   resolucion_malla=256, quitar_fondo=True, modelo_rembg="u2net",
+                   exportar_color=True, timeout_seg=900):
     """Corre core/triposr_worker.py en el venv de IA (subprocess, no
     import — ese venv tiene torch/transformers, este no) y devuelve el
     mismo shape de dict que generators/esculturas.py::generar(), para
@@ -102,8 +114,10 @@ def generar_local(ruta_imagen, carpeta_salida="output", ancho_mm=80.0,
         "--ancho_mm", str(ancho_mm),
         "--resolucion_malla", str(resolucion_malla),
         "--quitar_fondo", "1" if quitar_fondo else "0",
+        "--modelo_rembg", modelo_rembg,
         "--suavizado", "1",
         "--decimation", "1",
+        "--exportar_color", "1" if exportar_color else "0",
     ]
     inicio = time.time()
     resultado = subprocess.run(
@@ -115,6 +129,12 @@ def generar_local(ruta_imagen, carpeta_salida="output", ancho_mm=80.0,
     if resultado.returncode != 0:
         detalle = (resultado.stderr or resultado.stdout or "sin detalle").strip().splitlines()
         raise RuntimeError("falló la generación IA: " + (detalle[-1] if detalle else "error desconocido"))
+
+    ruta_glb = None
+    for linea in resultado.stdout.splitlines():
+        if linea.startswith("OK ruta_glb="):
+            valor = linea[len("OK ruta_glb="):].strip()
+            ruta_glb = valor or None
 
     malla = trimesh.load(ruta_stl)
     ancho_final_mm, alto_final_mm, profundo_final_mm, entra_a1, mensaje_a1 = pieza.chequear_desde_malla(
@@ -132,6 +152,7 @@ def generar_local(ruta_imagen, carpeta_salida="output", ancho_mm=80.0,
     return {
         "ruta_stl": ruta_stl,
         "ruta_png": ruta_png,
+        "ruta_glb": ruta_glb,
         "ancho_mm": ancho_final_mm, "alto_mm": alto_final_mm, "profundidad_mm": profundo_final_mm,
         "vertices": len(malla.vertices), "caras": len(malla.faces),
         "watertight": malla.is_watertight,
@@ -140,6 +161,83 @@ def generar_local(ruta_imagen, carpeta_salida="output", ancho_mm=80.0,
         "entra_a1": entra_a1,
         "mensaje_a1": mensaje_a1,
     }
+
+
+def generar_local_batch(especificaciones, carpeta_salida="output", resolucion_malla=256,
+                         quitar_fondo=True, modelo_rembg="u2net", exportar_color=True,
+                         timeout_seg=1800):
+    """Como `generar_local`, pero para VARIAS fotos en una sola corrida
+    de TripoSR (el modelo se carga una vez, no una vez por foto) — bastante
+    más rápido para una escena grupal. `especificaciones`: lista de
+    (ruta_imagen, ancho_mm). Devuelve una lista de dicts, mismo shape que
+    `generar_local` (sin "info"/"avisos" individuales de timing, esos
+    quedan a cargo del llamador ya que es una corrida conjunta)."""
+    import json
+    import tempfile
+
+    if not entorno_local_disponible():
+        raise RuntimeError(
+            f"Falta el entorno de IA local — corré setup_ia3d.bat una vez "
+            f"(crea {PYTHON_IA3D}, ~3-4GB en disco)."
+        )
+    for ruta_imagen, _ in especificaciones:
+        if not os.path.exists(ruta_imagen):
+            raise FileNotFoundError(f"no encuentro la imagen: {ruta_imagen}")
+
+    os.makedirs(carpeta_salida, exist_ok=True)
+    storage.limpiar_temporales(carpeta_salida, dias_antiguedad=7)
+
+    items = []
+    for ruta_imagen, ancho_mm in especificaciones:
+        base_nombre = pieza.nombre_archivo(
+            os.path.splitext(os.path.basename(ruta_imagen))[0], default="estatua"
+        )
+        ruta_stl = os.path.abspath(os.path.join(carpeta_salida, f"estatua_{base_nombre}.stl"))
+        ruta_png = os.path.abspath(os.path.join(carpeta_salida, f"estatua_{base_nombre}_preview.png"))
+        items.append([os.path.abspath(ruta_imagen), ruta_stl, ruta_png, ancho_mm])
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as f:
+        json.dump(items, f)
+        ruta_lote = f.name
+
+    try:
+        comando = [
+            PYTHON_IA3D, "-m", "core.triposr_worker", "--lote", ruta_lote,
+            "--resolucion_malla", str(resolucion_malla),
+            "--quitar_fondo", "1" if quitar_fondo else "0",
+            "--modelo_rembg", modelo_rembg,
+            "--suavizado", "1", "--decimation", "1",
+            "--exportar_color", "1" if exportar_color else "0",
+        ]
+        resultado = subprocess.run(
+            comando, cwd=RAIZ_PROYECTO, capture_output=True, text=True, timeout=timeout_seg,
+        )
+    finally:
+        try:
+            os.remove(ruta_lote)
+        except OSError:
+            pass
+
+    if resultado.returncode != 0:
+        detalle = (resultado.stderr or resultado.stdout or "sin detalle").strip().splitlines()
+        raise RuntimeError("falló la generación IA (lote): " + (detalle[-1] if detalle else "error desconocido"))
+
+    resultados = []
+    for (_, ruta_stl, ruta_png, _) in items:
+        malla = trimesh.load(ruta_stl)
+        ancho_final_mm, alto_final_mm, profundo_final_mm, entra_a1, mensaje_a1 = pieza.chequear_desde_malla(
+            malla, nombre="estatua"
+        )
+        ruta_glb_candidata = os.path.splitext(ruta_stl)[0] + "_color.glb"
+        resultados.append({
+            "ruta_stl": ruta_stl,
+            "ruta_png": ruta_png,
+            "ruta_glb": ruta_glb_candidata if os.path.exists(ruta_glb_candidata) else None,
+            "ancho_mm": ancho_final_mm, "alto_mm": alto_final_mm, "profundidad_mm": profundo_final_mm,
+            "vertices": len(malla.vertices), "caras": len(malla.faces),
+            "watertight": malla.is_watertight,
+        })
+    return resultados
 
 
 def generar_api(ruta_imagen, api_key, proveedor="Tripo3D", carpeta_salida="output", ancho_mm=80.0):

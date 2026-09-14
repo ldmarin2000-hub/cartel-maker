@@ -23,10 +23,24 @@ esta máquina, así que `triposr_src/tsr/models/isosurface.py` está
 parcheado (ver ese archivo) para usar PyMCubes en su lugar (wheels
 precompilados, mismo resultado).
 
+Capacidades:
+- Modelo de segmentación de fondo seleccionable (MODELOS_REMBG) — u2net
+  genérico y rápido por default, o un modelo especializado (personas /
+  objetos) para mejor recorte en el caso de uso correspondiente — la
+  calidad del recorte es, en la práctica, la mayor palanca de calidad
+  del resultado final (basura entra, basura sale).
+- Exporta STL (para imprimir, sin color) Y opcionalmente un GLB con el
+  color real que TripoSR calculó por vértice (para guardar/mirar en
+  color — el STL nunca puede llevar color, así que hasta ahora ese dato
+  se calculaba y se tiraba).
+- Modo batch: `generar_lote()` procesa varias fotos cargando el modelo
+  UNA sola vez (en vez de una vez por foto) — bastante más rápido para
+  una escena grupal de varias figuras.
+
 USO (desde el venv chico, con cwd en la raíz del proyecto):
     C:/ia3d_venv/Scripts/python.exe -m core.triposr_worker \
         <imagen_entrada> <stl_salida> <png_preview_salida> \
-        --ancho_mm 80 --resolucion_malla 256 --quitar_fondo 1
+        --ancho_mm 80 --resolucion_malla 256 --quitar_fondo 1 --modelo_rembg u2net
 """
 
 import argparse
@@ -37,8 +51,19 @@ import numpy as np
 
 RUTA_TRIPOSR_SRC = r"C:\ia3d_venv\triposr_src"
 
+# Modelos de rembg disponibles para el recorte de fondo — cada uno es un
+# .onnx que se descarga solo la primera vez que se usa (~170-180MB).
+# "u2net" es el único que ya viene descargado por defecto en la mayoría
+# de los setups (es el que usa el resto de la app); los otros dos son
+# más precisos para su caso de uso específico pero más pesados/lentos.
+MODELOS_REMBG = {
+    "General (rápido)": "u2net",
+    "Persona/Retrato (más preciso en gente)": "u2net_human_seg",
+    "Objeto/Producto (alta precisión general)": "isnet-general-use",
+}
 
-def _cargar_imagen_preparada(ruta_imagen, quitar_fondo, rembg_session=None):
+
+def _cargar_imagen_preparada(ruta_imagen, quitar_fondo, rembg_session=None, modelo_rembg="u2net"):
     """Igual que ia3d_worker._cargar_imagen_preparada pero usando las
     utilidades propias de TripoSR (remove_background/resize_foreground),
     que dejan el sujeto ocupando ~85% del cuadro sobre fondo gris medio
@@ -51,7 +76,7 @@ def _cargar_imagen_preparada(ruta_imagen, quitar_fondo, rembg_session=None):
 
     if quitar_fondo:
         import rembg
-        session = rembg_session or rembg.new_session()
+        session = rembg_session or rembg.new_session(modelo_rembg)
         img = remove_background(img, session)
         img = resize_foreground(img, 0.85)
     elif img.mode != "RGBA":
@@ -68,7 +93,21 @@ def _cargar_imagen_preparada(ruta_imagen, quitar_fondo, rembg_session=None):
 def _post_procesar_malla(malla_cruda, ancho_mm, aplicar_suavizado=True, aplicar_decimation=True):
     import trimesh
 
-    malla = trimesh.Trimesh(vertices=malla_cruda.vertices, faces=malla_cruda.faces, process=True)
+    # Preservar el color por vértice que calculó TripoSR (antes se perdía
+    # acá mismo, sin llegar siquiera a la exportación) — se usa después
+    # para el GLB de color; el STL de impresión nunca lleva color.
+    colores_originales = None
+    try:
+        vc = malla_cruda.visual.vertex_colors
+        if vc is not None and len(vc) == len(malla_cruda.vertices):
+            colores_originales = np.array(vc, dtype=np.uint8)
+    except Exception:
+        colores_originales = None
+
+    malla = trimesh.Trimesh(
+        vertices=malla_cruda.vertices, faces=malla_cruda.faces,
+        vertex_colors=colores_originales, process=True,
+    )
     malla.remove_unreferenced_vertices()
 
     # TripoSR entrega Y-up (igual que Shap-E) — roto 90° en X para pasar
@@ -114,11 +153,20 @@ def _guardar_preview(destino, malla, titulo):
     render_preview.render_multivista(destino, malla, titulo, vistas)
 
 
-def generar(ruta_imagen, ruta_stl, ruta_png, ancho_mm=80.0, resolucion_malla=256,
-            quitar_fondo=True, aplicar_suavizado=True, aplicar_decimation=True):
-    import gc
-    import torch
+def _exportar_glb_color(malla, ruta_glb):
+    """Exporta un GLB con el color real por vértice (si lo hay) — STL no
+    puede llevar color nunca, este es el archivo para guardar/mirar en
+    color (recuerdo digital, o referencia para pintar a mano). Silencioso
+    si la malla no tiene color o algo falla — es un extra, no algo de lo
+    que dependa el resto del flujo."""
+    try:
+        malla.export(ruta_glb)
+        return True
+    except Exception:
+        return False
 
+
+def _cargar_modelo():
     if RUTA_TRIPOSR_SRC not in sys.path:
         sys.path.insert(0, RUTA_TRIPOSR_SRC)
     from tsr.system import TSR
@@ -126,15 +174,19 @@ def generar(ruta_imagen, ruta_stl, ruta_png, ancho_mm=80.0, resolucion_malla=256
     modelo = TSR.from_pretrained("stabilityai/TripoSR", config_name="config.yaml", weight_name="model.ckpt")
     modelo.renderer.set_chunk_size(8192)
     modelo.to("cpu")
+    return modelo
 
-    imagen = _cargar_imagen_preparada(ruta_imagen, quitar_fondo)
+
+def _reconstruir_una(modelo, ruta_imagen, ruta_stl, ruta_png, ancho_mm, resolucion_malla,
+                      quitar_fondo, modelo_rembg, aplicar_suavizado, aplicar_decimation,
+                      exportar_color, rembg_session=None):
+    import torch
+
+    imagen = _cargar_imagen_preparada(ruta_imagen, quitar_fondo, rembg_session=rembg_session, modelo_rembg=modelo_rembg)
 
     with torch.no_grad():
         scene_codes = modelo([imagen], device="cpu")
     mallas_crudas = modelo.extract_mesh(scene_codes, True, resolution=resolucion_malla)
-
-    del modelo, scene_codes
-    gc.collect()
 
     malla = _post_procesar_malla(
         mallas_crudas[0], ancho_mm,
@@ -143,35 +195,107 @@ def generar(ruta_imagen, ruta_stl, ruta_png, ancho_mm=80.0, resolucion_malla=256
     malla.export(ruta_stl)
     _guardar_preview(ruta_png, malla, "Estatua (IA local — TripoSR)")
 
+    ruta_glb = None
+    if exportar_color:
+        candidato = os.path.splitext(ruta_stl)[0] + "_color.glb"
+        if _exportar_glb_color(malla, candidato):
+            ruta_glb = candidato
+
     try:
         from core import storage
         storage.comprimir_png(ruta_png)
     except Exception:
         pass
 
+    return malla, ruta_glb
+
+
+def generar(ruta_imagen, ruta_stl, ruta_png, ancho_mm=80.0, resolucion_malla=256,
+            quitar_fondo=True, modelo_rembg="u2net", aplicar_suavizado=True,
+            aplicar_decimation=True, exportar_color=True):
+    import gc
+
+    modelo = _cargar_modelo()
+    malla, ruta_glb = _reconstruir_una(
+        modelo, ruta_imagen, ruta_stl, ruta_png, ancho_mm, resolucion_malla,
+        quitar_fondo, modelo_rembg, aplicar_suavizado, aplicar_decimation, exportar_color,
+    )
+    del modelo
+    gc.collect()
+
     print(f"OK vertices={len(malla.vertices)} caras={len(malla.faces)} watertight={malla.is_watertight}")
     print(f"OK bounds={malla.bounds.tolist()}")
+    print(f"OK ruta_glb={ruta_glb or ''}")
+
+
+def generar_lote(especificaciones, resolucion_malla=256, quitar_fondo=True, modelo_rembg="u2net",
+                  aplicar_suavizado=True, aplicar_decimation=True, exportar_color=True):
+    """Reconstruye VARIAS fotos cargando TripoSR una sola vez — cada
+    elemento de `especificaciones` es (ruta_imagen, ruta_stl, ruta_png,
+    ancho_mm). El costo de cargar el modelo (~7s) se paga una vez en vez
+    de N veces, que es lo que hacía antes generar_grupo_3d() al invocar
+    este worker por subprocess una vez por figura."""
+    import gc
+    import rembg as rembg_mod
+
+    modelo = _cargar_modelo()
+    sesion = rembg_mod.new_session(modelo_rembg) if quitar_fondo else None
+
+    resultados = []
+    for ruta_imagen, ruta_stl, ruta_png, ancho_mm in especificaciones:
+        malla, ruta_glb = _reconstruir_una(
+            modelo, ruta_imagen, ruta_stl, ruta_png, ancho_mm, resolucion_malla,
+            quitar_fondo, modelo_rembg, aplicar_suavizado, aplicar_decimation, exportar_color,
+            rembg_session=sesion,
+        )
+        resultados.append((ruta_stl, ruta_png, ruta_glb, len(malla.vertices), len(malla.faces), malla.is_watertight))
+        print(f"OK item ruta_stl={ruta_stl} vertices={len(malla.vertices)} watertight={malla.is_watertight}")
+
+    del modelo
+    gc.collect()
+    return resultados
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("ruta_imagen")
-    ap.add_argument("ruta_stl")
-    ap.add_argument("ruta_png")
+    ap.add_argument("ruta_imagen", nargs="?", default=None)
+    ap.add_argument("ruta_stl", nargs="?", default=None)
+    ap.add_argument("ruta_png", nargs="?", default=None)
     ap.add_argument("--ancho_mm", type=float, default=80.0)
     ap.add_argument("--resolucion_malla", type=int, default=256)
     ap.add_argument("--quitar_fondo", type=int, default=1)
+    ap.add_argument("--modelo_rembg", type=str, default="u2net")
     ap.add_argument("--suavizado", type=int, default=1)
     ap.add_argument("--decimation", type=int, default=1)
+    ap.add_argument("--exportar_color", type=int, default=1)
+    ap.add_argument(
+        "--lote", type=str, default=None,
+        help="Ruta a un JSON con una lista de [ruta_imagen, ruta_stl, ruta_png, ancho_mm] — "
+             "modo batch, carga el modelo una sola vez para todas las figuras.",
+    )
     args = ap.parse_args()
 
     try:
-        generar(
-            args.ruta_imagen, args.ruta_stl, args.ruta_png,
-            ancho_mm=args.ancho_mm, resolucion_malla=args.resolucion_malla,
-            quitar_fondo=bool(args.quitar_fondo), aplicar_suavizado=bool(args.suavizado),
-            aplicar_decimation=bool(args.decimation),
-        )
+        if args.lote:
+            import json
+            with open(args.lote, "r", encoding="utf-8") as f:
+                especificaciones = [tuple(item) for item in json.load(f)]
+            generar_lote(
+                especificaciones, resolucion_malla=args.resolucion_malla,
+                quitar_fondo=bool(args.quitar_fondo), modelo_rembg=args.modelo_rembg,
+                aplicar_suavizado=bool(args.suavizado), aplicar_decimation=bool(args.decimation),
+                exportar_color=bool(args.exportar_color),
+            )
+        else:
+            if not (args.ruta_imagen and args.ruta_stl and args.ruta_png):
+                raise ValueError("faltan ruta_imagen/ruta_stl/ruta_png (o usá --lote)")
+            generar(
+                args.ruta_imagen, args.ruta_stl, args.ruta_png,
+                ancho_mm=args.ancho_mm, resolucion_malla=args.resolucion_malla,
+                quitar_fondo=bool(args.quitar_fondo), modelo_rembg=args.modelo_rembg,
+                aplicar_suavizado=bool(args.suavizado), aplicar_decimation=bool(args.decimation),
+                exportar_color=bool(args.exportar_color),
+            )
     except Exception as e:  # noqa: BLE001 — se reporta al proceso padre por stderr, no hay UI acá
         print(f"ERROR {type(e).__name__}: {e}", file=sys.stderr)
         sys.exit(1)

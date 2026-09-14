@@ -38,7 +38,7 @@ PRESET_KEYS = [
     "es_ancho_mm", "es_espesor_base_mm", "es_relieve_mm",
     "es_oscuro_alto", "es_segmentar_sujeto", "es_forma_medallon", "es_tipo_relieve",
     "es_suavizado_px", "es_calidad", "es_color",
-    "es_tipo_estatua", "es_ia_calidad", "es_ia_quitar_fondo",
+    "es_tipo_estatua", "es_ia_calidad", "es_ia_quitar_fondo", "es_modelo_rembg",
     "es_con_pedestal", "es_forma_pedestal", "es_texto_placa",
 ]
 
@@ -156,6 +156,7 @@ with col_form:
     resolucion_px = esculturas.RESOLUCION_DEFAULT_PX
     ia_calidad_label = api_key = ""
     ia_quitar_fondo = True
+    modelo_rembg_valor = "u2net"
     api_proveedor = "Tripo3D"
     forma_pedestal = "Redonda"
     texto_placa = ""
@@ -225,6 +226,10 @@ with col_form:
                 preset = esculturas.TIPOS_ESTATUA_3D[tipo_estatua]
                 st.session_state["es_con_pedestal"] = preset["con_pedestal"]
                 st.session_state["es_forma_pedestal"] = preset["forma_pedestal"]
+                for etiqueta, valor in ia3d.MODELOS_REMBG.items():
+                    if valor == preset["modelo_rembg_sugerido"]:
+                        st.session_state["es_modelo_rembg"] = etiqueta
+                        break
                 st.session_state["_es_tipo_estatua_aplicado"] = tipo_estatua
                 st.rerun()
             if esculturas.TIPOS_ESTATUA_3D[tipo_estatua]["resolucion_extra"]:
@@ -245,6 +250,15 @@ with col_form:
             help="Saca el fondo de la foto (rembg) antes de mandarla al modelo — ayuda mucho si "
                  "la foto no tiene fondo liso.",
         )
+        if ia_quitar_fondo:
+            modelo_rembg_label = st.selectbox(
+                "Modelo de recorte de fondo", list(ia3d.MODELOS_REMBG.keys()), key="es_modelo_rembg",
+                help="La calidad del recorte es, en la práctica, la mayor palanca de calidad del "
+                     "resultado final — se sugiere automáticamente según el tipo de escultura "
+                     "elegido arriba, pero se puede cambiar. Los modelos no-'General' pesan ~170MB "
+                     "más y se bajan la primera vez que se usan.",
+            )
+            modelo_rembg_valor = ia3d.MODELOS_REMBG[modelo_rembg_label]
 
         con_pedestal = combinar_imagenes or st.checkbox(
             "Agregar pedestal + placa de nombre", value=False, key="es_con_pedestal",
@@ -360,13 +374,14 @@ with col_preview:
                         r = esculturas.generar_grupo_3d(
                             rutas_imagenes, alto_mm_principal=float(ancho_mm),
                             resolucion_malla=resolucion_malla, quitar_fondo=ia_quitar_fondo,
+                            modelo_rembg=modelo_rembg_valor,
                             forma_base=forma_pedestal, texto_placa=texto_placa,
                         )
                     else:
                         r = esculturas.generar_estatua_3d(
                             ruta_imagen, tipo_estilo=tipo_estatua, ancho_mm=float(ancho_mm),
                             resolucion_malla=resolucion_malla, quitar_fondo=ia_quitar_fondo,
-                            texto_placa=texto_placa,
+                            modelo_rembg=modelo_rembg_valor, texto_placa=texto_placa,
                             con_pedestal_manual=con_pedestal, forma_pedestal_manual=forma_pedestal,
                         )
                 except (FileNotFoundError, ValueError, RuntimeError) as e:
@@ -404,11 +419,26 @@ with col_preview:
 
         st.caption(f"{r['vertices']} vértices, {r['caras']} caras.")
 
-        with open(r["ruta_stl"], "rb") as f:
-            st.download_button(
-                "⬇ Descargar STL", f, file_name=os.path.basename(r["ruta_stl"]),
-                mime="model/stl", use_container_width=True, type="primary",
-            )
+        if r.get("ruta_glb") and os.path.exists(r["ruta_glb"]):
+            c1, c2 = st.columns(2)
+            with open(r["ruta_stl"], "rb") as f:
+                c1.download_button(
+                    "⬇ Descargar STL", f, file_name=os.path.basename(r["ruta_stl"]),
+                    mime="model/stl", use_container_width=True, type="primary",
+                )
+            with open(r["ruta_glb"], "rb") as f:
+                c2.download_button(
+                    "⬇ Descargar GLB (con color)", f, file_name=os.path.basename(r["ruta_glb"]),
+                    mime="model/gltf-binary", use_container_width=True,
+                    help="Mismo modelo con el color real capturado de la foto — para render/visualización. "
+                         "El STL (para imprimir) no soporta color, por eso va aparte.",
+                )
+        else:
+            with open(r["ruta_stl"], "rb") as f:
+                st.download_button(
+                    "⬇ Descargar STL", f, file_name=os.path.basename(r["ruta_stl"]),
+                    mime="model/stl", use_container_width=True, type="primary",
+                )
 
 # Stats de almacenamiento (opcional, siempre visible)
 st.divider()
