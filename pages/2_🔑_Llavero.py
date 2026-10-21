@@ -13,16 +13,22 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import biblioteca, colores, decoraciones, preview3d
+from core import colores, decoraciones, preview3d
 from generators import llavero
-from ui_streamlit import bloque_presets, selector_fuente
+from ui_streamlit import bloque_presets, resolver_archivo_subido, resolver_biblioteca, selector_fuente
 
 st.set_page_config(page_title="Llavero · Cartel Maker", page_icon="🔑", layout="wide")
 
 st.title("🔑 Llavero")
 st.caption(llavero.DESCRIPCION)
 
-TIPOS_DECO = ["Lista", "Emoji/pictograma", "Símbolo/signo", "Imagen propia (PNG/JPG)", "SVG propio"]
+TIPOS_DECO = [
+    "Lista", "Emoji/pictograma", "Símbolo/signo", "Imagen propia (PNG/JPG)", "SVG propio",
+    "Imagen/SVG a color",
+]
+MAX_COLORES_ICONO = 4  # tope de colores reales a usar del ícono "a color" -- mismo criterio
+# que generators/topper.py::MAX_COLORES_DECORACION_MULTICOLOR, sin motivo para que el
+# llavero cuantice/limite distinto.
 
 MODOS_LOGO_LABELS = {
     "Imagotipo — texto + ícono al costado": "imagotipo",
@@ -108,6 +114,8 @@ with col_form:
     decoracion, decoracion_svg, decoracion_emoji, svg_subido = "ninguno", None, None, None
     decoracion_imagen, imagen_subida, imagen_umbral, imagen_invertir = None, None, 128, False
     decoracion_lado = "derecha"
+    decoracion_color_ruta = None
+    indices_seleccionados_color, colores_asignados_icono = [], []
     if not es_monograma:
         if es_isotipo:
             label_deco = "Ícono (obligatorio para el isotipo)"
@@ -151,30 +159,86 @@ with col_form:
                     help="Tildá si el logo es claro sobre fondo oscuro (por default asume oscuro "
                          "sobre claro, salvo que el PNG tenga transparencia).",
                 )
-        else:
+        elif tipo_deco == "SVG propio":
             svg_subido = st.file_uploader(
-                "SVG propio", type=["svg"],
+                "SVG propio", type=["svg"], key="ll_svg_subido",
                 help="Funciona con casi cualquier ícono simple (un solo color, sin fotos ni "
                      "degradados). No entra en el preset ni en la vista rápida — solo en el llavero generado.",
             )
-            if svg_subido is not None:
-                os.makedirs("output", exist_ok=True)
-                decoracion_svg = os.path.join("output", f"_subido_{svg_subido.name}")
-                with open(decoracion_svg, "wb") as f:
-                    f.write(svg_subido.getvalue())
+            decoracion_svg = resolver_archivo_subido(svg_subido, "ll_svg_subido", "_subido_ll_svg")
+            decoracion_svg = resolver_biblioteca("ll_svg_biblioteca") or decoracion_svg
+            if decoracion_svg and svg_subido is None:
+                svg_subido = True  # solo para `archivo_subido` más abajo -- gana el mismo trato que un upload
 
-            escudos_biblioteca = biblioteca.listar_escudos()
-            if escudos_biblioteca:
-                _OPCION_SIN_ESCUDO = "— Ninguno —"
-                opciones_escudo = [_OPCION_SIN_ESCUDO] + [nombre for nombre, _ in escudos_biblioteca]
-                escudo_elegido = st.selectbox(
-                    "O elegí un escudo de la biblioteca", opciones_escudo, key="ll_svg_biblioteca",
-                    help="Escudos guardados con el Importador de Escudos -- gana sobre el SVG "
-                         "subido arriba. Se usa como silueta de UN solo color (como cualquier SVG "
-                         "propio, no en sus colores reales -- eso viene después).",
-                )
-                if escudo_elegido != _OPCION_SIN_ESCUDO:
-                    decoracion_svg = dict(escudos_biblioteca)[escudo_elegido]
+        else:  # "Imagen/SVG a color"
+            color_subido = st.file_uploader(
+                "Imagen (PNG/JPG) o SVG a separar por color", type=["png", "jpg", "jpeg", "svg"],
+                key="ll_color_subido",
+                help="Un logo/escudo con colores bien definidos (no una foto ni degradados) -- "
+                     "cada color que elijas abajo sale como su propia región, para pintarla con el "
+                     "filamento real que corresponda. Si tenés el archivo en SVG (vectorial) usá "
+                     "ese en vez del PNG/JPG: los colores ya vienen declarados en el archivo.",
+            )
+            decoracion_color_ruta = resolver_archivo_subido(color_subido, "ll_color_subido", "_subido_ll_color")
+            decoracion_color_ruta = resolver_biblioteca("ll_color_biblioteca") or decoracion_color_ruta
+
+            if decoracion_color_ruta:
+                svg_subido = True  # cuenta como "archivo subido" más abajo (sin vista rápida)
+                colores_detectados_raw = decoraciones.detectar_colores_archivo(decoracion_color_ruta)
+                if not colores_detectados_raw:
+                    st.warning("No se pudo detectar ningún color con área en este archivo.")
+                else:
+                    claves_check = [f"ll_color_usar_{i}" for i in range(len(colores_detectados_raw))]
+                    for i, key in enumerate(claves_check):
+                        if key not in st.session_state:
+                            st.session_state[key] = i < MAX_COLORES_ICONO
+                    marcados_actual = sum(1 for key in claves_check if st.session_state.get(key))
+
+                    st.caption(
+                        f"Se detectaron {len(colores_detectados_raw)} colores -- elegí hasta "
+                        f"{MAX_COLORES_ICONO} para usar (destildá los que sean ruido de "
+                        "antialiasing, no colores reales del dibujo) y asignale un filamento real "
+                        "a cada uno."
+                    )
+                    for i, (hex_detectado, frac) in enumerate(colores_detectados_raw):
+                        col_check, col_swatch, col_sel = st.columns([1, 1, 3])
+                        ya_marcado = st.session_state.get(claves_check[i], False)
+                        deshabilitar = marcados_actual >= MAX_COLORES_ICONO and not ya_marcado
+                        usar = col_check.checkbox(
+                            f"{frac * 100:.0f}%", key=claves_check[i], disabled=deshabilitar,
+                            help="Destildado = no se usa este color (por ejemplo, si es ruido de "
+                                 "antialiasing en vez de un color real del dibujo).",
+                        )
+                        col_swatch.color_picker(
+                            f"ll_color_muestra_{i}", value=hex_detectado, disabled=True,
+                            label_visibility="collapsed", key=f"ll_color_muestra_{i}",
+                        )
+                        sugerido = colores.nombre_mas_cercano(hex_detectado)
+                        elegido = col_sel.selectbox(
+                            f"ll_color_filamento_{i}", list(colores.NOMBRES),
+                            index=list(colores.NOMBRES).index(sugerido), disabled=not usar,
+                            key=f"ll_color_filamento_{i}", label_visibility="collapsed",
+                        )
+                        if usar:
+                            indices_seleccionados_color.append(i)
+                            colores_asignados_icono.append(elegido)
+
+                    if modo_logo == "emblema":
+                        st.caption(
+                            "🚧 En modo Emblema el ícono todavía sale en un solo color (el de "
+                            "\"Color texto\") -- los colores reales por ahora no incluyen el anillo."
+                        )
+                    elif not indices_seleccionados_color:
+                        st.caption("Elegí al menos un color arriba para separar el ícono por color real.")
+
+                # Respaldo monocromo: se usa SIEMPRE que el modo sea Emblema (no soporta
+                # colores reales todavía), o si no quedó ningún color tildado arriba -- en
+                # Imagotipo/Isologo/Isotipo con al menos un color elegido, `generar()` ignora esto
+                # y arma el ícono separado por color real (ver decoracion_multicolor_ruta más abajo).
+                if decoracion_color_ruta.lower().endswith(".svg"):
+                    decoracion_svg = decoracion_color_ruta
+                else:
+                    decoracion_imagen = decoracion_color_ruta
         if modo_logo == "imagotipo":
             decoracion_lado = st.radio(
                 "Lado de la decoración", llavero.LADOS_DECO, horizontal=True, key="ll_decoracion_lado",
@@ -221,7 +285,7 @@ with col_form:
             "Espesor del texto/decoración (mm)", 1.0, 6.0, 2.0, step=0.5, key="ll_espesor_texto_mm",
         )
         espesor_base_mm = st.slider("Espesor de la base (mm)", 1.0, 8.0, 3.0, step=0.5, key="ll_espesor_base_mm")
-        borde_mm = st.slider("Margen del borde (mm)", 1.0, 10.0, 3.0, step=0.5, key="ll_borde_mm")
+        borde_mm = st.slider("Margen del borde (mm)", 0.0, 10.0, 3.0, step=0.5, key="ll_borde_mm")
 
     generar_click = st.button("Generar llavero", type="primary", use_container_width=True)
 
@@ -264,6 +328,13 @@ with col_preview:
                     espesor_texto_mm=espesor_texto_mm, espesor_base_mm=espesor_base_mm, borde_mm=borde_mm,
                     tiene_ams=tiene_ams,
                     modo_logo=modo_logo, espaciado_monograma=espaciado_monograma, anillo_mm=anillo_mm,
+                    # Ícono "a color" (Parte 2) -- solo si quedó al menos un color elegido; si el
+                    # archivo no dio ningún color detectable, decoracion_svg/decoracion_imagen ya
+                    # tienen el respaldo monocromo de la Parte 1 y esto se deja en None para no
+                    # forzar el camino multicolor con nada que separar.
+                    decoracion_multicolor_ruta=decoracion_color_ruta if indices_seleccionados_color else None,
+                    decoracion_multicolor_indices=indices_seleccionados_color or None,
+                    colores_asignados_icono=colores_asignados_icono or None,
                 )
             except (FileNotFoundError, ValueError) as e:
                 st.error(str(e))
@@ -272,13 +343,18 @@ with col_preview:
         if r:
             color_base_hex = colores.hex_de(color_base)
             color_texto_hex = colores.hex_de(color_texto)
+            piezas_icono_visor = [
+                {"ruta_stl": ruta, "color": color_hex, "nombre": f"icono_{i + 1}"}
+                for i, (ruta, color_hex) in enumerate(zip(r["rutas_stl_icono"], r["colores_icono"]))
+            ]
+            hay_texto = r["ruta_stl_texto"] is not None
             if tiene_ams:
-                # con AMS las 2 piezas ya están en su posición real (una arriba de la otra) —
+                # con AMS todas las piezas ya están en su posición real (una arriba de la otra) —
                 # se puede mostrar el conjunto armado en un solo visor.
-                html_visor = preview3d.armar_html_visor([
-                    {"ruta_stl": r["ruta_stl_base"], "color": color_base_hex, "nombre": "base"},
-                    {"ruta_stl": r["ruta_stl_texto"], "color": color_texto_hex, "nombre": "texto"},
-                ])
+                piezas_visor = [{"ruta_stl": r["ruta_stl_base"], "color": color_base_hex, "nombre": "base"}]
+                if hay_texto:
+                    piezas_visor.append({"ruta_stl": r["ruta_stl_texto"], "color": color_texto_hex, "nombre": "texto"})
+                html_visor = preview3d.armar_html_visor(piezas_visor + piezas_icono_visor)
                 if html_visor:
                     components.html(html_visor, height=490)
                     st.caption("Arrastrá para rotar, scroll para zoom.")
@@ -287,19 +363,37 @@ with col_preview:
             else:
                 # sin AMS cada pieza se exporta apoyada en el suelo por separado (para
                 # imprimirlas sueltas) — mostrarlas juntas se verían superpuestas, así que
-                # van en 2 visores lado a lado.
-                vcol1, vcol2 = st.columns(2)
+                # van en columnas lado a lado (una para el texto, si lo hay -- un isotipo
+                # 100% a color no tiene pieza de texto -- y otra para el ícono a color).
+                n_columnas = 1 + (1 if hay_texto else 0) + (1 if piezas_icono_visor else 0)
+                columnas = st.columns(n_columnas)
+                idx_col = 0
                 html_base = preview3d.armar_html_visor([{"ruta_stl": r["ruta_stl_base"], "color": color_base_hex}])
-                html_texto = preview3d.armar_html_visor([{"ruta_stl": r["ruta_stl_texto"], "color": color_texto_hex}])
-                with vcol1:
+                with columnas[idx_col]:
                     st.caption("Base")
                     if html_base:
                         components.html(html_base, height=320)
-                with vcol2:
-                    st.caption("Texto/decoración")
-                    if html_texto:
-                        components.html(html_texto, height=320)
-                if not html_base or not html_texto:
+                idx_col += 1
+
+                html_texto = None
+                if hay_texto:
+                    html_texto = preview3d.armar_html_visor(
+                        [{"ruta_stl": r["ruta_stl_texto"], "color": color_texto_hex}])
+                    with columnas[idx_col]:
+                        st.caption("Texto/decoración")
+                        if html_texto:
+                            components.html(html_texto, height=320)
+                    idx_col += 1
+
+                html_icono = None
+                if piezas_icono_visor:
+                    html_icono = preview3d.armar_html_visor(piezas_icono_visor)
+                    with columnas[idx_col]:
+                        st.caption("Ícono (a color)")
+                        if html_icono:
+                            components.html(html_icono, height=320)
+
+                if not html_base or (hay_texto and not html_texto) or (piezas_icono_visor and not html_icono):
                     st.image(r["ruta_png"], use_container_width=True)
 
             c1, c2 = st.columns(2)
@@ -337,14 +431,30 @@ with col_preview:
                     )
                 st.caption("O si preferís, las piezas sueltas de siempre:")
 
-            dcol1, dcol2 = st.columns(2)
-            with open(r["ruta_stl_base"], "rb") as f:
-                dcol1.download_button(
-                    "⬇ STL base", f, file_name=os.path.basename(r["ruta_stl_base"]),
-                    mime="model/stl", use_container_width=True,
-                )
-            with open(r["ruta_stl_texto"], "rb") as f:
-                dcol2.download_button(
-                    "⬇ STL texto", f, file_name=os.path.basename(r["ruta_stl_texto"]),
-                    mime="model/stl", use_container_width=True,
-                )
+            if hay_texto:
+                dcol1, dcol2 = st.columns(2)
+                with open(r["ruta_stl_base"], "rb") as f:
+                    dcol1.download_button(
+                        "⬇ STL base", f, file_name=os.path.basename(r["ruta_stl_base"]),
+                        mime="model/stl", use_container_width=True,
+                    )
+                with open(r["ruta_stl_texto"], "rb") as f:
+                    dcol2.download_button(
+                        "⬇ STL texto", f, file_name=os.path.basename(r["ruta_stl_texto"]),
+                        mime="model/stl", use_container_width=True,
+                    )
+            else:
+                with open(r["ruta_stl_base"], "rb") as f:
+                    st.download_button(
+                        "⬇ STL base", f, file_name=os.path.basename(r["ruta_stl_base"]),
+                        mime="model/stl", use_container_width=True,
+                    )
+
+            if r["rutas_stl_icono"]:
+                dcols_icono = st.columns(len(r["rutas_stl_icono"]))
+                for i, ruta_icono in enumerate(r["rutas_stl_icono"]):
+                    with open(ruta_icono, "rb") as f:
+                        dcols_icono[i].download_button(
+                            f"⬇ STL ícono {i + 1}", f, file_name=os.path.basename(ruta_icono),
+                            mime="model/stl", use_container_width=True, key=f"ll_download_icono_{i}",
+                        )

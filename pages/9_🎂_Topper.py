@@ -12,64 +12,13 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-from core import colores, preview3d, fuentes, biblioteca
+from core import colores, preview3d, fuentes
 from generators import topper
 from ui_streamlit import bloque_presets, selector_fuente
+from ui_streamlit import resolver_archivo_subido as _resolver_archivo_subido
+from ui_streamlit import resolver_biblioteca as _resolver_biblioteca
 
 st.set_page_config(page_title="Topper · Cartel Maker", page_icon="🎂", layout="wide")
-
-
-def _resolver_archivo_subido(subido, key_uploader, prefijo_output):
-    """Guarda `subido` (un UploadedFile de un file_uploader con key
-    `key_uploader`) en output/ y actualiza la key "sombra"
-    `<key_uploader>__ruta` en session_state -- esa key sombra (no el
-    uploader en sí, que Streamlit no permite rellenar programáticamente)
-    es la que se guarda/restaura en los presets. Subir un archivo nuevo
-    siempre reemplaza lo que hubiera ahí, incluido lo que viniera de un
-    preset recién cargado.
-
-    Devuelve la ruta a usar: la del archivo recién subido si hay uno;
-    si no, la que haya quedado en la key sombra (de un preset cargado,
-    o de una subida anterior en esta misma sesión); None si no hay
-    nada. Si esa ruta ya no existe en disco (se borró/movió), la
-    ignora en vez de romper más adelante al intentar abrirla."""
-    key_ruta = f"{key_uploader}__ruta"
-    if subido is not None:
-        os.makedirs("output", exist_ok=True)
-        ruta = os.path.join("output", f"{prefijo_output}_{subido.name}")
-        with open(ruta, "wb") as f:
-            f.write(subido.getvalue())
-        st.session_state[key_ruta] = ruta
-
-    ruta = st.session_state.get(key_ruta)
-    if ruta and not os.path.exists(ruta):
-        ruta = None
-    return ruta
-
-
-_OPCION_BIBLIOTECA_NINGUNO = "— Ninguno —"
-
-
-def _resolver_biblioteca(key_biblioteca, label="O elegí de la biblioteca"):
-    """Selector de la biblioteca de escudos (core/biblioteca.py) --
-    devuelve la ruta elegida, o None si está en "— Ninguno —". Regla de
-    convivencia con "subir archivo" (la aplica quien llama): mientras
-    este selector no esté en "— Ninguno —", esa ruta gana sobre lo
-    subido -- para volver a un archivo propio hay que poner el selector
-    de vuelta en "— Ninguno —". Nunca toca el session_state de OTRO
-    widget (evita el StreamlitAPIException de tocar uno ya instanciado
-    en esta corrida) -- si un preset restaurado apunta a un escudo que
-    ya no está en la carpeta, cae a "Ninguno" ANTES de instanciar este
-    MISMO widget, en vez de romper el selectbox con un valor fuera de
-    sus propias opciones."""
-    escudos = biblioteca.listar_escudos()
-    opciones = [_OPCION_BIBLIOTECA_NINGUNO] + [nombre for nombre, _ in escudos]
-    if st.session_state.get(key_biblioteca) not in opciones:
-        st.session_state[key_biblioteca] = opciones[0]
-    elegido = st.selectbox(label, opciones, key=key_biblioteca)
-    if elegido == _OPCION_BIBLIOTECA_NINGUNO:
-        return None
-    return dict(escudos).get(elegido)
 
 
 st.title("🎂 Topper (decoración para tortas y más)")

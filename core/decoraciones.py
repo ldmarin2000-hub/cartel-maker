@@ -288,6 +288,85 @@ def forma_desde_imagen(ruta_imagen, tam, umbral=128, invertir=False):
     return affine_transform(crudo, [escala, 0, 0, escala, -cx * escala, -cy * escala])
 
 
+def _es_svg(ruta):
+    return ruta.lower().endswith(".svg")
+
+
+COLORES_DETECCION_ICONO = 12  # cuántos colores se cuantizan puertas adentro para una imagen
+# rasterizada -- no aplica a SVG (usa los colores ya declarados en el archivo), ver
+# `formas_por_color_desde_archivo`. Mismo valor que ya usa `generators/topper.py` para su
+# propia decoración multicolor (COLORES_DETECCION_MULTICOLOR) -- no hay motivo para que
+# el llavero cuantice distinto.
+
+
+def formas_por_color_desde_archivo(ruta, colores_deteccion=COLORES_DETECCION_ICONO):
+    """`ruta` (SVG o imagen rasterizada) -> [(polígono, "#rrggbb"), ...],
+    SIN centrar ni escalar, ordenada de mayor a menor área -- delega en
+    `core.svg_import.svg_a_poligonos_por_color` (SVG, colores ya
+    declarados en el archivo) o `core.imagen_import.imagen_a_poligonos_por_color`
+    (imagen rasterizada, cuantiza `colores_deteccion` colores puertas
+    adentro) según la extensión. Mismo motor que ya usa
+    `generators/topper.py::_colores_desde_archivo` para la decoración
+    multicolor del Topper -- acá vive en `core` para que lo pueda usar
+    cualquier generador (llavero incluido) sin importar de otro
+    generator."""
+    if _es_svg(ruta):
+        return svg_import.svg_a_poligonos_por_color(ruta)
+    return imagen_import.imagen_a_poligonos_por_color(ruta, colores_deteccion=colores_deteccion)
+
+
+def detectar_colores_archivo(ruta, colores_deteccion=COLORES_DETECCION_ICONO):
+    """Para la UI: detecta los colores dominantes de `ruta` (SVG o
+    imagen) -- [("#rrggbb", fracción_de_área), ...] de mayor a menor
+    área, para que la usuaria elija a mano cuáles son colores reales
+    (y les asigne un filamento) y cuáles no usar (ruido de
+    antialiasing). [] si no se pudo sacar nada -- no debe romper la
+    página."""
+    try:
+        candidatos = formas_por_color_desde_archivo(ruta, colores_deteccion=colores_deteccion)
+        area_total = sum(p.area for p, _ in candidatos) or 1.0
+        return [(color_hex, p.area / area_total) for p, color_hex in candidatos]
+    except Exception:
+        return []
+
+
+def forma_multicolor_desde_archivo(ruta, tam, indices_seleccionados=None, colores_deteccion=COLORES_DETECCION_ICONO):
+    """Como `forma_desde_svg`/`forma_desde_imagen`, pero separando
+    `ruta` en varias regiones por color real en vez de una silueta de
+    un solo color -- [(polígono, "#rrggbb"), ...]. `indices_seleccionados`:
+    lista de índices (sobre el orden detectado, mayor a menor área) de
+    CUÁLES colores usar -- así quien llama (la UI) elige a mano cuáles
+    de los detectados son reales y cuáles ruido, en vez de que la
+    función adivine. `None` = usar todos los detectados.
+
+    Las escala y centra TODAS JUNTAS con el mismo factor/origen (no
+    cada una por separado) para que conserven su posición relativa y
+    sigan formando el dibujo reconocible -- mismo criterio y mismo
+    resultado final que el resto de este módulo (lado mayor = `2*tam`,
+    centrado en el origen). Devuelve `None` si no queda ninguna forma
+    con área (archivo inválido, o `indices_seleccionados` vacío/inválido)."""
+    crudos = formas_por_color_desde_archivo(ruta, colores_deteccion=colores_deteccion)
+    if not crudos:
+        return None
+    if indices_seleccionados is not None:
+        crudos = [crudos[i] for i in indices_seleccionados if 0 <= i < len(crudos)]
+        if not crudos:
+            return None
+
+    todas = unary_union([p for p, _ in crudos]) if len(crudos) > 1 else crudos[0][0]
+    minx, miny, maxx, maxy = todas.bounds
+    lado_mayor = max(maxx - minx, maxy - miny)
+    if lado_mayor <= 0:
+        return None
+    escala = (2 * tam) / lado_mayor
+    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
+
+    return [
+        (affine_transform(p, [escala, 0, 0, escala, -cx * escala, -cy * escala]), color_hex)
+        for p, color_hex in crudos
+    ]
+
+
 def forma_desde_emoji(caracter, tam, ruta_ttf=None):
     """Como forma(), pero para un emoji/pictograma/signo (un solo
     carácter unicode, ej. "✈", "🎂", "★") en vez de una decoración de la

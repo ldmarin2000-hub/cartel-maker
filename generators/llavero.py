@@ -171,37 +171,73 @@ def _armar_geometria(nombre, ruta_ttf, alto_mm, decoracion, decoracion_lado, dec
                       decoracion_svg=None, decoracion_emoji=None,
                       decoracion_imagen=None, imagen_umbral=128, imagen_invertir=False,
                       modo_logo="imagotipo", espaciado_monograma=-0.15, anillo_mm=0.0,
-                      aro_x=0, aro_y=0):
+                      aro_x=0, aro_y=0,
+                      decoracion_multicolor_ruta=None, decoracion_multicolor_indices=None,
+                      color_icono_hex=None):
     """Arma la geometría 2D del llavero/logo — contenido según `modo_logo`
     (ver MODOS_LOGO) y base = contenido con borde + orejas de aro
     (`_armar_base_con_aro`, igual en los 5 modos). Devuelve (contenido,
-    base, ancho_mm, alto_mm_real).
+    base, ancho_mm, alto_mm_real, piezas_icono).
 
     - "imagotipo"/"isologo": texto (`nombre`) + ícono opcional (SVG >
       imagen propia > emoji > `decoracion` de la lista,
       `_resolver_forma_decoracion`) — en imagotipo el ícono va al
-      costado (`decoracion_lado`), en isologo centrado encima del texto
-      (fusionados).
+      costado (`decoracion_lado`), en isologo centrado encima del
+      texto. Si `decoracion_multicolor_ruta` está seteado (gana sobre
+      los otros 4 orígenes), el ícono NO se fusiona en `contenido` --
+      queda separado por color real en `piezas_icono`
+      (`[(polígono, "#rrggbb"), ...]`, ya posicionadas), para que quien
+      llama (`generar()`) las exporte cada una con su propio filamento
+      en vez de todas en el color de "texto". En isologo SIN ícono a
+      color, si se pasa `color_icono_hex`, TAMPOCO se fusiona --
+      un ícono opaco/grande centrado encima del texto tapa el texto
+      por completo si comparten un solo color y una sola pieza (no es
+      solo estético, el texto se pierde de verdad) -- queda como una
+      única pieza en `piezas_icono` con ese color (`generar()` por
+      default usa el mismo hex que "Color base", sin agregar un
+      selector nuevo). En imagotipo (ícono al costado, sin superponerse
+      al texto) esto no hace falta, se sigue fusionando como siempre.
+      `contenido` en los casos separados es SOLO el texto --
+      `piezas_icono` es `[]` en cualquier otro caso (comportamiento de
+      siempre, ícono fusionado en `contenido`).
     - "isotipo": solo el ícono (`nombre` se ignora) — hace falta elegir
-      uno (SVG, imagen, emoji o de la lista; "ninguno" no alcanza).
+      uno (SVG, imagen, emoji o de la lista; "ninguno" no alcanza). Con
+      `decoracion_multicolor_ruta`, TODO el ícono queda en
+      `piezas_icono` (no hay texto que fusionar) y `contenido` sale
+      `None` -- quien llama (`generar()`) tiene que manejar ese caso
+      (no hay pieza de "texto" para exportar, es 100% ícono).
     - "monograma": solo `nombre` (pensado para 2-3 iniciales), con
       `espaciado_monograma` (negativo = se superponen/entrelazan, misma
       técnica que el espaciado del ambigrama) y un anillo circular de
       `anillo_mm` de grosor si es > 0 (`_agregar_marco`).
     - "emblema": como isologo (o isotipo si no hay `nombre`), pero
       siempre encerrado en el anillo de `_agregar_marco` — el formato
-      insignia (Starbucks, Warner Bros)."""
+      insignia (Starbucks, Warner Bros). NO soporta
+      `decoracion_multicolor_ruta` todavía (queda para más adelante,
+      el anillo complica el caso "sin texto" más que isotipo) -- si se
+      pasa, se ignora acá (la página igual deja
+      `decoracion_svg`/`decoracion_imagen` como respaldo monocromo)."""
     forma_deco_kwargs = dict(
         decoracion_svg=decoracion_svg, decoracion_emoji=decoracion_emoji,
         decoracion_imagen=decoracion_imagen, imagen_umbral=imagen_umbral, imagen_invertir=imagen_invertir,
     )
+    piezas_icono = []
 
     if modo_logo == "isotipo":
-        forma_deco = _resolver_forma_decoracion(decoracion, decoracion_tam, **forma_deco_kwargs)
-        if forma_deco is None:
-            raise ValueError("elegí una decoración, imagen, emoji o SVG para el isotipo (no lleva texto)")
-        contenido = translate(forma_deco, xoff=deco_x, yoff=deco_y)
-        minx, miny, maxx, maxy = contenido.bounds
+        if decoracion_multicolor_ruta:
+            piezas_deco = decoraciones.forma_multicolor_desde_archivo(
+                decoracion_multicolor_ruta, decoracion_tam, indices_seleccionados=decoracion_multicolor_indices)
+            if piezas_deco is None:
+                raise ValueError(f"no se pudo separar por color ninguna forma con área: {decoracion_multicolor_ruta}")
+            piezas_icono = [(translate(p, xoff=deco_x, yoff=deco_y), c) for p, c in piezas_deco]
+            contenido = None
+            minx, miny, maxx, maxy = unary_union([p for p, _ in piezas_icono]).bounds
+        else:
+            forma_deco = _resolver_forma_decoracion(decoracion, decoracion_tam, **forma_deco_kwargs)
+            if forma_deco is None:
+                raise ValueError("elegí una decoración, imagen, emoji o SVG para el isotipo (no lleva texto)")
+            contenido = translate(forma_deco, xoff=deco_x, yoff=deco_y)
+            minx, miny, maxx, maxy = contenido.bounds
         ancho_mm, alto_mm_real = maxx - minx, maxy - miny
 
     elif modo_logo == "monograma":
@@ -245,20 +281,49 @@ def _armar_geometria(nombre, ruta_ttf, alto_mm, decoracion, decoracion_lado, dec
         alto_mm_real = maxy - miny
 
         contenido = texto_poly
-        forma_deco = _resolver_forma_decoracion(decoracion, decoracion_tam, **forma_deco_kwargs)
-        if forma_deco is not None:
-            if modo_logo == "isologo":
-                cx_deco, cy_deco = (minx + maxx) / 2, cy
-            else:
-                cx_deco, cy_deco = _posicion_decoracion(minx, maxx, maxy, cy, decoracion_lado, decoracion_tam)
-            forma_deco = translate(forma_deco, xoff=cx_deco + deco_x, yoff=cy_deco + deco_y)
-            contenido = unary_union([contenido, forma_deco])
+        if modo_logo == "isologo":
+            cx_deco, cy_deco = (minx + maxx) / 2, cy
+        else:
+            cx_deco, cy_deco = _posicion_decoracion(minx, maxx, maxy, cy, decoracion_lado, decoracion_tam)
 
-    base = _armar_base_con_aro(contenido, aro_lado, aro_r, borde_mm, aro_x=aro_x, aro_y=aro_y)
-    return contenido, base, ancho_mm, alto_mm_real
+        if decoracion_multicolor_ruta:
+            piezas_deco = decoraciones.forma_multicolor_desde_archivo(
+                decoracion_multicolor_ruta, decoracion_tam, indices_seleccionados=decoracion_multicolor_indices)
+            if piezas_deco is None:
+                raise ValueError(f"no se pudo separar por color ninguna forma con área: {decoracion_multicolor_ruta}")
+            piezas_icono = [
+                # .difference(contenido) -- en isologo el ícono va CENTRADO ENCIMA del texto, así
+                # que sin esto la pieza del ícono y la del texto ocuparían el MISMO lugar en el
+                # mismo plano (Z), chocando físicamente -- se pierde el texto igual que fusionado
+                # en un solo color, ahora por geometría en vez de por color. En imagotipo (ícono
+                # al costado) esto no cambia nada (no hay superposición, difference = no-op).
+                (translate(p, xoff=cx_deco + deco_x, yoff=cy_deco + deco_y).difference(contenido), color_hex)
+                for p, color_hex in piezas_deco
+            ]
+        else:
+            forma_deco = _resolver_forma_decoracion(decoracion, decoracion_tam, **forma_deco_kwargs)
+            if forma_deco is not None:
+                forma_deco = translate(forma_deco, xoff=cx_deco + deco_x, yoff=cy_deco + deco_y)
+                if modo_logo == "isologo" and color_icono_hex:
+                    # en isologo el ícono va CENTRADO ENCIMA del texto -- si se fusionan en un
+                    # solo color, un ícono opaco/grande tapa el texto por completo (se pierde,
+                    # no es solo estético). Se deja como pieza propia en color_icono_hex (por
+                    # default, el mismo que "Color base") -- restándole el texto (mismo motivo
+                    # que en el caso multicolor de arriba: sin esto, chocan en el mismo plano).
+                    piezas_icono = [(forma_deco.difference(contenido), color_icono_hex)]
+                else:
+                    contenido = unary_union([contenido, forma_deco])
+
+    if piezas_icono:
+        geoms_base = [p for p, _ in piezas_icono] + ([contenido] if contenido is not None else [])
+        contenido_para_base = unary_union(geoms_base) if len(geoms_base) > 1 else geoms_base[0]
+    else:
+        contenido_para_base = contenido
+    base = _armar_base_con_aro(contenido_para_base, aro_lado, aro_r, borde_mm, aro_x=aro_x, aro_y=aro_y)
+    return contenido, base, ancho_mm, alto_mm_real, piezas_icono
 
 
-def _guardar_preview(ruta_png, base, contenido, color_base, color_texto, nombre):
+def _guardar_preview(ruta_png, base, contenido, color_base, color_texto, nombre, piezas_icono=None):
     minx, miny, maxx, maxy = base.bounds
     w, h = max(maxx - minx, 1), max(maxy - miny, 1)
     fig, ax = plt.subplots(figsize=(8, 8 * h / w + 1))
@@ -273,7 +338,10 @@ def _guardar_preview(ruta_png, base, contenido, color_base, color_texto, nombre)
                 ax.fill(xr, yr, color="#1a1a1a")
 
     dibujar(base, colores.hex_de(color_base))
-    dibujar(contenido, colores.hex_de(color_texto))
+    if contenido is not None:
+        dibujar(contenido, colores.hex_de(color_texto))
+    for poligono, color_hex in (piezas_icono or []):
+        dibujar(poligono, color_hex)
     ax.set_aspect("equal")
     ax.axis("off")
     ax.set_title(nombre, color="#ccc")
@@ -303,17 +371,18 @@ def preview_rapido(nombre, ruta_ttf, alto_mm=20,
     if not sin_texto_ok and not decoracion_emoji and decoracion not in decoraciones.NOMBRES_VALIDOS:
         return None, 0, 0
     try:
-        contenido, base, ancho_mm, alto_mm_real = _armar_geometria(
+        contenido, base, ancho_mm, alto_mm_real, piezas_icono = _armar_geometria(
             nombre, ruta_ttf, alto_mm, decoracion, decoracion_lado, decoracion_tam,
             deco_x, deco_y, aro_lado, aro_r, borde_mm, raster_px=250, decoracion_emoji=decoracion_emoji,
             modo_logo=modo_logo, espaciado_monograma=espaciado_monograma, anillo_mm=anillo_mm,
             aro_x=aro_x, aro_y=aro_y,
+            color_icono_hex=colores.hex_de(color_base) if modo_logo == "isologo" else None,
         )
     except (ValueError, FileNotFoundError):
         return None, 0, 0
 
     buf = io.BytesIO()
-    _guardar_preview(buf, base, contenido, color_base, color_texto, nombre)
+    _guardar_preview(buf, base, contenido, color_base, color_texto, nombre, piezas_icono=piezas_icono)
     return buf.getvalue(), ancho_mm, alto_mm_real
 
 
@@ -327,6 +396,8 @@ def generar(nombre, ruta_ttf, alto_mm=20,
             espesor_texto_mm=2, espesor_base_mm=3, borde_mm=3,
             tiene_ams=False, raster_px=400,
             modo_logo="imagotipo", espaciado_monograma=-0.15, anillo_mm=0.0,
+            decoracion_multicolor_ruta=None, decoracion_multicolor_indices=None,
+            colores_asignados_icono=None,
             carpeta_salida=CARPETA_SALIDA):
     """Arma el llavero/logo directamente con shapely/trimesh y devuelve un
     dict con las rutas, medidas (reales, medidas sobre la geometría) y
@@ -350,7 +421,20 @@ def generar(nombre, ruta_ttf, alto_mm=20,
     emoji/pictograma/signo (un carácter, ej. "✈",
     core/decoraciones.py::forma_desde_emoji). Los tres son excluyentes,
     en ese orden de prioridad si por error vinieran varios a la vez —
-    si ninguno viene seteado, se usa `decoracion` de la lista."""
+    si ninguno viene seteado, se usa `decoracion` de la lista.
+
+    `decoracion_multicolor_ruta`: ruta a un SVG/imagen a separar por
+    COLOR REAL (`core.decoraciones.forma_multicolor_desde_archivo`) en
+    vez de silueta de un solo color -- gana sobre los 4 orígenes de
+    arriba, y SOLO aplica en modo "imagotipo"/"isologo" (ver
+    `_armar_geometria`; en isotipo/emblema se ignora, sigue el camino
+    monocromo de siempre). `decoracion_multicolor_indices`: qué colores
+    detectados usar (None = todos). `colores_asignados_icono`: nombre
+    de filamento curado (`core.colores.NOMBRES`) por cada color USADO,
+    en el MISMO orden que salen de `forma_multicolor_desde_archivo` --
+    solo se usa para el nombre en el aviso de límite de colores del
+    .3mf con AMS (`core.pieza.exportar_multicolor_3mf`); si no se pasa,
+    usa el hex crudo como nombre."""
     if not os.path.exists(ruta_ttf):
         raise FileNotFoundError(f"no encuentro la fuente: {ruta_ttf}")
     if modo_logo not in MODOS_LOGO:
@@ -363,32 +447,51 @@ def generar(nombre, ruta_ttf, alto_mm=20,
             raise FileNotFoundError(f"no encuentro la imagen: {decoracion_imagen}")
     elif not decoracion_emoji and decoracion not in decoraciones.NOMBRES_VALIDOS:
         raise ValueError(f"decoracion debe ser una de {decoraciones.NOMBRES_VALIDOS}, recibí {decoracion!r}")
+    if decoracion_multicolor_ruta and not os.path.exists(decoracion_multicolor_ruta):
+        raise FileNotFoundError(f"no encuentro el archivo a separar por color: {decoracion_multicolor_ruta}")
     if modo_logo not in ("isotipo", "emblema") and not nombre.strip():
         raise ValueError("escribí un nombre/texto (o cambiá a modo Isotipo/Emblema)")
 
-    contenido, base, ancho_texto_mm, alto_texto_mm = _armar_geometria(
+    contenido, base, ancho_texto_mm, alto_texto_mm, piezas_icono = _armar_geometria(
         nombre, ruta_ttf, alto_mm, decoracion, decoracion_lado, decoracion_tam,
         deco_x, deco_y, aro_lado, aro_r, borde_mm, raster_px,
         decoracion_svg=decoracion_svg, decoracion_emoji=decoracion_emoji,
         decoracion_imagen=decoracion_imagen, imagen_umbral=imagen_umbral, imagen_invertir=imagen_invertir,
         modo_logo=modo_logo, espaciado_monograma=espaciado_monograma, anillo_mm=anillo_mm,
         aro_x=aro_x, aro_y=aro_y,
+        decoracion_multicolor_ruta=decoracion_multicolor_ruta,
+        decoracion_multicolor_indices=decoracion_multicolor_indices,
+        color_icono_hex=colores.hex_de(color_base) if modo_logo == "isologo" else None,
     )
 
     os.makedirs(carpeta_salida, exist_ok=True)
     base_nombre = pieza.nombre_archivo(nombre, default="llavero")
     ruta_png = os.path.join(carpeta_salida, f"{base_nombre}_preview.png")
     ruta_stl_base = os.path.join(carpeta_salida, f"{base_nombre}_base.stl")
-    ruta_stl_texto = os.path.join(carpeta_salida, f"{base_nombre}_texto.stl")
+    ruta_stl_texto = os.path.join(carpeta_salida, f"{base_nombre}_texto.stl") if contenido is not None else None
 
-    _guardar_preview(ruta_png, base, contenido, color_base, color_texto, nombre)
+    _guardar_preview(ruta_png, base, contenido, color_base, color_texto, nombre, piezas_icono=piezas_icono)
 
     piezas_base = mesh3d.piezas_desde_geom(base, espesor_base_mm)
     malla_base = mesh3d.unir_y_exportar(piezas_base, ruta_stl_base)
 
+    # `contenido` puede ser None -- isotipo 100% multicolor (ver _armar_geometria), no
+    # hay ninguna pieza para el color de "texto": no se exporta ruta_stl_texto/malla_texto.
     z_texto = espesor_base_mm if tiene_ams else 0.0
-    piezas_texto = mesh3d.piezas_desde_geom(contenido, espesor_texto_mm, z=z_texto)
-    malla_texto = mesh3d.unir_y_exportar(piezas_texto, ruta_stl_texto)
+    malla_texto = None
+    if contenido is not None:
+        piezas_texto = mesh3d.piezas_desde_geom(contenido, espesor_texto_mm, z=z_texto)
+        malla_texto = mesh3d.unir_y_exportar(piezas_texto, ruta_stl_texto)
+
+    # ícono "a color" (Parte 2): un STL por color real usado, mismo z que la pieza de
+    # texto (con AMS, apilada arriba de la base; sin AMS, apoyada en el piso) -- no
+    # hay una pieza "icono.stl" única porque cada color es su propio cuerpo/filamento.
+    rutas_stl_icono, mallas_icono = [], []
+    for i, (poligono, color_hex) in enumerate(piezas_icono):
+        ruta_stl_icono = os.path.join(carpeta_salida, f"{base_nombre}_icono_{i + 1}.stl")
+        piezas_malla_icono = mesh3d.piezas_desde_geom(poligono, espesor_texto_mm, z=z_texto)
+        mallas_icono.append(mesh3d.unir_y_exportar(piezas_malla_icono, ruta_stl_icono))
+        rutas_stl_icono.append(ruta_stl_icono)
 
     minx, miny, maxx, maxy = base.bounds
     ancho_mm, alto_total_mm = maxx - minx, maxy - miny
@@ -406,13 +509,22 @@ def generar(nombre, ruta_ttf, alto_mm=20,
         # quedan alineados aunque el archivo diga que van pegados; con el combinado, al
         # menos queda un solo import con las piezas en su lugar, aunque dividirlo en
         # objetos para pintarlas resultó frágil en la práctica.
+        mallas_combinadas = [malla_base] + ([malla_texto] if malla_texto is not None else []) + mallas_icono
+        colores_hex_combinados = [colores.hex_de(color_base)] + (
+            [colores.hex_de(color_texto)] if malla_texto is not None else []) + [c for _, c in piezas_icono]
+        nombres_colores_combinados = [color_base] + ([color_texto] if malla_texto is not None else []) + (
+            list(colores_asignados_icono) if colores_asignados_icono else [c for _, c in piezas_icono])
         ruta_3mf_multicolor = os.path.join(carpeta_salida, f"{base_nombre}_multicolor.3mf")
-        pieza.exportar_multicolor_3mf([malla_base, malla_texto], ruta_3mf_multicolor)
+        pieza.exportar_multicolor_3mf(
+            mallas_combinadas, ruta_3mf_multicolor,
+            colores_hex=colores_hex_combinados, nombres_colores=nombres_colores_combinados)
         ruta_stl_multicolor = os.path.join(carpeta_salida, f"{base_nombre}_multicolor.stl")
-        pieza.exportar_multicolor([malla_base, malla_texto], ruta_stl_multicolor)
+        pieza.exportar_multicolor(mallas_combinadas, ruta_stl_multicolor)
         info = [
             "Con AMS: descargá el .3mf multicolor — abre directo en Bambu Studio con los "
-            "colores ya asignados (base y texto/decoración), sin dividir nada a mano. Si "
+            "colores ya asignados (base" + (", texto/decoración" if malla_texto is not None else "") +
+            (" e ícono" if piezas_icono else "") +
+            "), sin dividir nada a mano. Si "
             "preferís el STL combinado (para otro slicer), también está: clic derecho → "
             "\"Partir en objetos\" y asignales color ahí."
         ]
@@ -421,18 +533,26 @@ def generar(nombre, ruta_ttf, alto_mm=20,
             "Sin AMS: cada STL está apoyado en el suelo para imprimirse por separado — "
             "después hay que pegar la pieza de texto sobre la base a mano."
         ]
+        if piezas_icono:
+            info.append(
+                f"El ícono a color salió en {len(piezas_icono)} STL suelto(s) más "
+                f"({', '.join(os.path.basename(r) for r in rutas_stl_icono)}) -- se pegan igual que la pieza de texto."
+            )
 
     return {
         "nombre": nombre,
         "ruta_png": ruta_png,
         "ruta_stl_base": ruta_stl_base,
         "ruta_stl_texto": ruta_stl_texto,
+        "rutas_stl_icono": rutas_stl_icono,
+        "colores_icono": [c for _, c in piezas_icono],
         "ruta_stl_multicolor": ruta_stl_multicolor,
         "ruta_3mf_multicolor": ruta_3mf_multicolor,
         "ancho_mm": ancho_mm,
         "alto_mm": alto_total_mm,
         "vertices_base": len(malla_base.vertices), "watertight_base": malla_base.is_watertight,
-        "vertices_texto": len(malla_texto.vertices), "watertight_texto": malla_texto.is_watertight,
+        "vertices_texto": len(malla_texto.vertices) if malla_texto is not None else None,
+        "watertight_texto": malla_texto.is_watertight if malla_texto is not None else True,
         "info": info,
         "avisos": [],
         "entra_a1": entra_a1,
