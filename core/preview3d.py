@@ -71,12 +71,51 @@ def _hex_a_rgba(color_hex, alpha=255):
 
 
 def _malla_coloreada(ruta_stl, color_hex):
-    malla = trimesh.load(ruta_stl, force="mesh")
+    return _colorear(trimesh.load(ruta_stl, force="mesh"), color_hex)
+
+
+def _colorear(malla, color_hex):
     rgba = _hex_a_rgba(color_hex)
     malla.visual = trimesh.visual.color.ColorVisuals(
         malla, face_colors=np.tile(rgba, (len(malla.faces), 1))
     )
     return malla
+
+
+def armar_escena(piezas):
+    """La escena trimesh del visor: una geometría por cada pieza de `piezas`
+    (mismo formato que `armar_html_visor`). Cada pieza entra con un nombre
+    ÚNICO (el que traiga + su posición en la lista): trimesh usa ese nombre como
+    identificador del nodo, y dos piezas con el mismo nombre -- la misma letra o
+    el mismo separador repetidos en un collar -- se pisaban: solo quedaba la
+    última. Devuelve `trimesh.Scene` (vacía si ninguna pieza tenía archivo)."""
+    escena = trimesh.Scene()
+    for i, p in enumerate(piezas):
+        ruta = p.get("ruta_stl")
+        malla_directa = p.get("malla")
+        if malla_directa is None and (not ruta or not os.path.exists(ruta)):
+            continue
+        nombre = f"{p.get('nombre') or 'pieza'}_{i}"
+        if p.get("multicolor") and malla_directa is None:
+            # STL combinado tipo AMS (varios cuerpos sueltos, sin fusionar): lo separamos
+            # en memoria y le damos un color cíclico a cada uno, para que se distinga cada
+            # pieza en el visor aunque venga en un solo archivo.
+            cruda = trimesh.load(ruta, force="mesh")
+            partes = cruda.split(only_watertight=False)
+            for j, parte in enumerate(partes if len(partes) else [cruda]):
+                rgba = _hex_a_rgba(color_decoracion(j))
+                parte.visual = trimesh.visual.color.ColorVisuals(
+                    parte, face_colors=np.tile(rgba, (len(parte.faces), 1))
+                )
+                escena.add_geometry(parte, node_name=f"{nombre}_{j}", geom_name=f"{nombre}_{j}")
+            continue
+        color_hex = p.get("color", "#e8c88a")
+        malla = (_colorear(malla_directa.copy(), color_hex) if malla_directa is not None
+                 else _malla_coloreada(ruta, color_hex))
+        if p.get("offset"):
+            malla.apply_translation(p["offset"])
+        escena.add_geometry(malla, node_name=nombre, geom_name=nombre)
+    return escena
 
 
 def armar_html_visor(piezas, height_px=480, fondo="#12141a"):
@@ -88,37 +127,17 @@ def armar_html_visor(piezas, height_px=480, fondo="#12141a"):
     `piezas`: lista de dicts `{"ruta_stl", "color" (hex, opcional),
     "nombre" (opcional), "offset" (opcional, (dx,dy,dz) mm)}` — se
     saltea silenciosamente cualquier pieza cuyo archivo no exista (por
-    si se llama antes de exportar algo opcional). `offset` sirve para
+    si se llama antes de exportar algo opcional). En lugar de `ruta_stl`
+    una pieza puede traer `"malla"` (un `trimesh.Trimesh` ya armado en su
+    posición, que no se modifica): sirve para mostrar un conjunto que
+    nunca se exportó como archivo, como el collar enfilado. `offset` sirve para
     piezas que se exportan en su propio origen local (pensadas para
     imprimirse sueltas) pero cuya posición real ensamblada se conoce
     igual (ej. la tapa, que va pegada detrás del hueco) — sin offset,
     quedan en el origen tal cual las exportó el generador. Devuelve el
     HTML listo para `st.components.v1.html`, o None si ninguna pieza
     tenía archivo."""
-    escena = trimesh.Scene()
-    for i, p in enumerate(piezas):
-        ruta = p.get("ruta_stl")
-        if not ruta or not os.path.exists(ruta):
-            continue
-        if p.get("multicolor"):
-            # STL combinado tipo AMS (varios cuerpos sueltos, sin fusionar): lo separamos
-            # en memoria y le damos un color cíclico a cada uno, para que se distinga cada
-            # pieza en el visor aunque venga en un solo archivo.
-            cruda = trimesh.load(ruta, force="mesh")
-            partes = cruda.split(only_watertight=False)
-            for j, parte in enumerate(partes if len(partes) else [cruda]):
-                rgba = _hex_a_rgba(color_decoracion(j))
-                parte.visual = trimesh.visual.color.ColorVisuals(
-                    parte, face_colors=np.tile(rgba, (len(parte.faces), 1))
-                )
-                escena.add_geometry(parte, node_name=f"{p.get('nombre') or f'pieza_{i}'}_{j}")
-            continue
-        color_hex = p.get("color", "#e8c88a")
-        malla = _malla_coloreada(ruta, color_hex)
-        if p.get("offset"):
-            malla.apply_translation(p["offset"])
-        escena.add_geometry(malla, node_name=p.get("nombre") or f"pieza_{i}")
-
+    escena = armar_escena(piezas)
     if len(escena.geometry) == 0:
         return None
 

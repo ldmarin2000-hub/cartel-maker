@@ -27,6 +27,7 @@ st.markdown(
     "|---|---|\n"
     "| 🔥 Neón (texto trazado) | ✅ Funcionando |\n"
     "| 🔑 Llavero | ✅ Funcionando (Python puro, sin OpenSCAD, formas propias en SVG) |\n"
+    "| 📿 Collar | ✅ Funcionando (cuentas con letra encastrada o lisas para sticker, separadores) |\n"
     "| ✂️ Letra iluminada de pie | ✅ Funcionando (Python puro) |\n"
     "| 🔀 Ambigrama (2 caras) | ✅ Funcionando (Python puro, formas propias en SVG) |\n"
     "| 🗿 Esculturas (relieve desde imagen) | ✅ Funcionando (Python puro, litofanía/relieve tallado) |\n"
