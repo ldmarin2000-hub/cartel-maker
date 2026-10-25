@@ -68,16 +68,19 @@ PRESETS_MEDIDAS = {
         "alto_letra": 42.0, "profundidad_hueco": PROFUNDIDAD_HUECO_DEFAULT, "holgura": HOLGURA_DEFAULT,
         "margen_letra": MARGEN_BORDE_LETRA_MM, "pared_min": PARED_MIN_MM,
         "radio_esquina": 17.5, "borde_letra": BORDE_LETRA_DEFAULT, "rebaje_diametro": 50.0,
-        "sep_diametro": 28.0, "sep_largo": 10.0, "sep_agujero": 10.0,
-        "forma_lado": 80.0, "forma_alto": ALTO_DEFAULT, "forma_agujero": 8.0,
+        "sep_diametro": 28.0, "sep_largo": 10.0, "sep_agujero": 10.0, "sep_perfil": "rombo",
+        "forma_lado": 80.0, "forma_alto": ALTO_DEFAULT, "forma_agujero": 8.0, "forma_perfil": "rombo",
     },
     "pulsera": {
         "diametro": 12.0, "alto": 7.0, "agujero": 2.5, "chanfle": 0.4,
         "alto_letra": 7.0, "profundidad_hueco": 1.0, "holgura": 0.1,
         "margen_letra": 1.0, "pared_min": 0.8,
         "radio_esquina": 3.0, "borde_letra": 1.5, "rebaje_diametro": 9.0,
-        "sep_diametro": 7.0, "sep_largo": 3.0, "sep_agujero": 2.5,
-        "forma_lado": 14.0, "forma_alto": 7.0, "forma_agujero": 2.5,
+        # el cilindro se imprime PARADO: ahí el agujero redondo no necesita soporte y, como los agujeros
+        # verticales salen apenas más chicos de lo pedido, se le da 0,3 mm de más. Las formas se imprimen
+        # acostadas, igual que la cuenta: rombo (o gota) para no llevar soportes.
+        "sep_diametro": 7.0, "sep_largo": 3.0, "sep_agujero": 2.8, "sep_perfil": "redondo",
+        "forma_lado": 14.0, "forma_alto": 7.0, "forma_agujero": 2.5, "forma_perfil": "rombo",
     },
 }
 TIPOS_PIEZA = tuple(PRESETS_MEDIDAS)
@@ -779,7 +782,8 @@ def generar(texto, ruta_ttf=None, modo_cuenta="letra",
             color_cuenta="Blanco", color_letra="Negro", color_separador="Naranja",
             carpeta_salida=CARPETA_SALIDA, prefijo=None, agrupar_repetidas=False,
             forma_cuenta="redonda", radio_esquina=None, borde_letra=BORDE_LETRA_DEFAULT,
-            margen_letra=MARGEN_BORDE_LETRA_MM, pared_min=PARED_MIN_MM, formato_salida="por_pieza"):
+            margen_letra=MARGEN_BORDE_LETRA_MM, pared_min=PARED_MIN_MM, formato_salida="por_pieza",
+            forma_perfil=None):
     """Arma un collar completo y exporta los STL de TODAS sus piezas, una por una,
     numeradas en el orden en que van en el collar (`..._04_cuenta_E_base.stl`,
     `..._04_cuenta_E_letra.stl`): la misma letra dos veces o la misma estrella al
@@ -802,6 +806,9 @@ def generar(texto, ruta_ttf=None, modo_cuenta="letra",
     parten en `..._placa1.stl`, `..._placa2.stl`... y siempre salen todas las copias) o "ambos". En
     "por_color" cada placa trae además un mapa numerado en PNG. Las letras ocupan en su placa el mismo
     lugar que su base en la de las bases.
+    Agujero de los separadores: es INDEPENDIENTE del de la cuenta. El cilindro usa `sep_agujero` y
+    `sep_perfil`; los separadores de forma (estrella, corazón...) usan `forma_agujero` y `forma_perfil`
+    (None = la misma forma que `perfil`, la de la cuenta).
     `margen_letra`: cuánto tiene que quedar libre entre la letra y el borde de la cuenta.
     `pared_min`: pared mínima (mm) antes de avisar de fragilidad. Para medidas de pulsera
     ver `PRESETS_MEDIDAS["pulsera"]`.
@@ -819,6 +826,8 @@ def generar(texto, ruta_ttf=None, modo_cuenta="letra",
         raise ValueError(f"forma_cuenta debe ser una de {FORMAS_CUENTA}, recibí {forma_cuenta!r}")
     if formato_salida not in FORMATOS_SALIDA:
         raise ValueError(f"formato_salida debe ser uno de {FORMATOS_SALIDA}, recibí {formato_salida!r}")
+    if forma_perfil is not None and forma_perfil not in PERFILES_AGUJERO:
+        raise ValueError(f"forma_perfil debe ser uno de {PERFILES_AGUJERO} (o None), recibí {forma_perfil!r}")
     if forma_cuenta == "letra" and modo_cuenta == "sticker":
         raise ValueError("la cuenta con forma de letra solo existe con letra encastrada, no en modo sticker")
 
@@ -893,7 +902,8 @@ def generar(texto, ruta_ttf=None, modo_cuenta="letra",
                 if contorno is None:
                     raise ValueError(f"la forma {etiqueta!r} no tiene ninguna parte con área")
                 malla, av = armar_separador_forma(
-                    contorno, forma_alto, forma_agujero, perfil, angulo_agujero, pared_min=pared_min, chanfle=chanfle)
+                    contorno, forma_alto, forma_agujero, forma_perfil or perfil, angulo_agujero,
+                    pared_min=pared_min, chanfle=chanfle)
                 separadores_mallas[clave] = malla
                 etiquetas_sep[clave] = etiqueta
                 aviso(f"Separador '{etiqueta}'", av)

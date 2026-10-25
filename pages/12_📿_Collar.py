@@ -85,7 +85,7 @@ PRESET_KEYS = [
     "co_forma_lado", "co_forma_alto", "co_forma_agujero",
     "co_color_cuenta", "co_color_letra", "co_color_separador", "co_agrupar",
     "co_tipo", "co_forma_cuenta", "co_radio_esquina", "co_borde_letra", "co_margen_letra", "co_pared_min",
-    "co_muneca", "co_formato",
+    "co_muneca", "co_formato", "co_forma_perfil",
 ]
 # Los SVG propios de cada separador no se pueden guardar en el preset como archivo subido (Streamlit no
 # lo permite): se guarda la ruta "sombra" y el preset copia el archivo adentro de su carpeta.
@@ -121,11 +121,18 @@ def _selector_separador(slot, titulo, opciones, tipo_default, forma_default):
     return {"tipo": "forma", "forma": {"svg": ruta}}
 
 
+def _etiqueta_de(opciones, valor):
+    """La etiqueta de `opciones` ({etiqueta: valor}) que corresponde a `valor`."""
+    return next(etiqueta for etiqueta, v in opciones.items() if v == valor)
+
+
 def _aplicar_medidas():
     """Al cambiar entre collar y pulsera, carga las medidas de ese tipo en todos los campos."""
     tipo = TIPOS_LABELS[st.session_state["co_tipo"]]
     for clave, key in CLAVES_MEDIDAS.items():
         st.session_state[key] = float(collar.PRESETS_MEDIDAS[tipo][clave])
+    st.session_state["co_sep_perfil"] = _etiqueta_de(PERFILES_SEPARADOR_LABELS, collar.PRESETS_MEDIDAS[tipo]["sep_perfil"])
+    st.session_state["co_forma_perfil"] = _etiqueta_de(PERFILES_LABELS, collar.PRESETS_MEDIDAS[tipo]["forma_perfil"])
 
 
 for _clave, _key in CLAVES_MEDIDAS.items():
@@ -254,19 +261,36 @@ with col_form:
     for slot, titulo, opciones, tipo_default, forma_default in SLOTS_UI:
         separadores[slot] = _selector_separador(slot, titulo, opciones, tipo_default, forma_default)
 
+    st.subheader("Agujero de los separadores")
+    st.caption("Independiente del agujero de la cuenta: pueden tener otro tamaño y otra forma.")
+    ag1, ag2 = st.columns(2)
+    with ag1:
+        st.markdown("**Cilindro corto**")
+        sep_agujero = float(st.number_input(
+            "Tamaño (mm)", 1.0, 40.0, step=0.1, key="co_sep_agujero",
+            help="El hilo atraviesa el cilindro a lo largo de su eje. Se imprime parado: los agujeros verticales "
+                 "salen apenas más chicos de lo pedido, por eso en pulsera el preset le da 0,3 mm de más."))
+        sep_perfil = PERFILES_SEPARADOR_LABELS[st.selectbox(
+            "Forma", list(PERFILES_SEPARADOR_LABELS.keys()), key="co_sep_perfil",
+            help="Parado no hay voladizo: sirve cualquiera. El redondo es el más liso.")]
+    with ag2:
+        st.markdown("**Formas** (estrella, corazón, SVG)")
+        forma_agujero = float(st.number_input(
+            "Tamaño (mm)", 1.0, 40.0, step=0.1, key="co_forma_agujero",
+            help="Cruza la pieza de lado a lado, como en una cuenta."))
+        forma_perfil = PERFILES_LABELS[st.selectbox(
+            "Forma", list(PERFILES_LABELS.keys()), key="co_forma_perfil",
+            help="Estas piezas se imprimen acostadas, igual que la cuenta: rombo o gota para no necesitar soportes.")]
+
     with st.expander("Medidas de los separadores"):
-        st.caption("Cilindro corto (el hilo lo atraviesa a lo largo del eje; se imprime parado)")
-        s1, s2, s3 = st.columns(3)
+        st.caption("Cilindro corto (se imprime parado)")
+        s1, s2 = st.columns(2)
         sep_diametro = float(s1.number_input("Diámetro (mm)", 4.0, 80.0, step=0.5, key="co_sep_diametro"))
         sep_largo = float(s2.number_input("Largo (mm)", 1.0, 60.0, step=0.5, key="co_sep_largo"))
-        sep_agujero = float(s3.number_input("Agujero (mm)", 1.0, 40.0, step=0.5, key="co_sep_agujero"))
-        sep_perfil_label = st.selectbox("Forma del agujero del cilindro", list(PERFILES_SEPARADOR_LABELS.keys()), key="co_sep_perfil")
-        sep_perfil = PERFILES_SEPARADOR_LABELS[sep_perfil_label]
         st.caption("Forma (estrella, corazón...): una pieza plana con el agujero cruzándola, igual que una cuenta")
-        f1, f2, f3 = st.columns(3)
+        f1, f2 = st.columns(2)
         forma_lado = float(f1.number_input("Lado mayor (mm)", 8.0, 200.0, step=1.0, key="co_forma_lado"))
         forma_alto = float(f2.number_input("Alto (mm)", 3.0, 60.0, step=0.5, key="co_forma_alto"))
-        forma_agujero = float(f3.number_input("Agujero (mm)", 1.0, 40.0, step=0.5, key="co_forma_agujero"))
 
     st.subheader("Colores (filamento)")
     c1, c2, c3 = st.columns(3)
@@ -357,6 +381,7 @@ def _generar():
             carpeta_salida=carpeta, agrupar_repetidas=agrupar_repetidas,
             forma_cuenta=forma_cuenta, radio_esquina=radio_esquina, borde_letra=borde_letra,
             margen_letra=margen_letra, pared_min=pared_min, formato_salida=formato_salida,
+            forma_perfil=forma_perfil,
         )
     except (FileNotFoundError, ValueError) as e:
         return None, str(e)
