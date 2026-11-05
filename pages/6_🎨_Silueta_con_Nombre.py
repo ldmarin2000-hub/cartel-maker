@@ -86,7 +86,7 @@ with col_form:
 
     c1, c2 = st.columns(2)
     color_silueta = c1.selectbox(
-        "Color silueta (visor)", colores.NOMBRES, index=colores.NOMBRES.index("Gris"), key="sn_color_silueta",
+        "Color silueta (visor)", colores.NOMBRES, index=colores.NOMBRES.index("Gris Frío"), key="sn_color_silueta",
     )
     color_texto = c2.selectbox(
         "Color texto (visor)", colores.NOMBRES, index=colores.NOMBRES.index("Rosa Fluor"), key="sn_color_texto",

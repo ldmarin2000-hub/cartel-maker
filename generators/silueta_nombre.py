@@ -159,7 +159,7 @@ def preview_rapido(ruta_silueta, texto, ruta_ttf,
                    alto_silueta_mm=55, modo="interseccion",
                    escala_texto_pct=100, offset_x_mm=0, offset_y_mm=0,
                    borde_mm=0, aro_lado="ninguno", aro_r=2,
-                   color_silueta="Gris", color_texto="Rosa Fluor", color_resultado="Blanco"):
+                   color_silueta="Gris Frío", color_texto="Rosa Fluor", color_resultado="Blanco"):
     """Preview 2D instantáneo — solo operaciones shapely 2D. Devuelve
 (png_bytes, ancho_mm, alto_mm) o (None, 0, 0)."""
     if not texto.strip() or not os.path.exists(ruta_ttf):
@@ -194,7 +194,7 @@ def generar(ruta_silueta, texto, ruta_ttf,
             escala_texto_pct=100, offset_x_mm=0, offset_y_mm=0,
             borde_mm=0, aro_lado="ninguno", aro_r=2,
             espesor_mm=4, tiene_ams=False,
-            color_silueta="Gris", color_texto="Rosa Fluor", color_resultado="Blanco",
+            color_silueta="Gris Frío", color_texto="Rosa Fluor", color_resultado="Blanco",
             raster_px=400, carpeta_salida=CARPETA_SALIDA):
     """Arma la pieza y exporta el STL. Devuelve un dict con rutas, medidas
 y avisos."""
