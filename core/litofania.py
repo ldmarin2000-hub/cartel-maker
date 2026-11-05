@@ -4,16 +4,18 @@
 core/litofania.py
 --------------------
 Litofanía: una placa donde la imagen se forma por GROSOR variable (claro = fino,
-pasa la luz; oscuro = grueso, la bloquea). Este módulo se arma por partes; hoy tiene
-la primera:
+pasa la luz; oscuro = grueso, la bloquea). Este módulo se arma por partes:
 
   L1 -- imagen -> MAPA DE BRILLO (`imagen_a_mapa_brillo`): una grilla 2D con el brillo
         de cada punto de la placa, en [0, 1], a la resolución pedida en píxeles/mm.
+  L2 -- brillo -> GROSOR (`brillo_a_grosor`): el mapa de grosores en mm, compensando que
+        el plástico atenúa la luz de forma exponencial (Beer-Lambert) para que, a
+        contraluz, la placa se vea como la foto en una pantalla. Ver la cabecera de esa
+        sección más abajo.
 
-El mapa de brillo es FIEL a la foto: por defecto el resultado es exactamente el gris
-de PIL (`convert("L")`), sin realce de ningún tipo. Convertir ese brillo en grosor (y
-compensar que el grosor atenúa la luz de forma exponencial) es otra etapa (L2 y la
-calibración): no se mezcla "el brillo del píxel" con "el grosor para que se vea así".
+El mapa de brillo (L1) es FIEL a la foto: por defecto el resultado es exactamente el gris
+de PIL (`convert("L")`), sin realce de ningún tipo. Convertir ese brillo en grosor es la
+etapa siguiente (L2): no se mezcla "el brillo del píxel" con "el grosor para que se vea así".
 
 Por qué no reusa `core/heightmap.py::_grilla_de_alturas` (el cargador que usa
 Esculturas): ignora la etiqueta EXIF de rotación (una foto de celular queda
@@ -245,3 +247,204 @@ def mapa_a_imagen(mapa):
     """`MapaBrillo` (o el array de brillo) -> imagen de PIL en grises de 8 bits, para guardarla o mostrarla."""
     brillo = mapa.brillo if isinstance(mapa, MapaBrillo) else mapa
     return Image.fromarray(np.round(np.clip(brillo, 0.0, 1.0) * 255.0).astype(np.uint8))
+
+
+# ---------------------------------------------------------------------------
+#  L2: brillo -> grosor, con compensación de la atenuación de la luz
+# ---------------------------------------------------------------------------
+#
+# Modelo (Beer-Lambert): la luz que pasa por un espesor t es proporcional a e^(-k·t). Relativa a la
+# zona MÁS FINA de la placa (`grosor_min`), la luz que pasa es T(t) = e^(-k·(t - grosor_min)), y lo
+# más grueso (`grosor_max`) deja pasar `luz_minima` = e^(-k·Δ) de ella (Δ = grosor_max - grosor_min).
+#
+# Fidelidad: la foto guarda valores sRGB (gamma ~2,2) y una pantalla los muestra con la luz
+# `EOTF_sRGB(brillo)`. Para que la placa, a contraluz, se vea como la foto en una pantalla, la luz
+# que pase tiene que ser  T*(b) = luz_minima + (1 - luz_minima)·EOTF_sRGB(b)  (el suelo `luz_minima`
+# es el negro de la placa: nunca llega a cero). Despejando el grosor:
+#
+#     grosor(b) = grosor_min + Δ · ln(1 / T*(b)) / ln(1 / luz_minima)
+#
+# El coeficiente k no aparece: solo importan `luz_minima` y los dos grosores. Brillo 1 da
+# exactamente `grosor_min` y brillo 0 da exactamente `grosor_max`.
+#
+# Límite del modelo: el plástico real también DISPERSA la luz, y Beer-Lambert es una aproximación;
+# `luz_minima` es un parámetro EFECTIVO que se mide imprimiendo la placa de calibración (L6).
+
+GROSOR_MIN_DEFAULT = 0.8          # mm: lo más claro, deja pasar la luz
+GROSOR_MAX_DEFAULT = 2.8          # mm: lo más oscuro, la bloquea casi toda
+LUZ_MINIMA_DEFAULT = 0.05         # lo más grueso deja pasar el 5 % de la luz de lo más fino (supuesto hasta L6)
+LUZ_MINIMA_RANGO = (0.005, 0.5)   # 0,5 % a 50 %
+PRIMERA_CAPA_DEFAULT = 0.2        # mm: la primera capa del perfil estándar de la A1 con boquilla de 0,4
+NIVELES_POCOS_AVISO = 12          # menos niveles de gris reales que esto y se ven bandas en los degradés
+
+
+def eotf_srgb(valor):
+    """sRGB -> luz lineal relativa (0..1): la luz con que una pantalla muestra ese valor de gris."""
+    valor = np.asarray(valor, dtype=np.float64)
+    return np.where(valor <= 0.04045, valor / 12.92, ((valor + 0.055) / 1.055) ** 2.4)
+
+
+def _validar_grosores(grosor_min, grosor_max, luz_minima):
+    if not (grosor_min > 0):
+        raise ValueError("grosor_min tiene que ser mayor que 0")
+    if not (grosor_max > grosor_min):
+        raise ValueError("grosor_max tiene que ser mayor que grosor_min")
+    bajo, alto = LUZ_MINIMA_RANGO
+    if not (bajo <= luz_minima <= alto):   # también rechaza NaN
+        raise ValueError(f"luz_minima tiene que estar entre {bajo * 100:g} % y {alto * 100:g} % "
+                         f"(entre {bajo:g} y {alto:g}), recibí {luz_minima}")
+
+
+def coeficiente_atenuacion(luz_minima, grosor_min, grosor_max):
+    """k (en 1/mm) del modelo Beer-Lambert para esa `luz_minima` y ese rango de grosores."""
+    _validar_grosores(grosor_min, grosor_max, luz_minima)
+    return float(np.log(1.0 / luz_minima) / (grosor_max - grosor_min))
+
+
+def media_luz_mm(luz_minima, grosor_min, grosor_max):
+    """Espesor de media luz (mm): cuántos milímetros de plástico dejan pasar la mitad de la luz.
+    Es la forma más intuitiva de leer `luz_minima`, y lo que se puede medir con el filamento."""
+    return float(np.log(2.0) / coeficiente_atenuacion(luz_minima, grosor_min, grosor_max))
+
+
+def luz_minima_desde_media_luz(media_luz, grosor_min, grosor_max):
+    """Inversa de `media_luz_mm`: la `luz_minima` que corresponde a ese espesor de media luz en ese
+    rango de grosores (con el mismo filamento, más rango = más oscuro lo más grueso)."""
+    if not (media_luz > 0):
+        raise ValueError("el espesor de media luz tiene que ser mayor que 0")
+    if not (grosor_min > 0 and grosor_max > grosor_min):
+        raise ValueError("hace falta 0 < grosor_min < grosor_max")
+    return float(0.5 ** ((grosor_max - grosor_min) / media_luz))
+
+
+def luz_transmitida(grosor, grosor_min=GROSOR_MIN_DEFAULT, grosor_max=GROSOR_MAX_DEFAULT,
+                    luz_minima=LUZ_MINIMA_DEFAULT):
+    """Modelo directo: luz que pasa por `grosor` (mm), relativa a la que pasa por `grosor_min`
+    (= 1,0); por `grosor_max` pasa exactamente `luz_minima`. Lo usan los tests y la simulación a contraluz."""
+    k = coeficiente_atenuacion(luz_minima, grosor_min, grosor_max)
+    return np.exp(-k * (np.asarray(grosor, dtype=np.float64) - grosor_min))
+
+
+def grosor_desde_brillo(brillo, grosor_min=GROSOR_MIN_DEFAULT, grosor_max=GROSOR_MAX_DEFAULT,
+                        luz_minima=LUZ_MINIMA_DEFAULT, compensar=True):
+    """Array de brillo en [0, 1] -> array de grosor en mm (mismo tamaño). No modifica `brillo`.
+
+    `compensar=True` (lo recomendado): la curva de la cabecera de esta sección, para que la luz
+    transmitida sea fiel a la foto. `compensar=False`: grosor lineal con el brillo
+    (`grosor_min + (1 - brillo)·Δ`), sin tener en cuenta cómo atenúa la luz el plástico; sirve para
+    comparar. En los dos casos brillo 1 -> `grosor_min` y brillo 0 -> `grosor_max`, exactos."""
+    _validar_grosores(grosor_min, grosor_max, luz_minima)
+    brillo = np.asarray(brillo, dtype=np.float64)
+    if not np.isfinite(brillo).all():
+        raise ValueError("el mapa de brillo tiene valores no numéricos (NaN o infinito)")
+    if brillo.size and (brillo.min() < -1e-9 or brillo.max() > 1.0 + 1e-9):
+        raise ValueError("el brillo tiene que estar en [0, 1]")
+    brillo = np.clip(brillo, 0.0, 1.0)            # copia: la entrada no se toca
+
+    if compensar:
+        luz_objetivo = np.minimum(luz_minima + (1.0 - luz_minima) * eotf_srgb(brillo), 1.0)
+        fraccion = np.log(1.0 / luz_objetivo) / np.log(1.0 / luz_minima)
+        # los extremos son exactos por definición del modelo (no dependen del último bit de un log)
+        fraccion = np.where(brillo >= 1.0, 0.0, np.where(brillo <= 0.0, 1.0, fraccion))
+    else:
+        fraccion = 1.0 - brillo
+    fraccion = np.clip(fraccion, 0.0, 1.0)
+    return grosor_min * (1.0 - fraccion) + grosor_max * fraccion   # con 0 y 1 da grosor_min y grosor_max exactos
+
+
+def cuantizar_a_capas(grosor, capa_mm, primera_capa_mm=PRIMERA_CAPA_DEFAULT):
+    """Lleva cada grosor al nivel de capa más cercano: los niveles son `primera_capa_mm + m·capa_mm`
+    (m = 0, 1, 2...). Es lo que hace el rebanador al cortar a mitad de cada capa (un supuesto que
+    confirma la placa de L6). Los empates (justo a mitad de camino) van al nivel de arriba."""
+    if not (capa_mm > 0):
+        raise ValueError("capa_mm tiene que ser mayor que 0")
+    if not (primera_capa_mm > 0):
+        raise ValueError("primera_capa_mm tiene que ser mayor que 0")
+    grosor = np.asarray(grosor, dtype=np.float64)
+    m = np.floor((grosor - primera_capa_mm) / capa_mm + 0.5 + 1e-9)
+    return primera_capa_mm + np.maximum(m, 0.0) * capa_mm
+
+
+@dataclass
+class MapaGrosor:
+    """Resultado de `brillo_a_grosor`: el mapa de grosores en mm, sobre la misma grilla que el mapa
+    de brillo del que sale (misma forma, mismo tamaño de placa).
+
+    `grosor_min` / `grosor_max`: los pedidos. `grosor_min_efectivo` / `grosor_max_efectivo`: los que
+    de verdad quedan (distintos solo si se cuantizó a capas). `coeficiente_atenuacion` (1/mm) y
+    `media_luz_mm` salen de `luz_minima` y los grosores pedidos. `niveles`: cuántos niveles de grosor
+    distintos existen entre los extremos al cuantizar (None si no se cuantizó)."""
+    grosor: np.ndarray
+    ancho_mm: float
+    alto_mm: float
+    ancho_px: int
+    alto_px: int
+    px_por_mm: float
+    grosor_min: float
+    grosor_max: float
+    grosor_min_efectivo: float
+    grosor_max_efectivo: float
+    luz_minima: float
+    coeficiente_atenuacion: float
+    media_luz_mm: float
+    compensado: bool
+    capa_mm: float = None
+    primera_capa_mm: float = None
+    niveles: int = None
+    avisos: list = field(default_factory=list)
+
+
+def brillo_a_grosor(mapa_brillo, grosor_min=GROSOR_MIN_DEFAULT, grosor_max=GROSOR_MAX_DEFAULT,
+                    luz_minima=LUZ_MINIMA_DEFAULT, compensar=True, capa_mm=None,
+                    primera_capa_mm=PRIMERA_CAPA_DEFAULT):
+    """`MapaBrillo` (L1) -> `MapaGrosor`. No arma malla (eso es L3) y no modifica el mapa de brillo.
+
+    `luz_minima`: cuánta luz deja pasar la zona más gruesa, como fracción de la que deja pasar la más
+    fina (0,05 = 5 %; menos es un plástico más denso). `compensar`: ver `grosor_desde_brillo`.
+
+    `capa_mm` (por ejemplo 0,08 / 0,12 / 0,2): cuantiza los grosores a niveles de capa reales
+    (`primera_capa_mm + m·capa_mm`); apagado por defecto. Con capa, los extremos se ajustan a la capa
+    más cercana, `niveles` dice cuántos grises reales hay y se avisa si son pocos."""
+    if not isinstance(mapa_brillo, MapaBrillo):
+        raise TypeError("brillo_a_grosor necesita un MapaBrillo (el resultado de imagen_a_mapa_brillo)")
+    _validar_grosores(grosor_min, grosor_max, luz_minima)
+    if capa_mm is not None:
+        if not (capa_mm > 0):
+            raise ValueError("capa_mm tiene que ser mayor que 0")
+        if not (primera_capa_mm > 0):
+            raise ValueError("primera_capa_mm tiene que ser mayor que 0")
+        if capa_mm >= grosor_max - grosor_min:
+            raise ValueError(f"la capa ({capa_mm:g} mm) tiene que ser menor que el rango de grosores "
+                             f"({grosor_max - grosor_min:g} mm)")
+
+    grosor = grosor_desde_brillo(mapa_brillo.brillo, grosor_min, grosor_max, luz_minima, compensar)
+    avisos = []
+    minimo_efectivo, maximo_efectivo, niveles = float(grosor_min), float(grosor_max), None
+    if capa_mm is not None:
+        grosor = cuantizar_a_capas(grosor, capa_mm, primera_capa_mm)
+        minimo_efectivo = float(cuantizar_a_capas(grosor_min, capa_mm, primera_capa_mm))
+        maximo_efectivo = float(cuantizar_a_capas(grosor_max, capa_mm, primera_capa_mm))
+        niveles = int(round((maximo_efectivo - minimo_efectivo) / capa_mm)) + 1
+        if grosor_min < primera_capa_mm - 1e-9:
+            avisos.append(f"grosor_min ({grosor_min:g} mm) es menor que la primera capa ({primera_capa_mm:g} mm): "
+                          f"lo más fino va a salir de {primera_capa_mm:g} mm.")
+        if abs(minimo_efectivo - grosor_min) > 1e-6 or abs(maximo_efectivo - grosor_max) > 1e-6:
+            avisos.append(f"Con capas de {capa_mm:g} mm (primera de {primera_capa_mm:g}) los grosores extremos caen en "
+                          f"{minimo_efectivo:.2f} y {maximo_efectivo:.2f} mm (pediste {grosor_min:.2f} y {grosor_max:.2f}).")
+        if niveles < NIVELES_POCOS_AVISO:
+            avisos.append(f"Con capas de {capa_mm:g} mm solo hay {niveles} niveles de gris reales entre "
+                          f"{minimo_efectivo:.2f} y {maximo_efectivo:.2f} mm: se van a ver bandas en los degradés. "
+                          f"Probá una capa más fina (0,12 o 0,08) o un rango de grosores mayor.")
+
+    return MapaGrosor(
+        grosor=grosor, ancho_mm=mapa_brillo.ancho_mm, alto_mm=mapa_brillo.alto_mm,
+        ancho_px=mapa_brillo.ancho_px, alto_px=mapa_brillo.alto_px, px_por_mm=mapa_brillo.px_por_mm,
+        grosor_min=float(grosor_min), grosor_max=float(grosor_max),
+        grosor_min_efectivo=minimo_efectivo, grosor_max_efectivo=maximo_efectivo,
+        luz_minima=float(luz_minima),
+        coeficiente_atenuacion=coeficiente_atenuacion(luz_minima, grosor_min, grosor_max),
+        media_luz_mm=media_luz_mm(luz_minima, grosor_min, grosor_max),
+        compensado=bool(compensar), capa_mm=capa_mm,
+        primera_capa_mm=primera_capa_mm if capa_mm is not None else None,
+        niveles=niveles, avisos=avisos,
+    )
