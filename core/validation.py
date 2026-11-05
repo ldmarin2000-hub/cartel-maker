@@ -15,8 +15,12 @@ class ValidationError(Exception):
     pass
 
 
-def validar_imagen(ruta_imagen: str, max_mb: float = 50.0) -> None:
-    """Validar imagen: existe, formato soportado, tamaño."""
+def validar_imagen(ruta_imagen: str, max_mb: float = 50.0, min_mb: float = 0.05) -> None:
+    """Validar imagen: existe, formato soportado, tamaño.
+
+    `min_mb`: peso mínimo del archivo (0,05 MB = 50 KB por defecto, pensado para fotos de las
+    esculturas). Quien acepte imágenes chicas pero válidas (un logo de 80x60 px) pasa 0 para no
+    rechazarlas por el peso del archivo."""
     if not ruta_imagen or not os.path.exists(ruta_imagen):
         raise ValidationError("Imagen no encontrada. Subí un archivo PNG o JPG.")
 
@@ -28,8 +32,8 @@ def validar_imagen(ruta_imagen: str, max_mb: float = 50.0) -> None:
     if tamaño_mb > max_mb:
         raise ValidationError(f"Imagen muy grande ({tamaño_mb:.1f}MB). Máximo {max_mb}MB.")
 
-    if tamaño_mb < 0.05:
-        raise ValidationError("Imagen demasiado chica (<50KB). Usá algo más detallado.")
+    if tamaño_mb < min_mb:
+        raise ValidationError(f"Imagen demasiado chica (<{min_mb * 1000:.0f}KB). Usá algo más detallado.")
 
 
 def validar_dimensiones_relieve(ancho_mm: float, alto_mm: float,
