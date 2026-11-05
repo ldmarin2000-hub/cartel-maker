@@ -12,6 +12,8 @@ pasa la luz; oscuro = grueso, la bloquea). Este módulo se arma por partes:
         el plástico atenúa la luz de forma exponencial (Beer-Lambert) para que, a
         contraluz, la placa se vea como la foto en una pantalla. Ver la cabecera de esa
         sección más abajo.
+  L3 -- grosor -> MALLA 3D (`malla_desde_grosor`): la placa watertight (fondo plano, frente
+        con relieve, paredes cerradas), armada con numpy sin bucles de Python.
 
 El mapa de brillo (L1) es FIEL a la foto: por defecto el resultado es exactamente el gris
 de PIL (`convert("L")`), sin realce de ningún tipo. Convertir ese brillo en grosor es la
@@ -448,3 +450,144 @@ def brillo_a_grosor(mapa_brillo, grosor_min=GROSOR_MIN_DEFAULT, grosor_max=GROSO
         primera_capa_mm=primera_capa_mm if capa_mm is not None else None,
         niveles=niveles, avisos=avisos,
     )
+
+
+# ---------------------------------------------------------------------------
+#  L3: grosor -> malla 3D watertight, vectorizada
+# ---------------------------------------------------------------------------
+#
+# La placa vive en el plano XY: la cara trasera es PLANA en z = 0 y el frente es el relieve, con
+# z = grosor. Fila 0 del mapa = arriba (y = alto_mm), columna 0 = izquierda (x = 0). Visto desde +Z
+# (el lado del relieve) la foto se lee derecha, sin espejar. La placa mide EXACTAMENTE
+# `ancho_mm` x `alto_mm`: los vértices van en `linspace(0, ancho_mm, nx)`, así que el paso es
+# ancho_mm/(nx-1) y no el ancho_mm/nx nominal de L1 (una diferencia menor a 1/(nx-1)).
+#
+# Todo es numpy sobre la grilla completa, sin un solo bucle de Python (un test lo verifica con `ast`):
+#
+#   * frente: un vértice por punto del mapa, y 2 triángulos por celda (4 recortes de la matriz de
+#     índices dan las 4 esquinas de TODAS las celdas a la vez);
+#   * paredes: el perímetro (otros 4 recortes) une el borde del frente con el de la trasera;
+#   * trasera plana: un ABANICO desde un vértice central, no una grilla -- una grilla duplicaría los
+#     triángulos de la malla, y así la trasera y las paredes suman menos del 1 %. Los triángulos del
+#     abanico son largos y finos (hasta ~500:1 en una placa grande) pero de área positiva; si alguna vez
+#     molestaran al rebanador, el plan B es una trasera con la misma grilla (el doble de triángulos).
+#
+# Cierra por construcción: toda arista pertenece a exactamente 2 caras (las interiores del frente, las
+# del borde del frente con una pared, las verticales entre paredes vecinas y las del borde de la trasera
+# con una pared y con el abanico). `verificar_malla` lo comprueba por separado.
+
+CARAS_VISIBLES = ("relieve", "plana")
+DIAGONALES = ("adaptativa", "fija")
+
+
+def _validar_grilla_grosor(grosor, ancho_mm, alto_mm, cara_visible, diagonal):
+    """Valida los datos de la malla y devuelve el grosor como array float64 2D."""
+    grosor = np.asarray(grosor, dtype=np.float64)
+    if grosor.ndim != 2 or grosor.shape[0] < 2 or grosor.shape[1] < 2:
+        raise ValueError(f"el mapa de grosor tiene que ser 2D de al menos 2x2 puntos, recibí forma {grosor.shape}")
+    if not np.isfinite(grosor).all():
+        raise ValueError("el mapa de grosor tiene valores no numéricos (NaN o infinito)")
+    if not (grosor > 0).all():
+        raise ValueError("todos los grosores tienen que ser mayores que 0 (la placa no puede tener agujeros ni paredes de altura cero)")
+    if not (ancho_mm > 0 and alto_mm > 0):
+        raise ValueError("ancho_mm y alto_mm tienen que ser mayores que 0")
+    if cara_visible not in CARAS_VISIBLES:
+        raise ValueError(f"cara_visible tiene que ser una de {CARAS_VISIBLES}, recibí {cara_visible!r}")
+    if diagonal not in DIAGONALES:
+        raise ValueError(f"diagonal tiene que ser una de {DIAGONALES}, recibí {diagonal!r}")
+    return grosor
+
+
+def _caras_del_frente(indices, grosor, diagonal):
+    """2 triángulos por celda, con la normal hacia +Z. `adaptativa`: en cada celda va la diagonal con
+    menor salto de altura (sigue las crestas y evita dientes de sierra); `fija`: siempre a-d."""
+    a, b = indices[:-1, :-1], indices[:-1, 1:]
+    c, d = indices[1:, :-1], indices[1:, 1:]
+    con_diagonal_ad = np.stack([np.stack([a, c, d], axis=-1), np.stack([a, d, b], axis=-1)], axis=2)
+    if diagonal == "fija":
+        return con_diagonal_ad.reshape(-1, 3)
+    con_diagonal_bc = np.stack([np.stack([a, c, b], axis=-1), np.stack([b, c, d], axis=-1)], axis=2)
+    salto_ad = np.abs(grosor[:-1, :-1] - grosor[1:, 1:])
+    salto_bc = np.abs(grosor[:-1, 1:] - grosor[1:, :-1])
+    return np.where((salto_ad <= salto_bc)[:, :, None, None], con_diagonal_ad, con_diagonal_bc).reshape(-1, 3)
+
+
+def _perimetro(indices):
+    """Índices del borde de la grilla, antihorario visto desde +Z (abajo hacia la derecha, derecha hacia
+    arriba, arriba hacia la izquierda, izquierda hacia abajo), sin repetir las esquinas."""
+    return np.concatenate([indices[-1, :-1], indices[:0:-1, -1], indices[0, :0:-1], indices[:-1, 0]])
+
+
+def malla_desde_grilla_grosor(grosor, ancho_mm, alto_mm, cara_visible="relieve", diagonal="adaptativa"):
+    """Array de grosores (mm, fila 0 = arriba) -> `trimesh.Trimesh` watertight de una placa de
+    `ancho_mm` x `alto_mm`. No modifica `grosor`.
+
+    `cara_visible`: "relieve" (por defecto) = quien mira desde el lado del relieve (+Z) ve la foto
+    derecha; "plana" = quien mira la cara lisa (desde -Z) la ve derecha, para lo cual se espeja X.
+    `diagonal`: "adaptativa" (por defecto) o "fija". Vectorizado: sin bucles de Python."""
+    import trimesh
+    grosor = _validar_grilla_grosor(grosor, ancho_mm, alto_mm, cara_visible, diagonal)
+    if cara_visible == "plana":
+        grosor = grosor[:, ::-1]
+    alto_px, ancho_px = grosor.shape
+
+    xs = np.linspace(0.0, ancho_mm, ancho_px)
+    ys = np.linspace(alto_mm, 0.0, alto_px)                          # fila 0 arriba
+    x, y = np.meshgrid(xs, ys)
+    frente = np.column_stack((x.ravel(), y.ravel(), grosor.ravel()))
+    indices = np.arange(ancho_px * alto_px, dtype=np.int32).reshape(alto_px, ancho_px)
+    caras_frente = _caras_del_frente(indices, grosor, diagonal)
+
+    perimetro = _perimetro(indices)
+    m = perimetro.size
+    primero_atras = ancho_px * alto_px                                # índice del primer vértice de la trasera
+    atras = np.column_stack((frente[perimetro, 0], frente[perimetro, 1], np.zeros(m)))
+    centro = np.array([[ancho_mm / 2.0, alto_mm / 2.0, 0.0]])
+    vertices = np.vstack((frente, atras, centro))
+
+    # paredes: cada tramo del perímetro (f0 -> f1) une el borde del frente con el de la trasera (b0 -> b1)
+    f0, f1 = perimetro, np.roll(perimetro, -1)
+    b0 = primero_atras + np.arange(m, dtype=np.int32)
+    b1 = primero_atras + (np.arange(m, dtype=np.int32) + 1) % m
+    paredes = np.concatenate([np.stack([f0, b0, b1], axis=-1), np.stack([f0, b1, f1], axis=-1)])
+
+    # trasera plana: abanico desde el vértice central, con la normal hacia -Z
+    abanico = np.stack([b0, np.full(m, primero_atras + m, dtype=np.int32), b1], axis=-1)
+
+    caras = np.concatenate([caras_frente, paredes, abanico])
+    return trimesh.Trimesh(vertices=vertices, faces=caras, process=False)
+
+
+def malla_desde_grosor(mapa_grosor, cara_visible="relieve", diagonal="adaptativa"):
+    """`MapaGrosor` (L2) -> malla watertight de la placa, del tamaño en mm del mapa. No exporta (eso
+    es L4) y no modifica el mapa de grosor."""
+    if not isinstance(mapa_grosor, MapaGrosor):
+        raise TypeError("malla_desde_grosor necesita un MapaGrosor (el resultado de brillo_a_grosor)")
+    return malla_desde_grilla_grosor(mapa_grosor.grosor, mapa_grosor.ancho_mm, mapa_grosor.alto_mm,
+                                     cara_visible=cara_visible, diagonal=diagonal)
+
+
+def verificar_malla(malla):
+    """Comprobaciones independientes de que la malla cierra, devueltas en un dict (`ok` = todas):
+    `watertight`, `winding_consistente`, `volumen_positivo` (las caras miran hacia afuera), `euler`
+    (V - E + F: 2 para una superficie cerrada sin agujeros ni asas), `aristas_con_dos_caras` (toda arista
+    la comparten exactamente 2 caras), `caras_degeneradas` (área cero) y `caras_duplicadas`."""
+    caras = np.asarray(malla.faces)
+    n_vertices, n_caras = len(malla.vertices), len(caras)
+    aristas = np.sort(caras[:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2), axis=1).astype(np.int64)
+    claves, usos = np.unique(aristas[:, 0] * n_vertices + aristas[:, 1], return_counts=True)
+    resultado = {
+        "vertices": int(n_vertices), "caras": int(n_caras), "aristas": int(claves.size),
+        "euler": int(n_vertices - claves.size + n_caras),
+        "aristas_con_dos_caras": bool((usos == 2).all()),
+        "caras_degeneradas": int((malla.area_faces <= 0).sum()),
+        "caras_duplicadas": int(n_caras - np.unique(np.sort(caras, axis=1), axis=0).shape[0]),
+        "watertight": bool(malla.is_watertight),
+        "winding_consistente": bool(malla.is_winding_consistent),
+        "volumen_positivo": bool(malla.volume > 0),
+    }
+    resultado["ok"] = bool(
+        resultado["watertight"] and resultado["winding_consistente"] and resultado["volumen_positivo"]
+        and resultado["euler"] == 2 and resultado["aristas_con_dos_caras"]
+        and resultado["caras_degeneradas"] == 0 and resultado["caras_duplicadas"] == 0)
+    return resultado
