@@ -74,18 +74,32 @@ def _caras_del_frente(alto, ancho):
 
 
 def _espesor_por_rayos(malla, puntos_xy):
-    """Grosor de la placa en cada (x, y): rayos verticales de arriba hacia abajo, y se mide la distancia entre
-    el primer y el último impacto. Exige exactamente 2 impactos por rayo (cara de arriba y cara trasera)."""
-    puntos_xy = np.asarray(puntos_xy, dtype=float)
-    origenes = np.column_stack((puntos_xy, np.full(len(puntos_xy), 50.0)))
-    direcciones = np.tile([0.0, 0.0, -1.0], (len(puntos_xy), 1))
-    ubicaciones, indice_rayo, _ = malla.ray.intersects_location(origenes, direcciones, multiple_hits=True)
-    espesores = np.full(len(puntos_xy), np.nan)
-    for r in range(len(puntos_xy)):
-        z = ubicaciones[indice_rayo == r][:, 2]
-        assert z.size == 2, f"el rayo {r} en {puntos_xy[r]} dio {z.size} impactos, tenían que ser 2"
-        espesores[r] = z.max() - z.min()
-    return espesores
+    """Grosor de la placa en cada (x, y): un rayo vertical de arriba hacia abajo contra TODOS los triángulos,
+    y se mide la distancia entre el primer y el último impacto. Exige exactamente 2 impactos por rayo (la cara
+    de arriba y la trasera).
+
+    Es numpy puro a propósito, sin `trimesh.ray`: esa ruta necesita `rtree`, que no todos los entornos tienen,
+    y así el test no depende del código de rayos de otra librería. Un rayo vertical corta un triángulo en el
+    punto cuya proyección en XY cae adentro de la del triángulo: se calculan sus coordenadas baricéntricas (s, t)
+    y se interpola la altura. Las paredes (verticales) se proyectan a un segmento y quedan afuera."""
+    puntos = np.asarray(puntos_xy, dtype=float)
+    tri = malla.triangles                                           # (T, 3, 3)
+    a, b, c = tri[:, 0], tri[:, 1], tri[:, 2]
+    v1, v0 = b[:, :2] - a[:, :2], c[:, :2] - a[:, :2]               # lados desde el vértice a, en XY
+    d = v1[:, 0] * v0[:, 1] - v1[:, 1] * v0[:, 0]                   # 2 x el área firmada de la proyección
+    no_vertical = np.abs(d) > 1e-12                                 # una pared se proyecta a un segmento: d = 0
+    v2 = puntos[:, None, :] - a[None, :, :2]                        # (R, T, 2): del vértice a hasta cada punto
+    with np.errstate(divide="ignore", invalid="ignore"):            # las paredes dan d = 0 -> NaN/inf, y se descartan
+        s = (v2[..., 0] * v0[None, :, 1] - v2[..., 1] * v0[None, :, 0]) / d[None, :]
+        t = (v1[None, :, 0] * v2[..., 1] - v1[None, :, 1] * v2[..., 0]) / d[None, :]
+        adentro = no_vertical[None, :] & (s >= -1e-12) & (t >= -1e-12) & (s + t <= 1 + 1e-12)
+        z = a[None, :, 2] + s * (b[None, :, 2] - a[None, :, 2]) + t * (c[None, :, 2] - a[None, :, 2])
+    impactos = adentro.sum(axis=1)
+    malos = np.where(impactos != 2)[0]
+    assert malos.size == 0, f"el rayo en {puntos[malos[0]]} dio {impactos[malos[0]]} impactos, tenían que ser 2"
+    z_alto = np.where(adentro, z, -np.inf).max(axis=1)
+    z_bajo = np.where(adentro, z, np.inf).min(axis=1)
+    return z_alto - z_bajo
 
 
 def _z_esperado(grosor, j, i, u, v, diagonal):
