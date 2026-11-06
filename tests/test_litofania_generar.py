@@ -199,11 +199,19 @@ def test_es_la_cadena_L1_L2_L3_sin_atajos_misma_malla_que_a_mano():
         assert abs(m.volume - a_mano.volume) / a_mano.volume < 1e-5
 
 
+def _llamadas_a_lf(funcion):
+    arbol = ast.parse(inspect.getsource(funcion))
+    return {n.func.attr for n in ast.walk(arbol) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and isinstance(n.func.value, ast.Name) and n.func.value.id == "lf"}
+
+
 def test_el_generador_llama_a_las_tres_etapas_y_a_la_verificacion():
-    arbol = ast.parse(inspect.getsource(gen.generar))
-    llamadas = {n.func.attr for n in ast.walk(arbol) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-                and isinstance(n.func.value, ast.Name) and n.func.value.id == "lf"}
-    assert {"imagen_a_mapa_brillo", "brillo_a_grosor", "malla_desde_grosor", "verificar_malla"} <= llamadas, llamadas
+    # L1 y L2 viven en construir_mapas() (la primera mitad de generar(), que también usa la página en vivo)
+    assert {"imagen_a_mapa_brillo", "brillo_a_grosor"} <= _llamadas_a_lf(gen.construir_mapas)
+    assert {"malla_desde_grosor", "verificar_malla"} <= _llamadas_a_lf(gen.generar)
+    llamadas = {n.func.id for n in ast.walk(ast.parse(inspect.getsource(gen.generar)))
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert {"construir_mapas", "avisos_y_notas"} <= llamadas, llamadas
 
 
 def test_los_defaults_son_los_de_la_litofania_y_las_opciones_se_respetan():
@@ -573,6 +581,75 @@ def test_ejecutar_no_se_cae_con_entradas_malas():
         out = _ejecutar([ruta, "-5"], d)                       # ancho negativo: ValueError atrapado
         assert "ERROR" in out and "mayores que 0" in out
         assert not [f for f in os.listdir(d) if f.endswith(".stl")]
+
+
+# ---------------------------------------------------------------------------
+#  avisos_y_notas(): lo mismo que generar(), pero sin armar la malla (lo usa la página en vivo)
+# ---------------------------------------------------------------------------
+
+def test_caras_y_peso_estimados_de_la_grilla_son_los_reales():
+    with _carpeta() as d:
+        for ancho_px, alto_px in ((2, 2), (3, 7), (40, 30), (160, 100), (97, 213)):
+            mg = lf.brillo_a_grosor(lf.MapaBrillo(np.random.default_rng(3).random((alto_px, ancho_px)), 10.0, 10.0,
+                                                  ancho_px, alto_px, 1.0, 1.0, 0, 0.0, []))
+            m = lf.malla_desde_grosor(mg)
+            assert gen.caras_de_la_placa(ancho_px, alto_px) == len(m.faces), (ancho_px, alto_px)
+            ruta = os.path.join(d, "m.stl")
+            m.export(ruta)
+            assert gen.stl_mb_de_la_placa(len(m.faces)) == os.path.getsize(ruta) / 1e6
+
+
+def test_avisos_y_notas_da_lo_mismo_que_generar_en_muchas_configuraciones():
+    with _carpeta() as d:
+        grande = _proporcional(d, 300, 100, "g.png")
+        cuad = _proporcional(d, 100, 100, "c.png")
+        casos = [
+            (_degrade(d, 600, 400), dict(ancho_mm=100)),
+            (_degrade(d, 600, 400), dict(ancho_mm=100, px_por_mm=6.0)),
+            (_degrade(d, 600, 400), dict(ancho_mm=100, px_por_mm=2.0, capa_mm=0.2)),
+            (_degrade(d, 600, 400), dict(ancho_mm=100, px_por_mm=3.0, grosor_min=0.4)),
+            (_degrade(d, 600, 400), dict(ancho_mm=100, px_por_mm=3.0, grosor_min=0.1, capa_mm=0.2)),
+            (_degrade(d, 600, 400), dict(ancho_mm=100, px_por_mm=3.0, grosor_min=0.1)),
+            (_degrade(d, 600, 400), dict(ancho_mm=100, px_por_mm=4.0, boquilla_mm=0.6)),
+            (_degrade(d, 600, 400), dict(ancho_mm=100, px_por_mm=3.0, cara_visible="plana")),
+            (_degrade(d, 600, 400), dict(ancho_mm=100, px_por_mm=4.0, primera_capa_mm=0.3, grosor_min=0.25)),
+            (grande, dict(ancho_mm=300, alto_mm=100, px_por_mm=2.0)),
+            (cuad, dict(ancho_mm=250, alto_mm=250, px_por_mm=1.0)),
+            (_degrade(d, 100, 80, "chica.png"), dict(ancho_mm=100)),
+        ]
+        for i, (ruta, kw) in enumerate(casos):
+            r = _generar(ruta, d, prefijo=f"c{i}", **kw)
+            analisis = gen.avisos_y_notas(
+                r["mapa_brillo"], r["mapa_grosor"], cara_visible=kw.get("cara_visible", "relieve"),
+                boquilla_mm=kw.get("boquilla_mm", 0.4), primera_capa_mm=kw.get("primera_capa_mm", 0.2))
+            assert analisis["avisos"] == r["avisos"], (i, kw)
+            assert analisis["info"] == r["info"], (i, kw)
+            assert analisis["entra_a1"] == r["entra_a1"] and analisis["mensaje_a1"] == r["mensaje_a1"], (i, kw)
+            assert set(analisis) == {"avisos", "info", "entra_a1", "mensaje_a1"}
+
+
+def test_avisos_y_notas_no_arma_la_malla_ni_escribe_archivos():
+    with _carpeta() as d:
+        ruta = _degrade(d, 600, 400)
+        mb = lf.imagen_a_mapa_brillo(ruta, 100, px_por_mm=4.0)
+        mg = lf.brillo_a_grosor(mb, grosor_min=0.4)
+        original = lf.malla_desde_grosor
+        lf.malla_desde_grosor = lambda *a, **k: (_ for _ in ()).throw(AssertionError("armó la malla"))
+        try:
+            antes = set(os.listdir(d))
+            analisis = gen.avisos_y_notas(mb, mg)
+            assert set(os.listdir(d)) == antes
+        finally:
+            lf.malla_desde_grosor = original
+        assert _con("frágil", analisis["avisos"]) and analisis["entra_a1"] is True
+        # y el peso que usa es la estimación de la grilla, con el mismo texto que cuando el archivo existe
+        original = lf.PESO_STL_AVISO_MB
+        try:
+            lf.PESO_STL_AVISO_MB = 0.05
+            a = gen.avisos_y_notas(mb, mg)["avisos"]
+        finally:
+            lf.PESO_STL_AVISO_MB = original
+        assert len(_con("pesada", a)) == 1 and f"{gen.stl_mb_de_la_placa(gen.caras_de_la_placa(400, 267)):.0f} MB" in _con("pesada", a)[0]
 
 
 if __name__ == "__main__":
