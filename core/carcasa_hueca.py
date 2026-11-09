@@ -59,7 +59,7 @@ def calcular_z_ledge(profundidad_mm, espesor_cara_mm, tapa_espesor_mm, tapa_offs
 
 def armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm,
                          soporte_tapa_mm=SOPORTE_TAPA_MM_DEFAULT, espesor_cara_mm=ESPESOR_CARA_MM_DEFAULT,
-                         tapa_offset_mm=0.0):
+                         tapa_offset_mm=0.0, hueco_unido=False):
     """Arma la cáscara hueca: silueta exterior = `poly` CRECIDO hacia
     afuera por `espesor_pared_mm` (C_afuera, ver docstring del módulo),
     cara de adelante sólida y fina (`espesor_cara_mm`, para que pase la
@@ -77,7 +77,12 @@ def armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm,
     maciza mientras el resto se ve perfecto hueco, y en el visor 3D esa
     parte sólida puede tapar visualmente el hueco de atrás si se
     superpone en la proyección. Devuelve (malla, quedo_hueca, avisos) —
-    `avisos` es una lista (vacía si no hay nada que avisar)."""
+    `avisos` es una lista (vacía si no hay nada que avisar).
+
+    `hueco_unido` (False por defecto: la salida es EXACTAMENTE la de siempre): el hueco son dos extrusiones que se
+    tocan en el plano del escalón. Con False se las pasa a la booleana juntas pero sin unir, y la cara que comparten
+    queda como una membrana de espesor cero (dos triángulos pegados) cruzando toda la cavidad. Con True se las une
+    antes de restar: el escalón queda como un anillo y no hay membrana (la usa la cámara de la litofanía)."""
     avisos = []
     afuera_poly = poly.buffer(espesor_pared_mm, join_style=1)
     piezas_afuera = mesh3d.piezas_desde_geom(afuera_poly, profundidad_mm)
@@ -104,7 +109,12 @@ def armar_carcasa_hueca(poly, profundidad_mm, espesor_pared_mm, tapa_espesor_mm,
     sobresalto_mm = 5  # que el hueco sobrepase el fondo, para que quede ABIERTO atrás, no un piso ciego
     piezas_hueco = mesh3d.piezas_desde_geom(cavidad_poly, z_ledge - espesor_cara_mm, z=espesor_cara_mm)
     piezas_hueco += mesh3d.piezas_desde_geom(poly, profundidad_mm - z_ledge + sobresalto_mm, z=z_ledge)
-    hueco = trimesh.util.concatenate(piezas_hueco) if len(piezas_hueco) > 1 else piezas_hueco[0]
+    if len(piezas_hueco) == 1:
+        hueco = piezas_hueco[0]
+    elif hueco_unido:
+        hueco = trimesh.boolean.union(piezas_hueco, engine="manifold")
+    else:
+        hueco = trimesh.util.concatenate(piezas_hueco)
 
     carcasa = trimesh.boolean.difference([afuera, hueco], engine="manifold")
     avisos.append(

@@ -148,9 +148,13 @@ def _caja(x0, y0, z0, x1, y1, z1):
     return caja
 
 
-def malla_del_marco(geo):
+def malla_del_marco(geo, clavijas=None):
     """`Encastre` -> malla del marco en las coordenadas del ENSAMBLE: la caja exterior, menos la ventana pasante y
-    menos el bolsillo (abierto por el dorso, z = 0, hasta `profundidad_bolsillo`)."""
+    menos el bolsillo (abierto por el dorso, z = 0, hasta `profundidad_bolsillo`).
+
+    `clavijas` (opcional, por defecto ninguna: la malla es EXACTAMENTE la de siempre): una lista de
+    `(x, y, diametro, largo)` en mm. Cada una es un cilindro que sale del dorso del marco hacia atrás (z < 0, hasta
+    `-largo`) y está unido al cuerpo (L9 las usa para fijar la cámara de luz)."""
     ex = geo.exterior
     exterior = _caja(ex[0], ex[1], 0.0, ex[2], ex[3], geo.profundidad_total)
     v = geo.ventana
@@ -159,6 +163,10 @@ def malla_del_marco(geo):
     bolsillo = _caja(b[0], b[1], -1.0, b[2], b[3], geo.profundidad_bolsillo)
     marco = trimesh.boolean.difference([exterior, ventana], engine="manifold")
     marco = trimesh.boolean.difference([marco, bolsillo], engine="manifold")
+    if clavijas:
+        cilindros = [trimesh.creation.cylinder(radius=diametro / 2, segment=[(x, y, -largo), (x, y, 0.5)], sections=32)
+                     for x, y, diametro, largo in clavijas]
+        marco = trimesh.boolean.union([marco] + cilindros, engine="manifold")
     return marco
 
 

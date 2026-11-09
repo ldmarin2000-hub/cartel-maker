@@ -79,14 +79,17 @@ def generar(ruta_imagen, ancho_mm=100.0, alto_mm=None, px_por_mm=lf.PX_POR_MM_DE
             boquilla_mm=gen_l4.BOQUILLA_DEFAULT_MM, verificar=True,
             ancho_borde=marco.ANCHO_BORDE_DEFAULT, grosor_ceja=marco.GROSOR_CEJA_DEFAULT,
             margen_encastre=marco.MARGEN_ENCASTRE_DEFAULT, holgura=marco.HOLGURA_DEFAULT,
-            carpeta_salida=CARPETA_SALIDA, prefijo=None):
+            carpeta_salida=CARPETA_SALIDA, prefijo=None, clavijas=None):
     """Imagen -> los STL de la placa y del marco. Devuelve un dict (ver la cabecera del módulo).
 
     Los parámetros de imagen, grosor, capa y malla son los de `generators.litofania.generar` (se pasan a L1, L2 y
     L3 tal cual). Lo propio: `ancho_borde`, `grosor_ceja`, `margen_encastre` (banda opaca de la placa) y `holgura`
     (por lado), ver `core/litofania_marco.py`. Escribe `{prefijo}_placa.stl` y `{prefijo}_marco.stl` (por defecto,
     el nombre de la imagen). Falla con `FileNotFoundError` si la imagen no existe y con `ValueError` si la imagen no
-    sirve o un parámetro no tiene sentido: en ese caso no escribe nada."""
+    sirve o un parámetro no tiene sentido: en ese caso no escribe nada.
+
+    `clavijas` (opcional, por defecto ninguna: la salida es la de siempre): una función `geo -> [(x, y, diametro,
+    largo), ...]` con las clavijas que el marco lleva en el dorso (las pide la cámara de luz, L9)."""
     gen_l4._validar_parametros(ruta_imagen, cara_visible, diagonal, boquilla_mm)
 
     mapa_brillo, mapa_grosor, tiempos = gen_l4.construir_mapas(
@@ -104,7 +107,7 @@ def generar(ruta_imagen, ancho_mm=100.0, alto_mm=None, px_por_mm=lf.PX_POR_MM_DE
     t0 = time.perf_counter()
     malla_placa = lf.malla_desde_grilla_grosor(grilla, geo.ancho_placa, geo.alto_placa,
                                                cara_visible=cara_visible, diagonal=diagonal)
-    malla_marco = marco.malla_del_marco(geo)
+    malla_marco = marco.malla_del_marco(geo, clavijas(geo) if clavijas else None)
     marco_impresion = marco.marco_para_imprimir(malla_marco, geo)
     tiempos["mallas"] = time.perf_counter() - t0
 
